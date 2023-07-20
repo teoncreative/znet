@@ -1,0 +1,10 @@
+- [x] InetAddress
+- [x] Buffer
+- [x] Events
+- [x] Server Implementation
+- [ ] Client Implementation
+- [ ] Compression (optional if zlib or zstd is added)
+- [ ] Encryption
+- [ ] UDP
+- [ ] Windows and Linux support (Linux should be the same, Windows has some work)
+- [ ] Endianness
