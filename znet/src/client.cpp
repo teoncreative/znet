@@ -21,15 +21,15 @@ Client::Client(const ClientConfig& config) : config_(config) {
 void Client::Bind() {
   client_socket_ = socket(AF_INET, SOCK_STREAM, 0);
   if (client_socket_ < 0) {
-    LOG_ERROR("Error binding socket.");
+    ZNET_LOG_ERROR("Error binding socket.");
     return;
   }
 }
 
 void Client::Connect() {
-  if (connect(client_socket_, server_address_->handle_ptr(),
+  if (!server_address_ || connect(client_socket_, server_address_->handle_ptr(),
               server_address_->addr_size()) < 0) {
-    LOG_ERROR("Error connecting to server.");
+    ZNET_LOG_ERROR("Error connecting to server.");
     return;
   }
   int option = 1;
@@ -44,14 +44,14 @@ void Client::Connect() {
   event_callback()(event);
 
   // Connected to the server
-  LOG_INFO("Connected to the server.");
+  ZNET_LOG_INFO("Connected to the server.");
 
   while (client_session_->IsAlive()) {
     client_session_->Process();
   }
 
   close(client_socket_);
-  LOG_INFO("Disconnected from the server.");
+  ZNET_LOG_INFO("Disconnected from the server.");
 }
 
 void Client::Disconnect() {

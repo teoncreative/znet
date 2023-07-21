@@ -8,14 +8,13 @@
 //        http://www.apache.org/licenses/LICENSE-2.0
 //
 
-#include <iostream>
-#include "packets.h"
 #include "znet/znet.h"
+#include "packets.h"
 
 using namespace znet;
 
 void OnDemoPacket(ConnectionSession& session, Ref<DemoPacket> packet) {
-  LOG_INFO("Received demo_packet. Text: {}", packet->text);
+  ZNET_LOG_INFO("Received demo_packet. Text: {}", packet->text);
   Ref<DemoPacket> pk = CreateRef<DemoPacket>();
   pk->text = "Hello from server!";
   session.SendPacket(pk);
@@ -23,7 +22,7 @@ void OnDemoPacket(ConnectionSession& session, Ref<DemoPacket> packet) {
 
 void AddClientHandlers(Ref<ConnectionSession> session) {
   auto demo_packet_handler =
-      CreateRef<PacketHandler<DemoPacket, DemoPacketSerializer_v1>>();
+      CreateRef<PacketHandler<DemoPacket, DemoPacketSerializerV1>>();
   demo_packet_handler->AddReceiveCallback(
       ZNET_BIND_GLOBAL_FUNCTION(OnDemoPacket));
   session->handler_layer().AddPacketHandler(demo_packet_handler);

@@ -38,16 +38,16 @@ void Server::Bind() {
   // Set socket to non-blocking mode
   int flags = fcntl(server_socket_, F_GETFL, 0);
   if (flags < 0) {
-    LOG_INFO("Error getting socket flags.");
+    ZNET_LOG_INFO("Error getting socket flags.");
     return;
   }
   if (fcntl(server_socket_, F_SETFL, flags | O_NONBLOCK) < 0) {
-    LOG_INFO("Error setting socket to non-blocking mode.");
+    ZNET_LOG_INFO("Error setting socket to non-blocking mode.");
     return;
   }
 
   bind(server_socket_, bind_address_->handle_ptr(), bind_address_->addr_size());
-  LOG_INFO("Listening connections from: {}", bind_address_->readable());
+  ZNET_LOG_INFO("Listening connections from: {}", bind_address_->readable());
 }
 
 void Server::Listen() {
@@ -72,16 +72,16 @@ void Server::CheckNetwork() {
   if (client_socket < 0) {
     return;
   }
-  LOG_INFO("Accepted new connection.");
+  ZNET_LOG_INFO("Accepted new connection.");
   // Set socket to non-blocking mode
   int flags = fcntl(client_socket, F_GETFL, 0);
   if (flags < 0) {
-    LOG_INFO("Error getting socket flags.");
+    ZNET_LOG_INFO("Error getting socket flags.");
     close(client_socket);
     return;
   }
   if (fcntl(client_socket, F_SETFL, flags | O_NONBLOCK) < 0) {
-    LOG_INFO("Error setting socket to non-blocking mode.");
+    ZNET_LOG_INFO("Error setting socket to non-blocking mode.");
     close(client_socket);
     return;
   }
@@ -91,7 +91,7 @@ void Server::CheckNetwork() {
   sessions_[remote_address] = session;
   ServerClientConnectedEvent event{session};
   event_callback()(event);
-  LOG_INFO("New connection is ready. {}", remote_address->readable());
+  ZNET_LOG_INFO("New connection is ready. {}", remote_address->readable());
 }
 
 void Server::ProcessSessions() {
@@ -105,7 +105,7 @@ void Server::ProcessSessions() {
   }
 
   for (auto&& key : vec) {
-    LOG_INFO("Client disconnected.");
+    ZNET_LOG_INFO("Client disconnected.");
     sessions_.erase(key);
   }
 }

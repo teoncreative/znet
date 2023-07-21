@@ -21,9 +21,9 @@ class DemoPacket : public Packet {
   std::string text;
 };
 
-class DemoPacketSerializer_v1 : public PacketSerializer<DemoPacket> {
+class DemoPacketSerializerV1 : public PacketSerializer<DemoPacket> {
  public:
-  DemoPacketSerializer_v1() : PacketSerializer<DemoPacket>(1) {}
+  DemoPacketSerializerV1() : PacketSerializer<DemoPacket>(1) {}
 
   Ref<Buffer> Serialize(Ref<DemoPacket> packet, Ref<Buffer> buffer) override {
     buffer->WriteString(packet->text);

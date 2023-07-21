@@ -92,7 +92,7 @@ class HandlerLayer {
       }
     }
     if (!handled) {
-      LOG_WARN("Received packet wasn't handled!");
+      ZNET_LOG_WARN("Received packet wasn't handled!");
       // todo warn log
     }
   }

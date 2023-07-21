@@ -28,7 +28,7 @@ void ServerSession::Process() {
   data_size_ = recv(socket_, buffer_, sizeof(buffer_), 0);
   if (data_size_ > MAX_BUFFER_SIZE) {
     Close();
-    LOG_ERROR(
+    ZNET_LOG_ERROR(
         "Received data bigger than maximum buffer size (rx: {}, max: {}), "
         "closing connection!",
         data_size_, MAX_BUFFER_SIZE);
@@ -62,7 +62,7 @@ void ServerSession::SendPacket(Ref<Packet> packet) {
 
 void ServerSession::SendRaw(Ref<Buffer> buffer) {
   if (send(socket_, buffer->data(), buffer->Size(), 0) < 0) {
-    LOG_ERROR("Error sending data to the server.");
+    ZNET_LOG_ERROR("Error sending data to the server.");
     return;
   }
 }

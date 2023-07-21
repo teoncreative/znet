@@ -35,36 +35,40 @@
 #define ZNET_FUNC_SIGN "Unknown"
 #endif
 
-#define LOG_LEVEL_DEBUG 0
-#define LOG_LEVEL_INFO 1
-#define LOG_LEVEL_WARN 2
-#define LOG_LEVEL_ERROR 3
-#define LOG_LEVEL_NONE 4
+#define ZNET_LOG_LEVEL_DEBUG 0
+#define ZNET_LOG_LEVEL_INFO 1
+#define ZNET_LOG_LEVEL_WARN 2
+#define ZNET_LOG_LEVEL_ERROR 3
+#define ZNET_LOG_LEVEL_NONE 4
 
-#define LOG_LEVEL LOG_LEVEL_DEBUG
+#define ZNET_LOG_LEVEL ZNET_LOG_LEVEL_DEBUG
 
-#define PRINTFN(fmsg, func, msg, args...) fmt::print(fmsg, func, fmt::format(msg, ##args))
+#define ZNET_PRINTFN(fmsg, func, msg, args...) fmt::print(fmsg, func, fmt::format(msg, ##args))
 
-#if LOG_LEVEL <= LOG_LEVEL_DEBUG
-#define LOG_DEBUG(msg, args...) PRINTFN("\x1b[44m[debug]\x1b[0m \x1b[35m{}: \x1b[0m{}\x1b[0m\n", ZNET_FUNC_SIGN, msg, ##args)
+#if ZNET_LOG_LEVEL <= ZNET_LOG_LEVEL_DEBUG
+#define ZNET_LOG_DEBUG(msg, args...)                                    \
+  ZNET_PRINTFN("\x1b[44m[debug]\x1b[0m \x1b[35m{}: \x1b[0m{}\x1b[0m\n", ZNET_FUNC_SIGN, msg, ##args)
 #else
-#define LOG_DEBUG(msg, args...)
+#define ZNET_LOG_DEBUG(msg, args...)
 #endif
 
-#if LOG_LEVEL <= LOG_LEVEL_INFO
-#define LOG_INFO(msg, args...) PRINTFN("\x1b[42m[info ]\x1b[0m \x1b[35m{}: \x1b[0m{}\x1b[0m\n", ZNET_FUNC_SIGN, msg, ##args)
+#if ZNET_LOG_LEVEL <= ZNET_LOG_LEVEL_INFO
+#define ZNET_LOG_INFO(msg, args...)                                     \
+  ZNET_PRINTFN("\x1b[42m[info ]\x1b[0m \x1b[35m{}: \x1b[0m{}\x1b[0m\n", ZNET_FUNC_SIGN, msg, ##args)
 #else
-#define LOG_INFO(msg, args...)
+#define ZNET_LOG_INFO(msg, args...)
 #endif
 
-#if LOG_LEVEL <= LOG_LEVEL_WARN
-#define LOG_WARN(msg, args...) PRINTFN("\x1b[41m[warn ]\x1b[0m \x1b[35m{}: \x1b[31m{}\x1b[0m\n", ZNET_FUNC_SIGN, msg, ##args)
+#if ZNET_LOG_LEVEL <= ZNET_LOG_LEVEL_WARN
+#define ZNET_LOG_WARN(msg, args...)                                      \
+  ZNET_PRINTFN("\x1b[41m[warn ]\x1b[0m \x1b[35m{}: \x1b[31m{}\x1b[0m\n", ZNET_FUNC_SIGN, msg, ##args)
 #else
-#define LOG_WARN(msg, args...)
+#define ZNET_LOG_WARN(msg, args...)
 #endif
 
-#if LOG_LEVEL <= LOG_LEVEL_ERROR
-#define LOG_ERROR(msg, args...) PRINTFN("\x1b[41m[error]\x1b[0m \x1b[35m{}: \x1b[31m{}\x1b[0m\n", ZNET_FUNC_SIGN, msg, ##args)
+#if ZNET_LOG_LEVEL <= ZNET_LOG_LEVEL_ERROR
+#define ZNET_LOG_ERROR(msg, args...)                                          \
+  ZNET_PRINTFN("\x1b[41m[error]\x1b[0m \x1b[35m{}: \x1b[31m{}\x1b[0m\n", ZNET_FUNC_SIGN, msg, ##args)
 #else
-#define LOG_ERROR(msg, args...)
+#define ZNET_LOG_ERROR(msg, args...)
 #endif

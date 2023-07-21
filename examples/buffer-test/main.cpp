@@ -18,7 +18,7 @@ int main() {
   buffer->WriteString("Hello World!");
   buffer->WriteInt(asd);
 
-  LOG_INFO("|{}|", buffer->ToStr());
-  LOG_INFO("|{}|", buffer->ReadString());
-  LOG_INFO("|{}|", buffer->ReadInt<int64_t>());
+  ZNET_LOG_INFO("|{}|", buffer->ToStr());
+  ZNET_LOG_INFO("|{}|", buffer->ReadString());
+  ZNET_LOG_INFO("|{}|", buffer->ReadInt<int64_t>());
 }

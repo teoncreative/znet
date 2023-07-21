@@ -20,12 +20,12 @@
 using namespace znet;
 
 void OnDemoPacket(ConnectionSession& session, Ref<DemoPacket> packet) {
-  LOG_INFO("Received demo_packet. Text: {}", packet->text);
+  ZNET_LOG_INFO("Received demo_packet. Text: {}", packet->text);
 }
 
 void AddClientHandlers(Ref<ConnectionSession> session) {
   auto demo_packet_handler =
-      CreateRef<PacketHandler<DemoPacket, DemoPacketSerializer_v1>>();
+      CreateRef<PacketHandler<DemoPacket, DemoPacketSerializerV1>>();
   demo_packet_handler->AddReceiveCallback(
       ZNET_BIND_GLOBAL_FUNCTION(OnDemoPacket));
   session->handler_layer().AddPacketHandler(demo_packet_handler);
