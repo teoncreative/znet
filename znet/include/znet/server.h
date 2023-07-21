@@ -38,7 +38,7 @@ namespace znet {
 
   private:
     ServerConfig config_;
-    Ref<InetAddress> bind_ip_;
+    Ref<InetAddress> bind_address_;
     bool is_listening_ = false;
     int server_socket_ = -1;
 

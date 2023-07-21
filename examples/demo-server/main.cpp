@@ -9,40 +9,10 @@
 //
 
 #include "znet/znet.h"
+#include "packets.h"
 #include <iostream>
 
 using namespace znet;
-
-class DemoPacket : public Packet {
-public:
-  DemoPacket() : Packet(1) {
-    text = "Test";
-  }
-
-
-  std::string text;
-};
-
-
-class DemoPacketSerializer_v1 : public PacketSerializer<DemoPacket> {
-public:
-  DemoPacketSerializer_v1() : PacketSerializer<DemoPacket>(1) {
-
-  }
-
-  Ref<Buffer> Serialize(Ref<DemoPacket> packet) override {
-    auto buffer = CreateRef<Buffer>();
-    buffer->WriteString(packet->text);
-    return buffer;
-  }
-
-  Ref<DemoPacket> Deserialize(Ref<Buffer> buffer) override {
-    auto packet = CreateRef<DemoPacket>();
-    packet->text = buffer->ReadString();
-    return packet;
-  }
-};
-
 
 void OnDemoPacket(ConnectionSession& session, Ref<DemoPacket> packet) {
   LOG_INFO("Received demo_packet. Text: {}", packet->text);
@@ -57,14 +27,14 @@ void AddClientHandlers(Ref<ConnectionSession> session) {
   session->handler_layer().AddPacketHandler(demo_packet_handler);
 }
 
-bool OnNewSessionEvent(ClientConnectedEvent& event) {
+bool OnNewSessionEvent(ServerClientConnectedEvent& event) {
   AddClientHandlers(event.session());
   return false;
 }
 
 void OnEvent(Event& event) {
   EventDispatcher dispatcher{event};
-  dispatcher.Dispatch<ClientConnectedEvent>(ZNET_BIND_GLOBAL_FUNCTION(OnNewSessionEvent));
+  dispatcher.Dispatch<ServerClientConnectedEvent>(ZNET_BIND_GLOBAL_FUNCTION(OnNewSessionEvent));
 }
 
 int main() {

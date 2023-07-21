@@ -13,13 +13,14 @@
 namespace znet {
 
   enum EventType {
-    ClientConnected, // client connected to server
-    ClientDisconnected, // client disconnected from server
+    ServerClientConnected, // new client connected to server
+    ClientConnectedToServer, // disconnected from server
   };
 
 #define BIT(x) (1 << x)
   enum EventCategory {
-    EventCategoryServer = BIT(0)
+    EventCategoryServer = BIT(0),
+    EventCategoryClient = BIT(1)
   };
 #undef BIT
 

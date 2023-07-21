@@ -8,16 +8,16 @@
 //        http://www.apache.org/licenses/LICENSE-2.0
 //
 
-#include "znet/base/server_session.h"
+#include "znet/base/client_session.h"
 #include "znet/logger.h"
 
 namespace znet {
-  ServerSession::ServerSession(Ref<InetAddress> local_address, Ref<InetAddress> remote_address, int socket) : ConnectionSession(local_address, remote_address), socket_(socket) {
+  ClientSession::ClientSession(Ref<InetAddress> local_address, Ref<InetAddress> remote_address, int socket) : ConnectionSession(std::move(local_address), std::move(remote_address)), socket_(socket) {
     is_alive_ = true;
     memset(&buffer_, 0, MAX_BUFFER_SIZE);
   }
 
-  void ServerSession::Process() {
+  void ClientSession::Process() {
     if (!is_alive_) {
       return;
     }
@@ -38,24 +38,24 @@ namespace znet {
     }
   }
 
-  void ServerSession::Close() {
+  void ClientSession::Close() {
     // Close the client socket
-    close(socket_);
     is_alive_ = false;
+    close(socket_);
   }
 
-  bool ServerSession::IsAlive() {
+  bool ClientSession::IsAlive() {
     return is_alive_;
   }
 
-  void ServerSession::SendPacket(Ref<Packet> packet) {
+  void ClientSession::SendPacket(Ref<Packet> packet) {
     auto buffer = handler_layer_.Serialize(*this, packet);
     if (buffer) {
       SendRaw(buffer);
     }
   }
 
-  void ServerSession::SendRaw(Ref<Buffer> buffer) {
+  void ClientSession::SendRaw(Ref<Buffer> buffer) {
     if (send(socket_, buffer->data(), buffer->size(), 0) < 0) {
       LOG_ERROR("Error sending data to the server.");
       return;

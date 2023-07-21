@@ -10,6 +10,32 @@
 
 #pragma once
 
+#include "base/client_session.h"
+#include "base/interface.h"
+
 namespace znet {
+
+struct ClientConfig {
+  std::string server_ip_;
+  int server_port_;
+};
+
+
+class Client : public Interface {
+ public:
+  Client(const ClientConfig& config);
+  ~Client() { }
+
+  void Bind();
+  void Connect();
+  void Disconnect();
+
+ private:
+  ClientConfig config_;
+  Ref<InetAddress> server_address_;
+  int client_socket_ = -1;
+
+  Ref<ClientSession> client_session_;
+};
 
 }

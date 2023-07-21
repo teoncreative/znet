@@ -5,10 +5,12 @@ set(CMAKE_CXX_STANDARD 20)
 
 
 set(ZNET_SOURCES
-        ${CMAKE_CURRENT_SOURCE_DIR}/src/server.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/src/inet_addr.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/src/connection_session.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/src/server_session.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/client_session.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/server.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/client.cpp
 )
 
 add_library(znet STATIC

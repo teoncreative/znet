@@ -14,10 +14,11 @@
 
 namespace znet {
   void Server::Bind() {
+    bind_address_ = InetAddress::from(config_.bind_ip_, config_.bind_port_);
+
     int option = 1;
-    bind_ip_ = InetAddress::from(config_.bind_ip_, config_.bind_port_);
     int domain;
-    switch (bind_ip_->ipv()) {
+    switch (bind_address_->ipv()) {
       case InetProtocolVersion::IPv4:
         domain = AF_INET;
         break;
@@ -42,8 +43,9 @@ namespace znet {
       return;
     }
 
-    bind(server_socket_, bind_ip_->handle_ptr(), bind_ip_->addr_size());
-    LOG_INFO("Listening connections from: {}", bind_ip_->readable());
+    bind(server_socket_, bind_address_->handle_ptr(),
+         bind_address_->addr_size());
+    LOG_INFO("Listening connections from: {}", bind_address_->readable());
   }
 
   void Server::Listen() {
@@ -82,9 +84,9 @@ namespace znet {
       return;
     }
     Ref<InetAddress> remote_address = InetAddress::from(&client_address);
-    auto session = CreateRef<ServerSession>(bind_ip_, remote_address, client_socket);
+    auto session = CreateRef<ServerSession>(bind_address_, remote_address, client_socket);
     sessions_[remote_address] = session;
-    ClientConnectedEvent event{session};
+    ServerClientConnectedEvent event{session};
     event_callback()(event);
     LOG_INFO("New connection is ready. {}", remote_address->readable());
   }

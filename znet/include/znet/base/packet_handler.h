@@ -12,6 +12,7 @@
 
 #include "packet.h"
 #include "packet_serializer.h"
+#include "znet/logger.h"
 
 namespace znet {
 
@@ -54,7 +55,9 @@ namespace znet {
     }
 
     Ref<Buffer> Serialize(ConnectionSession &session, Ref<Packet> packet) override {
-      return serializer_->Serialize(std::static_pointer_cast<PacketType>(packet));
+      Ref<Buffer> buffer = CreateRef<Buffer>();
+      buffer->WriteInt(packet->id());
+      return serializer_->Serialize(std::static_pointer_cast<PacketType>(packet), buffer);
     }
 
     PacketId packet_id() override { return serializer_->packet_id(); }
@@ -80,6 +83,7 @@ namespace znet {
         }
       }
       if (!handled) {
+        LOG_WARN("Received packet wasn't handled!");
         // todo warn log
       }
     }

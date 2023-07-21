@@ -14,4 +14,24 @@
 
 namespace znet {
 
+class ClientSession : public ConnectionSession {
+ public:
+  ClientSession(Ref<InetAddress> local_address, Ref<InetAddress> remote_address, int socket_);
+
+  void Process() override;
+  void Close() override;
+
+  bool IsAlive() override;
+
+  void SendPacket(Ref<Packet> packet) override;
+  void SendRaw(Ref<Buffer> buffer) override;
+
+ private:
+  int socket_;
+
+  char buffer_[MAX_BUFFER_SIZE]{};
+  ssize_t data_size_ = 0;
+  bool is_alive_;
+};
+
 }

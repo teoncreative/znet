@@ -15,15 +15,15 @@
 namespace znet {
   class ConnectionSession {
   public:
-    ConnectionSession() { }
+    ConnectionSession(Ref<InetAddress> local_address, Ref<InetAddress> remote_address) : local_address_(std::move(local_address)), remote_address_(std::move(remote_address)) { }
 
     virtual void Process() { }
     virtual void Close() { }
 
     virtual bool IsAlive() { return false; }
 
-    virtual Ref<InetAddress> local_address() const { return nullptr; }
-    virtual Ref<InetAddress> remote_address() const { return nullptr; }
+    ZNET_NODISCARD virtual Ref<InetAddress> local_address() const { return local_address_; }
+    ZNET_NODISCARD virtual Ref<InetAddress> remote_address() const { return remote_address_; }
 
     virtual void SendPacket(Ref<Packet> packet) { }
     virtual void SendRaw(Ref<Buffer> buffer) { }
@@ -32,6 +32,7 @@ namespace znet {
 
   protected:
     HandlerLayer handler_layer_;
-
+    Ref<InetAddress> local_address_;
+    Ref<InetAddress> remote_address_;
   };
 }

@@ -2,9 +2,10 @@
 - [x] Buffer
 - [x] Events
 - [x] Server Implementation
-- [ ] Client Implementation
+- [x] Client Implementation
 - [ ] Compression (optional if zlib or zstd is added)
 - [ ] Encryption
 - [ ] UDP
 - [ ] Windows and Linux support (Linux should be the same, Windows has some work)
-- [ ] Endianness
+- [ ] Endianness (Testing)
+- [ ] Saving packet buffer to a file

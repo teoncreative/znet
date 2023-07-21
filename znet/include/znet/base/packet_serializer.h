@@ -21,7 +21,7 @@ namespace znet {
   public:
     PacketSerializer(PacketId packet_id) : packet_id_(packet_id) { }
 
-    virtual Ref<Buffer> Serialize(Ref<T> packet) { return CreateRef<Buffer>(); }
+    virtual Ref<Buffer> Serialize(Ref<T> packet, Ref<Buffer> buffer) { return CreateRef<Buffer>(); }
     virtual Ref<T> Deserialize(Ref<Buffer> buffer) { return CreateRef<T>(); }
 
     PacketId packet_id() const { return packet_id_; }

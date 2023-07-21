@@ -13,19 +13,32 @@
 
 #include "event.h"
 #include "../base/server_session.h"
+#include "../base/client_session.h"
 
 namespace znet {
 
-  class ClientConnectedEvent : public Event {
+  class ServerClientConnectedEvent : public Event {
   public:
-    ClientConnectedEvent(Ref<ServerSession> session) : session_(session) {}
+   ServerClientConnectedEvent(Ref<ServerSession> session) : session_(session) {}
 
     Ref<ServerSession> session() { return session_; }
 
-    ZNET_EVENT_CLASS_TYPE(ClientConnected)
+    ZNET_EVENT_CLASS_TYPE(ServerClientConnected)
     ZNET_EVENT_CLASS_CATEGORY(EventCategoryServer)
   private:
     Ref<ServerSession> session_;
   };
 
+
+  class ClientConnectedToServerEvent : public Event {
+   public:
+    ClientConnectedToServerEvent(Ref<ClientSession> session) : session_(session) {}
+
+    Ref<ClientSession> session() { return session_; }
+
+    ZNET_EVENT_CLASS_TYPE(ClientConnectedToServer)
+    ZNET_EVENT_CLASS_CATEGORY(EventCategoryClient)
+   private:
+    Ref<ClientSession> session_;
+  };
 }
