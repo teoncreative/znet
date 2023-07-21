@@ -35,7 +35,10 @@ Ref<InetAddress> InetAddress::from(sockaddr* sock_addr) {
     auto* addr = (sockaddr_in6*)sock_addr;
     return CreateRef<InetAddressIPv6>(addr->sin6_addr, addr->sin6_port);
   }
-
+#if defined(DEBUG) && !defined(DISABLE_ASSERT_INVALID_ADDRESS_FAMILY)
   throw std::runtime_error("sockaddr family is not supported");
+#endif
+  return nullptr;
 }
+
 }  // namespace znet

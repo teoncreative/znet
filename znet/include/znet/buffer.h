@@ -21,6 +21,7 @@ namespace znet {
 class Buffer {
  public:
   explicit Buffer(Endianness endianness = Endianness::LittleEndian) {
+    failed_to_read_ = false;
     endianness_ = endianness;
     resize_chain_count_ = 0;
     read_cursor_ = 0;
@@ -32,6 +33,7 @@ class Buffer {
 
   Buffer(char* data, int data_size,
          Endianness endianness = Endianness::LittleEndian) {
+    failed_to_read_ = false;
     endianness_ = endianness;
     resize_chain_count_ = 0;
     read_cursor_ = 0;
@@ -47,7 +49,7 @@ class Buffer {
   T ReadInt() {
     ssize_t size = sizeof(T);
     char data[size];
-    CheckReadableBytes(size);
+    if (!CheckReadableBytes(size)) failed_to_read_ = true;
     for (ssize_t i = 0; i < size; i++) {
       data[i] = data_[read_cursor_ + i];
     }
@@ -58,8 +60,8 @@ class Buffer {
   }
 
   std::string ReadString() {
-    size_t size = ReadInt<size_t>();
-    CheckReadableBytes(size);
+    auto size = ReadInt<size_t>();
+    if (!CheckReadableBytes(size)) failed_to_read_ = true;
     char data[size];
     for (int i = 0; i < size; i++) {
       data[i] = ReadInt<char>();
@@ -88,14 +90,14 @@ class Buffer {
   template <typename T>
   void WriteInt(T c) {
     char* pt = reinterpret_cast<char*>(&c);
-    ssize_t size = sizeof(c);
+    size_t size = sizeof(c);
     AssureSizeIncremental(size);
     if (GetSystemEndianness() == endianness_) {
-      for (ssize_t i = 0; i < size; i++) {
+      for (size_t i = 0; i < size; i++) {
         data_[write_cursor_ + i] = pt[i];
       }
     } else {
-      for (ssize_t i = size; i > 0; i--) {
+      for (size_t i = size; i > 0; i--) {
         data_[write_cursor_ + i - 1] = pt[i - 1];
       }
     }
@@ -106,23 +108,35 @@ class Buffer {
 
   const char* data() { return data_; }
 
-  int write_cursor() const { return write_cursor_; }
+  ZNET_NODISCARD size_t write_cursor() const { return write_cursor_; }
 
-  int size() const { return write_cursor_; }
+  ZNET_NODISCARD size_t Size() const { return write_cursor_; }
 
- private:
-  void CheckReadableBytes(ssize_t required) {
-    size_t bytes_left = write_cursor_ - read_cursor_;
-    if (bytes_left < required) {
-      throw std::runtime_error("not enough bytes to read!");
-    }
+  ZNET_NODISCARD ssize_t ReadableBytes() const { return write_cursor_ - read_cursor_; }
+
+  /**
+   * @return true if previous read call was failed and clears the value.
+   */
+  ZNET_NODISCARD bool IsFailedToRead() {
+    bool failed_to_read = failed_to_read_;
+    failed_to_read_ = false;
+    return failed_to_read;
   }
 
-  void AssureSizeIncremental(ssize_t additional_bytes) {
+ private:
+  ZNET_NODISCARD bool CheckReadableBytes(size_t required) const {
+    size_t bytes_left = write_cursor_ - read_cursor_;
+#if defined(DEBUG) && !defined(DISABLE_ASSERT_READABLE_BYTES)
+      assert(bytes_left >= required);
+#endif
+      return bytes_left >= required;
+  }
+
+  void AssureSizeIncremental(size_t additional_bytes) {
     AssureSize(allocated_size_ + additional_bytes);
   }
 
-  void AssureSize(ssize_t size) {
+  void AssureSize(size_t size) {
     if (!data_) {
       allocated_size_ = size;
       data_ = new char[allocated_size_];
@@ -133,7 +147,7 @@ class Buffer {
       return;
     }
     resize_chain_count_++;
-    ssize_t additional_size = 16;
+    size_t additional_size = 16;
     if (resize_chain_count_ > 2) {
       additional_size += resize_chain_count_ * 16;
     }
@@ -145,10 +159,11 @@ class Buffer {
   }
 
   Endianness endianness_;
-  ssize_t allocated_size_;
+  size_t allocated_size_;
   size_t write_cursor_;
   size_t read_cursor_;
   char* data_;
   int resize_chain_count_;
+  bool failed_to_read_;
 };
 }  // namespace znet

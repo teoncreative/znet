@@ -61,7 +61,7 @@ void ServerSession::SendPacket(Ref<Packet> packet) {
 }
 
 void ServerSession::SendRaw(Ref<Buffer> buffer) {
-  if (send(socket_, buffer->data(), buffer->size(), 0) < 0) {
+  if (send(socket_, buffer->data(), buffer->Size(), 0) < 0) {
     LOG_ERROR("Error sending data to the server.");
     return;
   }
