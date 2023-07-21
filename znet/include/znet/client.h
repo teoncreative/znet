@@ -20,11 +20,11 @@ struct ClientConfig {
   int server_port_;
 };
 
-
 class Client : public Interface {
  public:
   Client(const ClientConfig& config);
-  ~Client() { }
+
+  ~Client() {}
 
   void Bind();
   void Connect();
@@ -38,4 +38,4 @@ class Client : public Interface {
   Ref<ClientSession> client_session_;
 };
 
-}
+}  // namespace znet

@@ -14,39 +14,44 @@ namespace znet {
 #ifndef MAX_BUFFER_SIZE
 #define MAX_BUFFER_SIZE 4096
 #endif
-#define ZNET_BIND_FUNCTION(fn) [this](auto&&... args) -> decltype(auto) { return this->fn(std::forward<decltype(args)>(args)...); }
-#define ZNET_BIND_GLOBAL_FUNCTION(fn) [](auto&&... args) -> decltype(auto) { return fn(std::forward<decltype(args)>(args)...); }
-
-  template<typename T>
-  using Weak = std::weak_ptr<T>;
-
-  template<typename T>
-  using Scope = std::unique_ptr<T>;
-  template<typename T, typename... Args>
-  constexpr Scope<T> CreateScope(Args&&... args) {
-    return std::make_unique<T>(std::forward<Args>(args)...);
+#define ZNET_BIND_FUNCTION(fn)                              \
+  [this](auto&&... args) -> decltype(auto) {                \
+    return this->fn(std::forward<decltype(args)>(args)...); \
+  }
+#define ZNET_BIND_GLOBAL_FUNCTION(fn)                 \
+  [](auto&&... args) -> decltype(auto) {              \
+    return fn(std::forward<decltype(args)>(args)...); \
   }
 
-  template<typename T>
-  using Ref = std::shared_ptr<T>;
-  template<typename T, typename... Args>
-  constexpr Ref<T> CreateRef(Args&&... args) {
-    return std::make_shared<T>(std::forward<Args>(args)...);
-  }
+template <typename T>
+using Weak = std::weak_ptr<T>;
 
-  using PacketId = uint64_t;
+template <typename T>
+using Scope = std::unique_ptr<T>;
 
-  enum class Endianness {
-    LittleEndian,
-    BigEndian
-  };
-
-  constexpr Endianness GetSystemEndianness() {
-    if constexpr (std::endian::native == std::endian::big) {
-      return Endianness::BigEndian;
-    } else if constexpr (std::endian::native == std::endian::little) {
-      return Endianness::LittleEndian;
-    }
-  }
-
+template <typename T, typename... Args>
+constexpr Scope<T> CreateScope(Args&&... args) {
+  return std::make_unique<T>(std::forward<Args>(args)...);
 }
+
+template <typename T>
+using Ref = std::shared_ptr<T>;
+
+template <typename T, typename... Args>
+constexpr Ref<T> CreateRef(Args&&... args) {
+  return std::make_shared<T>(std::forward<Args>(args)...);
+}
+
+using PacketId = uint64_t;
+
+enum class Endianness { LittleEndian, BigEndian };
+
+constexpr Endianness GetSystemEndianness() {
+  if constexpr (std::endian::native == std::endian::big) {
+    return Endianness::BigEndian;
+  } else if constexpr (std::endian::native == std::endian::little) {
+    return Endianness::LittleEndian;
+  }
+}
+
+}  // namespace znet

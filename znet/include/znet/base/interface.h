@@ -12,22 +12,23 @@
 
 #include <utility>
 
-#include "packet_handler.h"
 #include "../event/event.h"
+#include "packet_handler.h"
 
 namespace znet {
 
-  class Interface {
-  public:
-    Interface() { }
-    virtual ~Interface() { }
+class Interface {
+ public:
+  Interface() {}
 
-    void SetEventCallback(EventCallbackFn fn) { event_callback_ = fn; }
+  virtual ~Interface() {}
 
-    EventCallbackFn event_callback() const { return event_callback_; }
-  private:
-    EventCallbackFn event_callback_;
+  void SetEventCallback(EventCallbackFn fn) { event_callback_ = fn; }
 
-  };
+  EventCallbackFn event_callback() const { return event_callback_; }
 
-}
+ private:
+  EventCallbackFn event_callback_;
+};
+
+}  // namespace znet

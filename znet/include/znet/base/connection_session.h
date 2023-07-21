@@ -13,26 +13,36 @@
 #include "packet_handler.h"
 
 namespace znet {
-  class ConnectionSession {
-  public:
-    ConnectionSession(Ref<InetAddress> local_address, Ref<InetAddress> remote_address) : local_address_(std::move(local_address)), remote_address_(std::move(remote_address)) { }
+class ConnectionSession {
+ public:
+  ConnectionSession(Ref<InetAddress> local_address,
+                    Ref<InetAddress> remote_address)
+      : local_address_(std::move(local_address)),
+        remote_address_(std::move(remote_address)) {}
 
-    virtual void Process() { }
-    virtual void Close() { }
+  virtual void Process() {}
 
-    virtual bool IsAlive() { return false; }
+  virtual void Close() {}
 
-    ZNET_NODISCARD virtual Ref<InetAddress> local_address() const { return local_address_; }
-    ZNET_NODISCARD virtual Ref<InetAddress> remote_address() const { return remote_address_; }
+  virtual bool IsAlive() { return false; }
 
-    virtual void SendPacket(Ref<Packet> packet) { }
-    virtual void SendRaw(Ref<Buffer> buffer) { }
+  ZNET_NODISCARD virtual Ref<InetAddress> local_address() const {
+    return local_address_;
+  }
 
-    HandlerLayer& handler_layer() { return handler_layer_; }
+  ZNET_NODISCARD virtual Ref<InetAddress> remote_address() const {
+    return remote_address_;
+  }
 
-  protected:
-    HandlerLayer handler_layer_;
-    Ref<InetAddress> local_address_;
-    Ref<InetAddress> remote_address_;
-  };
-}
+  virtual void SendPacket(Ref<Packet> packet) {}
+
+  virtual void SendRaw(Ref<Buffer> buffer) {}
+
+  HandlerLayer& handler_layer() { return handler_layer_; }
+
+ protected:
+  HandlerLayer handler_layer_;
+  Ref<InetAddress> local_address_;
+  Ref<InetAddress> remote_address_;
+};
+}  // namespace znet

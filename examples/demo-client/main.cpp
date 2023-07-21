@@ -8,14 +8,14 @@
 //        http://www.apache.org/licenses/LICENSE-2.0
 //
 
-#include <iostream>
-#include <sys/socket.h>
-#include <netinet/in.h>
 #include <arpa/inet.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
 #include <unistd.h>
-#include <cstring> // For memset
-#include "znet/znet.h"
+#include <cstring>  // For memset
+#include <iostream>
 #include "packets.h"
+#include "znet/znet.h"
 
 using namespace znet;
 
@@ -24,8 +24,10 @@ void OnDemoPacket(ConnectionSession& session, Ref<DemoPacket> packet) {
 }
 
 void AddClientHandlers(Ref<ConnectionSession> session) {
-  auto demo_packet_handler = CreateRef<PacketHandler<DemoPacket, DemoPacketSerializer_v1>>();
-  demo_packet_handler->AddReceiveCallback(ZNET_BIND_GLOBAL_FUNCTION(OnDemoPacket));
+  auto demo_packet_handler =
+      CreateRef<PacketHandler<DemoPacket, DemoPacketSerializer_v1>>();
+  demo_packet_handler->AddReceiveCallback(
+      ZNET_BIND_GLOBAL_FUNCTION(OnDemoPacket));
   session->handler_layer().AddPacketHandler(demo_packet_handler);
 }
 
@@ -39,17 +41,13 @@ bool OnConnectEvent(ClientConnectedToServerEvent& event) {
 
 void OnEvent(Event& event) {
   EventDispatcher dispatcher{event};
-  dispatcher.Dispatch<ClientConnectedToServerEvent>(ZNET_BIND_GLOBAL_FUNCTION(OnConnectEvent));
+  dispatcher.Dispatch<ClientConnectedToServerEvent>(
+      ZNET_BIND_GLOBAL_FUNCTION(OnConnectEvent));
 }
 
 int main() {
-  ClientConfig config{
-      "127.0.0.1",
-      25000
-  };
-  Client client{
-      config
-  };
+  ClientConfig config{"127.0.0.1", 25000};
+  Client client{config};
   // Set event callback
   client.SetEventCallback(ZNET_BIND_GLOBAL_FUNCTION(OnEvent));
 

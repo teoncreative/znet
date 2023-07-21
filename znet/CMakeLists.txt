@@ -11,11 +11,11 @@ set(ZNET_SOURCES
         ${CMAKE_CURRENT_SOURCE_DIR}/src/client_session.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/src/server.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/src/client.cpp
-)
+        )
 
 add_library(znet STATIC
         ${ZNET_SOURCES}
-)
+        )
 
 target_precompile_headers(znet PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include/znet/precompiled.h)
 target_include_directories(znet PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)

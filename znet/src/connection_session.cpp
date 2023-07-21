@@ -10,5 +10,4 @@
 
 #include "znet/base/connection_session.h"
 
-namespace znet {
-}
+namespace znet {}

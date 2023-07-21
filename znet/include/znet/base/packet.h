@@ -10,18 +10,20 @@
 
 #pragma once
 
-#include "types.h"
 #include "inet_addr.h"
+#include "types.h"
 
 namespace znet {
 
-  class Packet {
-  public:
-    Packet(PacketId id) : id_(id) { }
-    virtual ~Packet() { };
+class Packet {
+ public:
+  Packet(PacketId id) : id_(id) {}
 
-    PacketId id() const { return id_; }
-  private:
-    PacketId id_;
-  };
-}
+  virtual ~Packet(){};
+
+  PacketId id() const { return id_; }
+
+ private:
+  PacketId id_;
+};
+}  // namespace znet

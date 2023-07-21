@@ -10,38 +10,37 @@
 
 #pragma once
 
-#include "logger.h"
 #include "base/interface.h"
 #include "base/server_session.h"
+#include "logger.h"
 
 namespace znet {
 
-  struct ServerConfig {
-    std::string bind_ip_;
-    int bind_port_;
-  };
+struct ServerConfig {
+  std::string bind_ip_;
+  int bind_port_;
+};
 
+class Server : public Interface {
+ public:
+  Server(const ServerConfig& config) : Interface(), config_(config) {}
 
-  class Server : public Interface {
-  public:
-    Server(const ServerConfig& config) : Interface(), config_(config) { }
-    ~Server() { }
+  ~Server() {}
 
-    void Bind();
-    void Listen();
-    void Stop();
+  void Bind();
+  void Listen();
+  void Stop();
 
+ private:
+  void CheckNetwork();
+  void ProcessSessions();
 
-  private:
-    void CheckNetwork();
-    void ProcessSessions();
+ private:
+  ServerConfig config_;
+  Ref<InetAddress> bind_address_;
+  bool is_listening_ = false;
+  int server_socket_ = -1;
 
-  private:
-    ServerConfig config_;
-    Ref<InetAddress> bind_address_;
-    bool is_listening_ = false;
-    int server_socket_ = -1;
-
-    std::unordered_map<Ref<InetAddress>, Ref<ServerSession>> sessions_;
-  };
-}
+  std::unordered_map<Ref<InetAddress>, Ref<ServerSession>> sessions_;
+};
+}  // namespace znet

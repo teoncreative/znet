@@ -16,20 +16,14 @@ using namespace znet;
 
 class DemoPacket : public Packet {
  public:
-  DemoPacket() : Packet(1) {
-    text = "Test";
-  }
-
+  DemoPacket() : Packet(1) { text = "Test"; }
 
   std::string text;
 };
 
-
 class DemoPacketSerializer_v1 : public PacketSerializer<DemoPacket> {
  public:
-  DemoPacketSerializer_v1() : PacketSerializer<DemoPacket>(1) {
-
-  }
+  DemoPacketSerializer_v1() : PacketSerializer<DemoPacket>(1) {}
 
   Ref<Buffer> Serialize(Ref<DemoPacket> packet, Ref<Buffer> buffer) override {
     buffer->WriteString(packet->text);

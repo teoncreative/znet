@@ -16,96 +16,105 @@
 
 namespace znet {
 
-  class ConnectionSession;
+class ConnectionSession;
 
-  template<typename PacketType, std::enable_if_t<std::is_base_of_v<Packet, PacketType>, bool> = true>
-  using PacketHandlerFn = std::function<void(ConnectionSession&, Ref<PacketType>)>;
+template <typename PacketType,
+          std::enable_if_t<std::is_base_of_v<Packet, PacketType>, bool> = true>
+using PacketHandlerFn =
+    std::function<void(ConnectionSession&, Ref<PacketType>)>;
 
+class PacketHandlerBase {
+ public:
+  virtual void Handle(ConnectionSession& session, Ref<Buffer> buffer) {}
 
-  class PacketHandlerBase {
-  public:
-    virtual void Handle(ConnectionSession& session, Ref<Buffer> buffer) { }
-    virtual Ref<Buffer> Serialize(ConnectionSession& session, Ref<Packet> packet) { return nullptr; }
-    virtual PacketId packet_id() { return 0; };
-  private:
+  virtual Ref<Buffer> Serialize(ConnectionSession& session,
+                                Ref<Packet> packet) {
+    return nullptr;
+  }
 
-  };
+  virtual PacketId packet_id() { return 0; };
 
-  template<typename PacketType, typename PacketSerializerType, std::enable_if_t<std::is_base_of_v<PacketSerializer<PacketType>, PacketSerializerType>, bool> = true>
-  class PacketHandler : public PacketHandlerBase {
-  public:
-    // Default constructor
-    PacketHandler() {
-      serializer_ = CreateRef<PacketSerializerType>();
+ private:
+};
+
+template <typename PacketType, typename PacketSerializerType,
+          std::enable_if_t<std::is_base_of_v<PacketSerializer<PacketType>,
+                                             PacketSerializerType>,
+                           bool> = true>
+class PacketHandler : public PacketHandlerBase {
+ public:
+  // Default constructor
+  PacketHandler() { serializer_ = CreateRef<PacketSerializerType>(); }
+
+  explicit PacketHandler(Ref<PacketSerializerType> serializer) {
+    serializer_ = serializer;
+  }
+
+  void AddReceiveCallback(PacketHandlerFn<PacketType> fn) {
+    callbacks_.push_back(fn);
+  }
+
+  void Handle(ConnectionSession& session, Ref<Buffer> buffer) override {
+    auto packet = serializer_->Deserialize(buffer);
+    for (const auto& item : callbacks_) {
+      item(session, packet);
     }
+  }
 
-    explicit PacketHandler(Ref<PacketSerializerType> serializer) {
-      serializer_ = serializer;
-    }
+  Ref<Buffer> Serialize(ConnectionSession& session,
+                        Ref<Packet> packet) override {
+    Ref<Buffer> buffer = CreateRef<Buffer>();
+    buffer->WriteInt(packet->id());
+    return serializer_->Serialize(std::static_pointer_cast<PacketType>(packet),
+                                  buffer);
+  }
 
-    void AddReceiveCallback(PacketHandlerFn<PacketType> fn) {
-      callbacks_.push_back(fn);
-    }
+  PacketId packet_id() override { return serializer_->packet_id(); }
 
-    void Handle(ConnectionSession& session, Ref<Buffer> buffer) override {
-      auto packet = serializer_->Deserialize(buffer);
-      for (const auto& item : callbacks_) {
-        item(session, packet);
+ private:
+  Ref<PacketSerializerType> serializer_;
+  std::vector<PacketHandlerFn<PacketType>> callbacks_;
+};
+
+class HandlerLayer {
+ public:
+  HandlerLayer() = default;
+  ~HandlerLayer() = default;
+
+  void Handle(ConnectionSession& session, Ref<Buffer> buffer) {
+    auto packet_id = buffer->ReadInt<PacketId>();
+    bool handled = false;
+    for (const auto& item : handlers_) {
+      if (packet_id == item.first) {
+        item.second->Handle(session, buffer);
+        handled = true;
+        break;
       }
     }
-
-    Ref<Buffer> Serialize(ConnectionSession &session, Ref<Packet> packet) override {
-      Ref<Buffer> buffer = CreateRef<Buffer>();
-      buffer->WriteInt(packet->id());
-      return serializer_->Serialize(std::static_pointer_cast<PacketType>(packet), buffer);
+    if (!handled) {
+      LOG_WARN("Received packet wasn't handled!");
+      // todo warn log
     }
+  }
 
-    PacketId packet_id() override { return serializer_->packet_id(); }
-  private:
-
-    Ref<PacketSerializerType> serializer_;
-    std::vector<PacketHandlerFn<PacketType>> callbacks_;
-  };
-
-  class HandlerLayer {
-  public:
-    HandlerLayer() = default;
-    ~HandlerLayer() = default;
-
-    void Handle(ConnectionSession& session, Ref<Buffer> buffer) {
-      auto packet_id = buffer->ReadInt<PacketId>();
-      bool handled = false;
-      for (const auto& item : handlers_) {
-        if (packet_id == item.first) {
-          item.second->Handle(session, buffer);
-          handled = true;
-          break;
+  Ref<Buffer> Serialize(ConnectionSession& session, Ref<Packet> packet) {
+    for (const auto& item : handlers_) {
+      if (packet->id() == item.first) {
+        Ref<Buffer> buffer = item.second->Serialize(session, packet);
+        if (buffer) {
+          return buffer;
         }
       }
-      if (!handled) {
-        LOG_WARN("Received packet wasn't handled!");
-        // todo warn log
-      }
     }
 
-    Ref<Buffer> Serialize(ConnectionSession& session, Ref<Packet> packet) {
-      for (const auto& item : handlers_) {
-        if (packet->id() == item.first) {
-          Ref<Buffer> buffer = item.second->Serialize(session, packet);
-          if (buffer) {
-            return buffer;
-          }
-        }
-      }
+    return nullptr;
+  }
 
-      return nullptr;
-    }
+  void AddPacketHandler(Ref<PacketHandlerBase> handler) {
+    handlers_[handler->packet_id()] = handler;
+  }
 
-    void AddPacketHandler(Ref<PacketHandlerBase> handler) {
-      handlers_[handler->packet_id()] = handler;
-    }
-  private:
-    std::unordered_map<PacketId, Ref<PacketHandlerBase>> handlers_;
-
-  };
-}
+ private:
+  std::unordered_map<PacketId, Ref<PacketHandlerBase>> handlers_;
+};
+}  // namespace znet

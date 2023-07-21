@@ -11,34 +11,34 @@
 
 #pragma once
 
-#include "event.h"
-#include "../base/server_session.h"
 #include "../base/client_session.h"
+#include "../base/server_session.h"
+#include "event.h"
 
 namespace znet {
 
-  class ServerClientConnectedEvent : public Event {
-  public:
-   ServerClientConnectedEvent(Ref<ServerSession> session) : session_(session) {}
+class ServerClientConnectedEvent : public Event {
+ public:
+  ServerClientConnectedEvent(Ref<ServerSession> session) : session_(session) {}
 
-    Ref<ServerSession> session() { return session_; }
+  Ref<ServerSession> session() { return session_; }
 
-    ZNET_EVENT_CLASS_TYPE(ServerClientConnected)
-    ZNET_EVENT_CLASS_CATEGORY(EventCategoryServer)
-  private:
-    Ref<ServerSession> session_;
-  };
+  ZNET_EVENT_CLASS_TYPE(ServerClientConnected)
+  ZNET_EVENT_CLASS_CATEGORY(EventCategoryServer)
+ private:
+  Ref<ServerSession> session_;
+};
 
+class ClientConnectedToServerEvent : public Event {
+ public:
+  ClientConnectedToServerEvent(Ref<ClientSession> session)
+      : session_(session) {}
 
-  class ClientConnectedToServerEvent : public Event {
-   public:
-    ClientConnectedToServerEvent(Ref<ClientSession> session) : session_(session) {}
+  Ref<ClientSession> session() { return session_; }
 
-    Ref<ClientSession> session() { return session_; }
-
-    ZNET_EVENT_CLASS_TYPE(ClientConnectedToServer)
-    ZNET_EVENT_CLASS_CATEGORY(EventCategoryClient)
-   private:
-    Ref<ClientSession> session_;
-  };
-}
+  ZNET_EVENT_CLASS_TYPE(ClientConnectedToServer)
+  ZNET_EVENT_CLASS_CATEGORY(EventCategoryClient)
+ private:
+  Ref<ClientSession> session_;
+};
+}  // namespace znet

@@ -16,7 +16,8 @@ namespace znet {
 
 class ClientSession : public ConnectionSession {
  public:
-  ClientSession(Ref<InetAddress> local_address, Ref<InetAddress> remote_address, int socket_);
+  ClientSession(Ref<InetAddress> local_address, Ref<InetAddress> remote_address,
+                int socket_);
 
   void Process() override;
   void Close() override;
@@ -34,4 +35,4 @@ class ClientSession : public ConnectionSession {
   bool is_alive_;
 };
 
-}
+}  // namespace znet

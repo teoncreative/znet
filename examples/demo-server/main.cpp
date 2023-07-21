@@ -8,9 +8,9 @@
 //        http://www.apache.org/licenses/LICENSE-2.0
 //
 
-#include "znet/znet.h"
-#include "packets.h"
 #include <iostream>
+#include "packets.h"
+#include "znet/znet.h"
 
 using namespace znet;
 
@@ -22,8 +22,10 @@ void OnDemoPacket(ConnectionSession& session, Ref<DemoPacket> packet) {
 }
 
 void AddClientHandlers(Ref<ConnectionSession> session) {
-  auto demo_packet_handler = CreateRef<PacketHandler<DemoPacket, DemoPacketSerializer_v1>>();
-  demo_packet_handler->AddReceiveCallback(ZNET_BIND_GLOBAL_FUNCTION(OnDemoPacket));
+  auto demo_packet_handler =
+      CreateRef<PacketHandler<DemoPacket, DemoPacketSerializer_v1>>();
+  demo_packet_handler->AddReceiveCallback(
+      ZNET_BIND_GLOBAL_FUNCTION(OnDemoPacket));
   session->handler_layer().AddPacketHandler(demo_packet_handler);
 }
 
@@ -34,20 +36,16 @@ bool OnNewSessionEvent(ServerClientConnectedEvent& event) {
 
 void OnEvent(Event& event) {
   EventDispatcher dispatcher{event};
-  dispatcher.Dispatch<ServerClientConnectedEvent>(ZNET_BIND_GLOBAL_FUNCTION(OnNewSessionEvent));
+  dispatcher.Dispatch<ServerClientConnectedEvent>(
+      ZNET_BIND_GLOBAL_FUNCTION(OnNewSessionEvent));
 }
 
 int main() {
   // Create config
-  ServerConfig config{
-    "127.0.0.1",
-    25000
-  };
+  ServerConfig config{"127.0.0.1", 25000};
 
   // Create server with the config
-  Server server{
-    config
-  };
+  Server server{config};
 
   // Set event callback
   server.SetEventCallback(ZNET_BIND_GLOBAL_FUNCTION(OnEvent));

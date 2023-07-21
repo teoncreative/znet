@@ -11,22 +11,27 @@
 #pragma once
 
 #include <any>
-#include "packet.h"
 #include "../buffer.h"
+#include "packet.h"
 
 namespace znet {
 
-  template<typename T, std::enable_if_t<std::is_base_of_v<Packet, T>, bool> = true>
-  class PacketSerializer {
-  public:
-    PacketSerializer(PacketId packet_id) : packet_id_(packet_id) { }
+template <typename T,
+          std::enable_if_t<std::is_base_of_v<Packet, T>, bool> = true>
+class PacketSerializer {
+ public:
+  PacketSerializer(PacketId packet_id) : packet_id_(packet_id) {}
 
-    virtual Ref<Buffer> Serialize(Ref<T> packet, Ref<Buffer> buffer) { return CreateRef<Buffer>(); }
-    virtual Ref<T> Deserialize(Ref<Buffer> buffer) { return CreateRef<T>(); }
+  virtual Ref<Buffer> Serialize(Ref<T> packet, Ref<Buffer> buffer) {
+    return CreateRef<Buffer>();
+  }
 
-    PacketId packet_id() const { return packet_id_; }
-  private:
-    PacketId packet_id_;
-  };
+  virtual Ref<T> Deserialize(Ref<Buffer> buffer) { return CreateRef<T>(); }
 
-}
+  PacketId packet_id() const { return packet_id_; }
+
+ private:
+  PacketId packet_id_;
+};
+
+}  // namespace znet

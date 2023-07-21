@@ -13,23 +13,24 @@
 #include "connection_session.h"
 
 namespace znet {
-  class ServerSession : public ConnectionSession {
-  public:
-    ServerSession(Ref<InetAddress> local_address, Ref<InetAddress> remote_address, int socket);
+class ServerSession : public ConnectionSession {
+ public:
+  ServerSession(Ref<InetAddress> local_address, Ref<InetAddress> remote_address,
+                int socket);
 
-    void Process() override;
-    void Close() override;
+  void Process() override;
+  void Close() override;
 
-    bool IsAlive() override;
+  bool IsAlive() override;
 
-    void SendPacket(Ref<Packet> packet) override;
-    void SendRaw(Ref<Buffer> buffer) override;
+  void SendPacket(Ref<Packet> packet) override;
+  void SendRaw(Ref<Buffer> buffer) override;
 
-  private:
-    int socket_;
+ private:
+  int socket_;
 
-    char buffer_[MAX_BUFFER_SIZE]{};
-    ssize_t data_size_ = 0;
-    bool is_alive_;
-  };
-}
+  char buffer_[MAX_BUFFER_SIZE]{};
+  ssize_t data_size_ = 0;
+  bool is_alive_;
+};
+}  // namespace znet
