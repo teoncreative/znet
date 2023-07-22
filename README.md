@@ -24,7 +24,7 @@ TODO
 
 ## Example
 
-TODO
+See [examples](examples) folder
 
 ## Contributions
 

@@ -23,8 +23,7 @@ void OnDemoPacket(ConnectionSession& session, Ref<DemoPacket> packet) {
 void AddClientHandlers(Ref<ConnectionSession> session) {
   auto demo_packet_handler =
       CreateRef<PacketHandler<DemoPacket, DemoPacketSerializerV1>>();
-  demo_packet_handler->AddReceiveCallback(
-      ZNET_BIND_GLOBAL_FUNCTION(OnDemoPacket));
+  demo_packet_handler->AddReceiveCallback(ZNET_BIND_GLOBAL_FN(OnDemoPacket));
   session->handler_layer().AddPacketHandler(demo_packet_handler);
 }
 
@@ -35,8 +34,9 @@ bool OnNewSessionEvent(ServerClientConnectedEvent& event) {
 
 void OnEvent(Event& event) {
   EventDispatcher dispatcher{event};
+  // Bind desired events
   dispatcher.Dispatch<ServerClientConnectedEvent>(
-      ZNET_BIND_GLOBAL_FUNCTION(OnNewSessionEvent));
+      ZNET_BIND_GLOBAL_FN(OnNewSessionEvent));
 }
 
 int main() {
@@ -47,7 +47,7 @@ int main() {
   Server server{config};
 
   // Set event callback
-  server.SetEventCallback(ZNET_BIND_GLOBAL_FUNCTION(OnEvent));
+  server.SetEventCallback(ZNET_BIND_GLOBAL_FN(OnEvent));
 
   // Bind and listen
   server.Bind();

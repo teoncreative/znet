@@ -11,6 +11,7 @@
 #include "znet/base/inet_addr.h"
 
 namespace znet {
+
 IPv4Type ParseIPv4(const std::string& ip_str) {
   sockaddr_in antelope{};
   inet_pton(AF_INET, ip_str.c_str(), &(antelope.sin_addr));
@@ -35,6 +36,7 @@ Ref<InetAddress> InetAddress::from(sockaddr* sock_addr) {
     auto* addr = (sockaddr_in6*)sock_addr;
     return CreateRef<InetAddressIPv6>(addr->sin6_addr, addr->sin6_port);
   }
+
 #if defined(DEBUG) && !defined(DISABLE_ASSERT_INVALID_ADDRESS_FAMILY)
   throw std::runtime_error("sockaddr family is not supported");
 #endif
