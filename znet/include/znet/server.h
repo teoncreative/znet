@@ -23,13 +23,15 @@ struct ServerConfig {
 
 class Server : public Interface {
  public:
-  Server(const ServerConfig& config) : Interface(), config_(config) {}
+  Server(const ServerConfig& config);
 
-  ~Server() {}
+  ~Server();
 
-  void Bind();
+  void Bind() override;
   void Listen();
   void Stop();
+
+  ZNET_NODISCARD bool shutdown_complete() const { return shutdown_complete_; }
 
  private:
   void CheckNetwork();
@@ -40,6 +42,7 @@ class Server : public Interface {
   Ref<InetAddress> bind_address_;
   bool is_listening_ = false;
   int server_socket_ = -1;
+  bool shutdown_complete_ = false;
 
   std::unordered_map<Ref<InetAddress>, Ref<ServerSession>> sessions_;
 };

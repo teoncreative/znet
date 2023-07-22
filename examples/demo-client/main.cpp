@@ -45,11 +45,24 @@ void OnEvent(Event& event) {
 }
 
 int main() {
+  // Create config
   ClientConfig config{"127.0.0.1", 25000};
+
+  // Create client with the config
   Client client{config};
+
   // Set event callback
   client.SetEventCallback(ZNET_BIND_GLOBAL_FN(OnEvent));
 
+  // Bind and connect
   client.Bind();
-  client.Connect();
+
+  // If connection is successful, this function will block the flow
+  // of the program until it disconnects.
+  if (!client.Connect()) {
+    return 1; // Failed to connect
+  }
+
+  // Connection was successful and completed.
+  return 0;
 }

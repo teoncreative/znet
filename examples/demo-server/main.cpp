@@ -46,6 +46,16 @@ int main() {
   // Create server with the config
   Server server{config};
 
+  // Register signal handlers (optional)
+  RegisterSignalHandler([&server](Signal sig) -> bool {
+    if (sig == znet::kSignalInterrupt) {
+      // stop the server when SIGINT is received
+      server.Stop();
+      return server.shutdown_complete();
+    }
+    return false;
+  });
+
   // Set event callback
   server.SetEventCallback(ZNET_BIND_GLOBAL_FN(OnEvent));
 

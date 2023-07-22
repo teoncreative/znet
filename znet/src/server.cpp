@@ -13,6 +13,15 @@
 #include "znet/event/server_events.h"
 
 namespace znet {
+
+Server::Server(const ServerConfig& config) : Interface(), config_(config) {
+
+}
+
+Server::~Server() {
+
+}
+
 void Server::Bind() {
   bind_address_ = InetAddress::from(config_.bind_ip_, config_.bind_port_);
 
@@ -54,11 +63,23 @@ void Server::Listen() {
   listen(server_socket_, SOMAXCONN);
 
   is_listening_ = true;
+  shutdown_complete_ = false;
 
   while (is_listening_) {
     CheckNetwork();
     ProcessSessions();
   }
+
+  ZNET_LOG_INFO("Shutting down server!");
+  // Disconnect all sessions
+  for (const auto& item : sessions_) {
+    item.second->Close();
+  }
+  sessions_.clear();
+  // Close the server
+  close(server_socket_);
+  ZNET_LOG_INFO("Server shutdown complete.");
+  shutdown_complete_ = true;
 }
 
 void Server::Stop() {

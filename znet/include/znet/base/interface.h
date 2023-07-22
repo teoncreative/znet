@@ -23,6 +23,8 @@ class Interface {
 
   virtual ~Interface() {}
 
+  virtual void Bind() = 0;
+
   void SetEventCallback(EventCallbackFn fn) { event_callback_ = fn; }
 
   EventCallbackFn event_callback() const { return event_callback_; }

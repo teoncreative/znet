@@ -26,8 +26,8 @@ class Client : public Interface {
 
   ~Client() {}
 
-  void Bind();
-  void Connect();
+  void Bind() override;
+  bool Connect();
   void Disconnect();
 
  private:

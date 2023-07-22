@@ -26,11 +26,11 @@ void Client::Bind() {
   }
 }
 
-void Client::Connect() {
+bool Client::Connect() {
   if (!server_address_ || connect(client_socket_, server_address_->handle_ptr(),
               server_address_->addr_size()) < 0) {
     ZNET_LOG_ERROR("Error connecting to server.");
-    return;
+    return false;
   }
   int option = 1;
   setsockopt(client_socket_, SOL_SOCKET, SO_REUSEADDR | SO_REUSEPORT, &option,
@@ -52,6 +52,7 @@ void Client::Connect() {
 
   close(client_socket_);
   ZNET_LOG_INFO("Disconnected from the server.");
+  return true;
 }
 
 void Client::Disconnect() {
