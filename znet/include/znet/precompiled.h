@@ -18,6 +18,7 @@
 #include <unordered_map>
 #include <utility>
 #include <cassert>
+#include <bit>
 
 #ifdef __APPLE__
 #define TARGET_APPLE

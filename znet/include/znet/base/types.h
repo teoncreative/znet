@@ -10,6 +10,22 @@
 
 #pragma once
 
+#ifndef __cpp_lib_endian
+namespace std {
+enum class endian {
+  little = 0xDEAD,
+  big = 0xFACE,
+#  if defined(_LIBCPP_LITTLE_ENDIAN)
+  native = little
+#  elif defined(_LIBCPP_BIG_ENDIAN)
+  native = big
+#  else
+  native = 0xCAFE
+#  endif
+};
+}
+#endif
+
 namespace znet {
 #ifndef MAX_BUFFER_SIZE
 #define MAX_BUFFER_SIZE 4096
