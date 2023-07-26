@@ -17,6 +17,7 @@
 #include <typeindex>
 #include <unordered_map>
 #include <utility>
+#include <cassert>
 
 #ifdef __APPLE__
 #define TARGET_APPLE
