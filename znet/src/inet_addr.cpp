@@ -24,6 +24,19 @@ IPv6Type ParseIPv6(const std::string& ip_str) {
   return antelope.sin6_addr;
 }
 
+int GetDomainByInetProtocolVersion(InetProtocolVersion version) {
+  switch (version) {
+    case InetProtocolVersion::IPv4:
+      return AF_INET;
+    case InetProtocolVersion::IPv6:
+      return AF_INET6;
+  }
+#if defined(DEBUG) && !defined(DISABLE_ASSERT_INVALID_ADDRESS_PROTOCOL)
+  throw std::runtime_error("ipv not supported!");
+#endif
+  return 0;
+}
+
 Ref<InetAddress> InetAddress::from(const std::string& ip_str, PortType port) {
   return CreateRef<InetAddressIPv4>(ip_str, port);
 }

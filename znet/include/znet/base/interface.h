@@ -19,15 +19,15 @@ namespace znet {
 
 class Interface {
  public:
-  Interface() {}
+  Interface() = default;
 
-  virtual ~Interface() {}
+  virtual ~Interface() = default;
 
   virtual void Bind() = 0;
 
-  void SetEventCallback(EventCallbackFn fn) { event_callback_ = fn; }
+  void SetEventCallback(EventCallbackFn fn) { event_callback_ = std::move(fn); }
 
-  EventCallbackFn event_callback() const { return event_callback_; }
+  ZNET_NODISCARD EventCallbackFn event_callback() const { return event_callback_; }
 
  private:
   EventCallbackFn event_callback_;

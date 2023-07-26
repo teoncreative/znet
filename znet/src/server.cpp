@@ -26,18 +26,12 @@ void Server::Bind() {
   bind_address_ = InetAddress::from(config_.bind_ip_, config_.bind_port_);
 
   int option = 1;
-  int domain;
-  switch (bind_address_->ipv()) {
-    case InetProtocolVersion::IPv4:
-      domain = AF_INET;
-      break;
-    case InetProtocolVersion::IPv6:
-      domain = AF_INET6;
-      break;
-  }
+
+  int domain = GetDomainByInetProtocolVersion(bind_address_->ipv());
   server_socket_ = socket(
       domain, SOCK_STREAM,
-      0);  // SOCK_STREAM for TCP, SOCK_DGRAM for UDP, there is also SOCK_RAW, but we don't care about that.
+      0);  // SOCK_STREAM for TCP, SOCK_DGRAM for UDP, there is also SOCK_RAW,
+           // but we don't care about that.
   setsockopt(server_socket_, SOL_SOCKET, SO_REUSEADDR | SO_REUSEPORT, &option,
              sizeof(option));
   if (server_socket_ == -1) {

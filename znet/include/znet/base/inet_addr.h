@@ -24,6 +24,8 @@ enum class InetProtocolVersion { IPv4, IPv6 };
 IPv4Type ParseIPv4(const std::string& ip_str);
 IPv6Type ParseIPv6(const std::string& ip_str);
 
+int GetDomainByInetProtocolVersion(InetProtocolVersion version);
+
 class InetAddress {
  public:
   InetAddress(InetProtocolVersion ipv, std::string readable)
