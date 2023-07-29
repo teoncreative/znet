@@ -53,9 +53,12 @@ void Server::Bind() {
   setsockopt(server_socket_, SOL_SOCKET, SO_REUSEADDR | SO_REUSEPORT, &option,
              sizeof(option));
 #endif
-
   if (server_socket_ == -1) {
+#ifdef TARGET_WIN
     ZNET_LOG_ERROR("Error creating socket. {}", WSAGetLastError());
+#else
+    ZNET_LOG_ERROR("Error creating socket.");
+#endif
     exit(-1);
   }
 #ifdef TARGET_WIN
@@ -66,11 +69,12 @@ void Server::Bind() {
   int flags = fcntl(server_socket_, F_GETFL, 0);
   if (flags < 0) {
     ZNET_LOG_INFO("Error getting socket flags.");
+    close(server_socket_);
     return;
   }
   if (fcntl(server_socket_, F_SETFL, flags | O_NONBLOCK) < 0) {
     ZNET_LOG_INFO("Error setting socket to non-blocking mode.");
-    close();
+    close(server_socket_);
     return;
   }
 #endif
