@@ -49,7 +49,6 @@ bool OnClientConnect(ClientConnectedToServerEvent& event) {
           session.Close();
           return true;
         }
-        std::cout << "Login was successful!" << std::endl;
         if (!packet->message_.empty()) {
           std::cout << packet->message_ << std::endl << std::endl;
         }
@@ -89,6 +88,9 @@ bool OnClientConnect(ClientConnectedToServerEvent& event) {
       return true;
     }
 
+    if (packet->user_id_ == user_id_) {
+      return false;
+    }
     std::cout << packet->sender_username_ << ": " << packet->message_
               << std::endl;
     return false;
@@ -126,19 +128,21 @@ int main() {
 
     Ref<Client> client = CreateRef<Client>(config);
     client->SetEventCallback(ZNET_BIND_GLOBAL_FN(OnEvent));
-    std::thread thread = std::thread([client]() {
+    bool running = true;
+    std::thread thread = std::thread([client, &running]() {
       // Bind and listen
       client->Bind();
       client->Connect();
+      running = false;
     });
     thread.detach();
 
-    while (true) {
+    while (running) {
       if (!received_settings_) {
         continue;
       }
       std::string in;
-      std::cin >> in;
+      getline(std::cin, in);
       if (in == "?quit") {
         client->Disconnect();
         return 0;

@@ -68,19 +68,19 @@ void Server::Bind() {
   // Set socket to non-blocking mode
   int flags = fcntl(server_socket_, F_GETFL, 0);
   if (flags < 0) {
-    ZNET_LOG_INFO("Error getting socket flags.");
+    ZNET_LOG_ERROR("Error getting socket flags.");
     close(server_socket_);
     return;
   }
   if (fcntl(server_socket_, F_SETFL, flags | O_NONBLOCK) < 0) {
-    ZNET_LOG_INFO("Error setting socket to non-blocking mode.");
+    ZNET_LOG_ERROR("Error setting socket to non-blocking mode.");
     close(server_socket_);
     return;
   }
 #endif
 
   bind(server_socket_, bind_address_->handle_ptr(), bind_address_->addr_size());
-  ZNET_LOG_INFO("Listening connections from: {}", bind_address_->readable());
+  ZNET_LOG_DEBUG("Listening connections from: {}", bind_address_->readable());
 }
 
 void Server::Listen() {
@@ -94,7 +94,7 @@ void Server::Listen() {
     ProcessSessions();
   }
 
-  ZNET_LOG_INFO("Shutting down server!");
+  ZNET_LOG_DEBUG("Shutting down server!");
   // Disconnect all sessions
   for (const auto& item : sessions_) {
     item.second->Close();
@@ -106,7 +106,7 @@ void Server::Listen() {
 #else
   close(server_socket_);
 #endif
-  ZNET_LOG_INFO("Server shutdown complete.");
+  ZNET_LOG_DEBUG("Server shutdown complete.");
   shutdown_complete_ = true;
 }
 
@@ -128,12 +128,12 @@ void Server::CheckNetwork() {
   // Set socket to non-blocking mode
   int flags = fcntl(server_socket_, F_GETFL, 0);
   if (flags < 0) {
-    ZNET_LOG_INFO("Error getting socket flags.");
+    ZNET_LOG_ERROR("Error getting socket flags.");
     close(client_socket);
     return;
   }
   if (fcntl(server_socket_, F_SETFL, flags | O_NONBLOCK) < 0) {
-    ZNET_LOG_INFO("Error setting socket to non-blocking mode.");
+    ZNET_LOG_ERROR("Error setting socket to non-blocking mode.");
     close(client_socket);
     return;
   }
@@ -147,7 +147,7 @@ void Server::CheckNetwork() {
   sessions_[remote_address] = session;
   ServerClientConnectedEvent event{session};
   event_callback()(event);
-  ZNET_LOG_INFO("New connection is ready. {}", remote_address->readable());
+  ZNET_LOG_DEBUG("New connection is ready. {}", remote_address->readable());
 }
 
 void Server::ProcessSessions() {
@@ -164,7 +164,7 @@ void Server::ProcessSessions() {
     ServerClientDisconnectedEvent event{sessions_[key]};
     event_callback()(event);
 
-    ZNET_LOG_INFO("Client disconnected.");
+    ZNET_LOG_DEBUG("Client disconnected: {}", event.session()->remote_address()->readable());
     sessions_.erase(key);
   }
 }

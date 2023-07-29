@@ -66,7 +66,7 @@ bool Client::Connect() {
   event_callback()(event);
 
   // Connected to the server
-  ZNET_LOG_INFO("Connected to the server.");
+  ZNET_LOG_DEBUG("Connected to the server.");
 
   while (client_session_->IsAlive()) {
     client_session_->Process();
@@ -77,7 +77,7 @@ bool Client::Connect() {
 #else
   close(client_socket_);
 #endif
-  ZNET_LOG_INFO("Disconnected from the server.");
+  ZNET_LOG_DEBUG("Disconnected from the server.");
   return true;
 }
 
