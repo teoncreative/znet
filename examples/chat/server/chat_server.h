@@ -34,7 +34,7 @@ class ChatServer {
   std::unordered_map<int, Ref<User>> connected_users_;
   std::unordered_map<int, Ref<User>> pending_users_;
   std::unordered_map<Ref<InetAddress>, int> users_ids_by_addr_;
-  int user_id_counter;
+  int user_id_counter = 0;
   Ref<std::thread> server_thread_;
 
  private:
