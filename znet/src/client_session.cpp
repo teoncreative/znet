@@ -14,7 +14,7 @@
 namespace znet {
 
 ClientSession::ClientSession(Ref<InetAddress> local_address,
-                             Ref<InetAddress> remote_address, int socket)
+                             Ref<InetAddress> remote_address, SocketType socket)
     : ConnectionSession(local_address, remote_address),
       socket_(socket) {
   is_alive_ = true;
@@ -45,7 +45,11 @@ void ClientSession::Process() {
 void ClientSession::Close() {
   // Close the client socket
   is_alive_ = false;
+#ifdef TARGET_WIN
+  closesocket(socket_);
+#else
   close(socket_);
+#endif
 }
 
 bool ClientSession::IsAlive() {

@@ -23,35 +23,61 @@ Server::Server(const ServerConfig& config) : Interface(), config_(config) {
 }
 
 Server::~Server() {
-
+#ifdef TARGET_WIN
+  WSACleanup();
+#endif
 }
 
 void Server::Bind() {
   bind_address_ = InetAddress::from(config_.bind_ip_, config_.bind_port_);
 
-  int option = 1;
+  const char option = 1;
 
   int domain = GetDomainByInetProtocolVersion(bind_address_->ipv());
+#ifdef TARGET_WIN
+  WORD wVersionRequested;
+  WSADATA wsaData;
+  int err;
+  /* Use the MAKEWORD(lowbyte, highbyte) macro declared in Windef.h */
+  wVersionRequested = MAKEWORD(2, 2);
+  err = WSAStartup(wVersionRequested, &wsaData);
+  if (err != 0) {
+    ZNET_LOG_ERROR("WSAStartup error. {}", err);
+    exit(-1);
+  }
+#endif
   server_socket_ = socket(
       domain, SOCK_STREAM,
       0);  // SOCK_STREAM for TCP, SOCK_DGRAM for UDP, there is also SOCK_RAW,
            // but we don't care about that.
+#ifdef TARGET_WIN
+  setsockopt(server_socket_, SOL_SOCKET, SO_REUSEADDR | SO_BROADCAST, &option,
+             sizeof(option));
+#else
   setsockopt(server_socket_, SOL_SOCKET, SO_REUSEADDR | SO_REUSEPORT, &option,
              sizeof(option));
+#endif
+
   if (server_socket_ == -1) {
-    // todo error handling
+    ZNET_LOG_ERROR("Error creating socket. {}", WSAGetLastError());
     exit(-1);
   }
-  // Set socket to non-blocking mode
-  int flags = fcntl(server_socket_, F_GETFL, 0);
-  if (flags < 0) {
-    ZNET_LOG_INFO("Error getting socket flags.");
-    return;
-  }
-  if (fcntl(server_socket_, F_SETFL, flags | O_NONBLOCK) < 0) {
-    ZNET_LOG_INFO("Error setting socket to non-blocking mode.");
-    return;
-  }
+  #ifdef TARGET_WIN
+    u_long mode = 1;  // 1 to enable non-blocking socket
+    ioctlsocket(server_socket_, FIONBIO, &mode);
+  #else
+    // Set socket to non-blocking mode
+    int flags = fcntl(server_socket_, F_GETFL, 0);
+    if (flags < 0) {
+      ZNET_LOG_INFO("Error getting socket flags.");
+      return;
+    }
+    if (fcntl(server_socket_, F_SETFL, flags | O_NONBLOCK) < 0) {
+      ZNET_LOG_INFO("Error setting socket to non-blocking mode.");
+      close();
+      return;
+    }
+  #endif
 
   bind(server_socket_, bind_address_->handle_ptr(), bind_address_->addr_size());
   ZNET_LOG_INFO("Listening connections from: {}", bind_address_->readable());
@@ -75,7 +101,11 @@ void Server::Listen() {
   }
   sessions_.clear();
   // Close the server
+#ifdef TARGET_WIN
+  closesocket(server_socket_);
+#else
   close(server_socket_);
+#endif
   ZNET_LOG_INFO("Server shutdown complete.");
   shutdown_complete_ = true;
 }
@@ -87,24 +117,31 @@ void Server::Stop() {
 void Server::CheckNetwork() {
   sockaddr client_address{};
   socklen_t addr_len = sizeof(client_address);
-  int client_socket = accept(server_socket_, &client_address, &addr_len);
+  SocketType client_socket = accept(server_socket_, &client_address, &addr_len);
   if (client_socket < 0) {
     return;
   }
-  ZNET_LOG_INFO("Accepted new connection.");
+#ifdef TARGET_WIN
+  u_long mode = 1;  // 1 to enable non-blocking socket
+  ioctlsocket(server_socket_, FIONBIO, &mode);
+#else
   // Set socket to non-blocking mode
-  int flags = fcntl(client_socket, F_GETFL, 0);
+  int flags = fcntl(server_socket_, F_GETFL, 0);
   if (flags < 0) {
     ZNET_LOG_INFO("Error getting socket flags.");
     close(client_socket);
     return;
   }
-  if (fcntl(client_socket, F_SETFL, flags | O_NONBLOCK) < 0) {
+  if (fcntl(server_socket_, F_SETFL, flags | O_NONBLOCK) < 0) {
     ZNET_LOG_INFO("Error setting socket to non-blocking mode.");
     close(client_socket);
     return;
   }
+#endif
   Ref<InetAddress> remote_address = InetAddress::from(&client_address);
+  if (remote_address == nullptr) {
+    return;
+  }
   auto session =
       CreateRef<ServerSession>(bind_address_, remote_address, client_socket);
   sessions_[remote_address] = session;

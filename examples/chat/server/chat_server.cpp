@@ -13,7 +13,7 @@
 
 ChatServer::ChatServer() {
   // Create config
-  ServerConfig config{"127.0.0.1", 25000};
+  ServerConfig config{"172.24.222.44", 25000};
 
   // Create server with the config
   server_ = {config};

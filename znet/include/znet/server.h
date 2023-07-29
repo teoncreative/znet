@@ -42,7 +42,7 @@ class Server : public Interface {
   ServerConfig config_;
   Ref<InetAddress> bind_address_;
   bool is_listening_ = false;
-  int server_socket_ = -1;
+  SocketType server_socket_ = -1;
   bool shutdown_complete_ = false;
 
   std::unordered_map<Ref<InetAddress>, Ref<ServerSession>> sessions_;

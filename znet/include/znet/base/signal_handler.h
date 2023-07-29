@@ -16,25 +16,28 @@
 namespace znet {
 
 enum Signal {
-  kSignalHangup = SIGHUP,
   kSignalInterrupt = SIGINT,
-  kSignalQuit = SIGQUIT,
   kSignalIllegalInstruction = SIGILL,
+#ifdef TARGET_APPLE
+  kSignalHangup = SIGHUP,
+  kSignalQuit = SIGQUIT,
   kSignalTrap = SIGTRAP,
+#endif
   kSignalAbort = SIGABRT,
 #if  (defined(_POSIX_C_SOURCE) && !defined(_DARWIN_C_SOURCE))
   kSignalPoll = SIGPOLL,
-#else   /* (!_POSIX_C_SOURCE || _DARWIN_C_SOURCE) */
+#elif !defined(TARGET_WIN)   /* (!_POSIX_C_SOURCE || _DARWIN_C_SOURCE) */
   kSignalEMT = SIGEMT,
 #endif  /* (!_POSIX_C_SOURCE || _DARWIN_C_SOURCE) */
   kSignalFPE = SIGFPE,
+  kSignalSegFault = SIGSEGV,
+  kSignalTermination = SIGTERM,
+#ifndef TARGET_WIN
   kSignalKill = SIGKILL,
   kSignalBus = SIGBUS,
-  kSignalSegFault = SIGSEGV,
   kSignalSys = SIGSYS,
   kSignalPipe = SIGPIPE,
   kSignalAlarm = SIGALRM,
-  kSignalTermination = SIGTERM,
   kSignalUrgent = SIGURG,
   kSignalSendableStop = SIGSTOP,
   kSignalStop = SIGTSTP,
@@ -55,6 +58,7 @@ enum Signal {
 #endif
   kSignalUser1 = SIGUSR1,
   kSignalUser2 = SIGUSR2
+#endif
 };
 
 typedef std::function<bool(Signal)>(SignalHandlerFn);

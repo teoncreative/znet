@@ -16,7 +16,7 @@ namespace znet {
 class ServerSession : public ConnectionSession {
  public:
   ServerSession(Ref<InetAddress> local_address, Ref<InetAddress> remote_address,
-                int socket);
+                SocketType socket);
 
   void Process() override;
   void Close() override;
@@ -27,8 +27,7 @@ class ServerSession : public ConnectionSession {
   void SendRaw(Ref<Buffer> buffer) override;
 
  private:
-  int socket_;
-
+  SocketType socket_;
   char buffer_[MAX_BUFFER_SIZE]{};
   ssize_t data_size_ = 0;
   bool is_alive_;

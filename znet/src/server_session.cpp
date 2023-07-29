@@ -13,7 +13,7 @@
 
 namespace znet {
 ServerSession::ServerSession(Ref<InetAddress> local_address,
-                             Ref<InetAddress> remote_address, int socket)
+                             Ref<InetAddress> remote_address, SocketType socket)
     : ConnectionSession(local_address, remote_address), socket_(socket) {
   is_alive_ = true;
   memset(&buffer_, 0, MAX_BUFFER_SIZE);
@@ -45,7 +45,11 @@ void ServerSession::Process() {
 
 void ServerSession::Close() {
   // Close the client socket
+#ifdef TARGET_WIN
+  closesocket(socket_);
+#else
   close(socket_);
+#endif
   is_alive_ = false;
 }
 

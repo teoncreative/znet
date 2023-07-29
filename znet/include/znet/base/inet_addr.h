@@ -15,9 +15,17 @@
 
 namespace znet {
 
+#ifdef TARGET_APPLE
+using SocketType = int;
 using PortType = in_port_t;
 using IPv4Type = in_addr_t;
 using IPv6Type = in6_addr_t;
+#elif defined(TARGET_WIN)
+using SocketType = SOCKET;
+using PortType = USHORT;
+using IPv4Type = IN_ADDR;
+using IPv6Type = IN6_ADDR;
+#endif
 
 enum class InetProtocolVersion { IPv4, IPv6 };
 
@@ -66,7 +74,12 @@ class InetAddressIPv4 : public InetAddress {
     addr.sin_addr.s_addr = INADDR_ANY;
     addr.sin_family = AF_INET;
     addr.sin_port = htons(port);
+#ifdef TARGET_WIN
+    addr.sin_addr = ip;
+#else
     addr.sin_addr.s_addr = ip;
+#endif
+
     char src[INET_ADDRSTRLEN];
     inet_ntop(AF_INET, &addr.sin_addr, src, sizeof(src));
     readable_ = std::string(src) + ":" + std::to_string(ntohs(addr.sin_port));
@@ -77,7 +90,11 @@ class InetAddressIPv4 : public InetAddress {
     addr.sin_addr.s_addr = INADDR_ANY;
     addr.sin_family = AF_INET;
     addr.sin_port = htons(port);
+#ifdef TARGET_WIN
+    addr.sin_addr = ParseIPv4(str);
+#else
     addr.sin_addr.s_addr = ParseIPv4(str);
+#endif
     char src[INET_ADDRSTRLEN];
     inet_ntop(AF_INET, &addr.sin_addr, src, sizeof(src));
     readable_ = std::string(src) + ":" + std::to_string(ntohs(addr.sin_port));
@@ -97,7 +114,9 @@ class InetAddressIPv6 : public InetAddress {
  public:
   explicit InetAddressIPv6(PortType port)
       : InetAddress(InetProtocolVersion::IPv6, "") {
+#ifndef TARGET_WIN
     addr.sin6_len = sizeof(sockaddr_in6);
+#endif
     addr.sin6_family = AF_INET6;
     addr.sin6_flowinfo = 0;
     addr.sin6_port = htons(port);
@@ -109,7 +128,9 @@ class InetAddressIPv6 : public InetAddress {
 
   InetAddressIPv6(IPv6Type ip, PortType port)
       : InetAddress(InetProtocolVersion::IPv6, "") {
+#ifndef TARGET_WIN
     addr.sin6_len = sizeof(sockaddr_in6);
+#endif
     addr.sin6_family = AF_INET6;
     addr.sin6_flowinfo = 0;
     addr.sin6_port = htons(port);
@@ -121,7 +142,9 @@ class InetAddressIPv6 : public InetAddress {
 
   InetAddressIPv6(const std::string& str, PortType port)
       : InetAddress(InetProtocolVersion::IPv6, "") {
+#ifndef TARGET_WIN
     addr.sin6_len = sizeof(sockaddr_in6);
+#endif
     addr.sin6_family = AF_INET6;
     addr.sin6_flowinfo = 0;
     addr.sin6_port = htons(port);

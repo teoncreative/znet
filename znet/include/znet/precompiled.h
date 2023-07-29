@@ -20,6 +20,7 @@
 #include <cassert>
 #include <bit>
 #include <functional>
+#include <csignal>
 
 #ifdef __APPLE__
 #define TARGET_APPLE
@@ -29,7 +30,24 @@
 #include <sys/types.h>
 #include <unistd.h>
 #endif
-#ifdef __WIN32__
+#if defined(_WIN32) || defined(__WIN32__) || defined(WIN32)
+#define TARGET_WIN
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#include <cstdio>
+#include <cstdlib>
+// Needed for the Windows 2000 IPv6 Tech Preview.
+#if (_WIN32_WINNT == 0x0500)
+#include <tpipv6.h>
+#endif
+#ifdef _MSC_VER
+#include <BaseTsd.h>
+typedef SSIZE_T ssize_t;
+#else
+#include <sys/types.h>
+#endif
+
+#pragma comment(lib, "Ws2_32.lib")
 #endif
 
 #define ZNET_NODISCARD [[nodiscard]]

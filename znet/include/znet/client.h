@@ -24,7 +24,7 @@ class Client : public Interface {
  public:
   Client(const ClientConfig& config);
 
-  ~Client() {}
+  ~Client();
 
   void Bind() override;
   bool Connect();
@@ -34,7 +34,7 @@ class Client : public Interface {
  private:
   ClientConfig config_;
   Ref<InetAddress> server_address_;
-  int client_socket_ = -1;
+  SocketType client_socket_ = -1;
 
   Ref<ClientSession> client_session_;
 };

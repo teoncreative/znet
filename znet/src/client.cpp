@@ -18,7 +18,25 @@ Client::Client(const ClientConfig& config) : config_(config) {
   server_address_ = InetAddress::from(config_.server_ip_, config_.server_port_);
 }
 
+Client::~Client() {
+#ifdef TARGET_WIN
+  WSACleanup();
+#endif
+}
+
 void Client::Bind() {
+#ifdef TARGET_WIN
+  WORD wVersionRequested;
+  WSADATA wsaData;
+  int err;
+  /* Use the MAKEWORD(lowbyte, highbyte) macro declared in Windef.h */
+  wVersionRequested = MAKEWORD(2, 2);
+  err = WSAStartup(wVersionRequested, &wsaData);
+  if (err != 0) {
+    ZNET_LOG_ERROR("WSAStartup error. {}", err);
+    exit(-1);
+  }
+#endif
   client_socket_ = socket(AF_INET, SOCK_STREAM, 0);
   if (client_socket_ < 0) {
     ZNET_LOG_ERROR("Error binding socket.");
@@ -32,10 +50,14 @@ bool Client::Connect() {
     ZNET_LOG_ERROR("Error connecting to server.");
     return false;
   }
-  int option = 1;
+  const char option = 1;
+#ifdef TARGET_WIN
+  setsockopt(client_socket_, SOL_SOCKET, SO_REUSEADDR | SO_BROADCAST, &option,
+             sizeof(option));
+#else
   setsockopt(client_socket_, SOL_SOCKET, SO_REUSEADDR | SO_REUSEPORT, &option,
              sizeof(option));
-
+#endif
   // todo local address
   client_session_ =
       CreateRef<ClientSession>(nullptr, server_address_, client_socket_);
@@ -50,7 +72,11 @@ bool Client::Connect() {
     client_session_->Process();
   }
 
+#ifdef TARGET_WIN
+  closesocket(client_socket_);
+#else
   close(client_socket_);
+#endif
   ZNET_LOG_INFO("Disconnected from the server.");
   return true;
 }
