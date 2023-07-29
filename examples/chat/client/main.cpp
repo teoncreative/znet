@@ -117,7 +117,6 @@ void OnEvent(Event& event) {
 }
 
 int main() {
-  std::cout << std::endl << "Welcome to zchat!" << std::endl << std::endl;
   while (true) {
     std::cout << "Please enter server address: ";
     std::string ip;
