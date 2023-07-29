@@ -10,13 +10,12 @@
 
 #pragma once
 
-
 namespace znet {
 
 enum EventType {
-  ServerClientConnected,    // new client connected to server
-  ServerClientDisconnected,    // new client disconnected to server
-  ClientConnectedToServer,  // disconnected from server
+  ServerClientConnected,     // new client connected to server
+  ServerClientDisconnected,  // new client disconnected to server
+  ClientConnectedToServer,   // disconnected from server
 #ifdef USER_EVENTS
   USER_EVENTS(),
 #endif

@@ -33,7 +33,7 @@ ChatServer::ChatServer() {
 }
 
 void ChatServer::Start() {
-  server_thread_ = CreateRef<std::thread>([this](){
+  server_thread_ = CreateRef<std::thread>([this]() {
     // Bind and listen
     server_.Bind();
     server_.Listen();
@@ -57,8 +57,7 @@ void ChatServer::OnEvent(znet::Event& event) {
       ZNET_BIND_FN(OnNewSessionEvent));
   dispatcher.Dispatch<ServerClientDisconnectedEvent>(
       ZNET_BIND_FN(OnServerClientDisconnectedEvent));
-  dispatcher.Dispatch<UserAuthorizedEvent>(
-      ZNET_BIND_FN(OnUserAuthorizedEvent));
+  dispatcher.Dispatch<UserAuthorizedEvent>(ZNET_BIND_FN(OnUserAuthorizedEvent));
 }
 
 void ChatServer::BroadcastPacket(Ref<znet::Packet> packet) {
@@ -74,7 +73,8 @@ bool ChatServer::OnNewSessionEvent(ServerClientConnectedEvent& event) {
   return false;
 }
 
-bool ChatServer::OnServerClientDisconnectedEvent(znet::ServerClientDisconnectedEvent& event) {
+bool ChatServer::OnServerClientDisconnectedEvent(
+    znet::ServerClientDisconnectedEvent& event) {
   int user_id = users_ids_by_addr_[event.session()->remote_address()];
   Ref<User> user = connected_users_[user_id];
   connected_users_.erase(user->user_id());

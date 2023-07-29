@@ -14,13 +14,9 @@
 
 namespace znet {
 
-Server::Server() : Interface() {
+Server::Server() : Interface() {}
 
-}
-
-Server::Server(const ServerConfig& config) : Interface(), config_(config) {
-
-}
+Server::Server(const ServerConfig& config) : Interface(), config_(config) {}
 
 Server::~Server() {
 #ifdef TARGET_WIN
@@ -62,22 +58,22 @@ void Server::Bind() {
     ZNET_LOG_ERROR("Error creating socket. {}", WSAGetLastError());
     exit(-1);
   }
-  #ifdef TARGET_WIN
-    u_long mode = 1;  // 1 to enable non-blocking socket
-    ioctlsocket(server_socket_, FIONBIO, &mode);
-  #else
-    // Set socket to non-blocking mode
-    int flags = fcntl(server_socket_, F_GETFL, 0);
-    if (flags < 0) {
-      ZNET_LOG_INFO("Error getting socket flags.");
-      return;
-    }
-    if (fcntl(server_socket_, F_SETFL, flags | O_NONBLOCK) < 0) {
-      ZNET_LOG_INFO("Error setting socket to non-blocking mode.");
-      close();
-      return;
-    }
-  #endif
+#ifdef TARGET_WIN
+  u_long mode = 1;  // 1 to enable non-blocking socket
+  ioctlsocket(server_socket_, FIONBIO, &mode);
+#else
+  // Set socket to non-blocking mode
+  int flags = fcntl(server_socket_, F_GETFL, 0);
+  if (flags < 0) {
+    ZNET_LOG_INFO("Error getting socket flags.");
+    return;
+  }
+  if (fcntl(server_socket_, F_SETFL, flags | O_NONBLOCK) < 0) {
+    ZNET_LOG_INFO("Error setting socket to non-blocking mode.");
+    close();
+    return;
+  }
+#endif
 
   bind(server_socket_, bind_address_->handle_ptr(), bind_address_->addr_size());
   ZNET_LOG_INFO("Listening connections from: {}", bind_address_->readable());

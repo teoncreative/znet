@@ -15,26 +15,26 @@ namespace std {
 enum class endian {
   little = 0xDEAD,
   big = 0xFACE,
-#  if defined(_LIBCPP_LITTLE_ENDIAN)
+#if defined(_LIBCPP_LITTLE_ENDIAN)
   native = little
-#  elif defined(_LIBCPP_BIG_ENDIAN)
+#elif defined(_LIBCPP_BIG_ENDIAN)
   native = big
-#  else
+#else
   native = 0xCAFE
-#  endif
+#endif
 };
-}
+}  // namespace std
 #endif
 
 namespace znet {
 #ifndef MAX_BUFFER_SIZE
 #define MAX_BUFFER_SIZE 4096
 #endif
-#define ZNET_BIND_FN(fn)                              \
+#define ZNET_BIND_FN(fn)                                    \
   [this](auto&&... args) -> decltype(auto) {                \
     return this->fn(std::forward<decltype(args)>(args)...); \
   }
-#define ZNET_BIND_GLOBAL_FN(fn)                 \
+#define ZNET_BIND_GLOBAL_FN(fn)                       \
   [](auto&&... args) -> decltype(auto) {              \
     return fn(std::forward<decltype(args)>(args)...); \
   }

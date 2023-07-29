@@ -8,11 +8,11 @@
 //        http://www.apache.org/licenses/LICENSE-2.0
 //
 
-#include "znet/znet.h"
-#include "packets.h"
 #include <iostream>
-#include <thread>
 #include <queue>
+#include <thread>
+#include "packets.h"
+#include "znet/znet.h"
 
 using namespace znet;
 
@@ -26,59 +26,71 @@ bool OnClientConnect(ClientConnectedToServerEvent& event) {
 
   HandlerLayer& handler = event.session()->handler_layer();
 
-  auto login_request_packet = CreateRef<PacketHandler<LoginRequestPacket, LoginRequestPacketSerializerV1>>();
+  auto login_request_packet = CreateRef<
+      PacketHandler<LoginRequestPacket, LoginRequestPacketSerializerV1>>();
   handler.AddPacketHandler(login_request_packet);
 
-  auto login_response_packet = CreateRef<PacketHandler<LoginResponsePacket, LoginResponsePacketSerializerV1>>();
-  login_response_packet->AddReceiveCallback([](ConnectionSession& session, Ref<LoginResponsePacket> packet) {
-    if (received_login_ || (expected_packet_ != 0 && expected_packet_ != packet->id())) {
-      ZNET_LOG_DEBUG("Received packet LoginResponsePacket but it was not expected!");
-      session.Close();
-      return true;
-    }
-    if (!packet->succeeded_) {
-      std::cout << "Login was not successful!" << std::endl;
-      if (!packet->message_.empty()) {
-        std::cout << packet->message_ << std::endl << std::endl;
-      }
-      session.Close();
-      return true;
-    }
-    std::cout << "Login was successful!" << std::endl;
-    if (!packet->message_.empty()) {
-      std::cout << packet->message_ << std::endl << std::endl;
-    }
-    // Update the token
-    user_id_ = packet->user_id_;
-    expected_packet_ = ServerSettingsPacket::PacketId();
-    received_login_ = true;
-    return false;
-  });
+  auto login_response_packet = CreateRef<
+      PacketHandler<LoginResponsePacket, LoginResponsePacketSerializerV1>>();
+  login_response_packet->AddReceiveCallback(
+      [](ConnectionSession& session, Ref<LoginResponsePacket> packet) {
+        if (received_login_ ||
+            (expected_packet_ != 0 && expected_packet_ != packet->id())) {
+          ZNET_LOG_DEBUG(
+              "Received packet LoginResponsePacket but it was not expected!");
+          session.Close();
+          return true;
+        }
+        if (!packet->succeeded_) {
+          std::cout << "Login was not successful!" << std::endl;
+          if (!packet->message_.empty()) {
+            std::cout << packet->message_ << std::endl << std::endl;
+          }
+          session.Close();
+          return true;
+        }
+        std::cout << "Login was successful!" << std::endl;
+        if (!packet->message_.empty()) {
+          std::cout << packet->message_ << std::endl << std::endl;
+        }
+        // Update the token
+        user_id_ = packet->user_id_;
+        expected_packet_ = ServerSettingsPacket::PacketId();
+        received_login_ = true;
+        return false;
+      });
   handler.AddPacketHandler(login_response_packet);
 
-  auto server_settings_packet = CreateRef<PacketHandler<ServerSettingsPacket, ServerSettingsPacketSerializerV1>>();
-  server_settings_packet->AddReceiveCallback([](ConnectionSession& session, Ref<ServerSettingsPacket> packet) {
-    if (received_settings_ || (expected_packet_ != 0 && expected_packet_ != packet->id())) {
-      ZNET_LOG_DEBUG("Received packet ServerSettingsPacket but it was not expected!");
-      session.Close();
-      return true;
-    }
+  auto server_settings_packet = CreateRef<
+      PacketHandler<ServerSettingsPacket, ServerSettingsPacketSerializerV1>>();
+  server_settings_packet->AddReceiveCallback(
+      [](ConnectionSession& session, Ref<ServerSettingsPacket> packet) {
+        if (received_settings_ ||
+            (expected_packet_ != 0 && expected_packet_ != packet->id())) {
+          ZNET_LOG_DEBUG(
+              "Received packet ServerSettingsPacket but it was not expected!");
+          session.Close();
+          return true;
+        }
 
-    expected_packet_ = 0;
-    received_settings_ = true;
-    return false;
-  });
+        expected_packet_ = 0;
+        received_settings_ = true;
+        return false;
+      });
   handler.AddPacketHandler(server_settings_packet);
 
-  auto message_packet = CreateRef<PacketHandler<MessagePacket, MessagePacketSerializerV1>>();
-  message_packet->AddReceiveCallback([](ConnectionSession& session, Ref<MessagePacket> packet) {
+  auto message_packet =
+      CreateRef<PacketHandler<MessagePacket, MessagePacketSerializerV1>>();
+  message_packet->AddReceiveCallback([](ConnectionSession& session,
+                                        Ref<MessagePacket> packet) {
     if (expected_packet_ != 0) {
       ZNET_LOG_DEBUG("Received packet MessagePacket but it was not expected!");
       session.Close();
       return true;
     }
 
-    std::cout << packet->sender_username_ << ": " << packet->message_ << std::endl;
+    std::cout << packet->sender_username_ << ": " << packet->message_
+              << std::endl;
     return false;
   });
   handler.AddPacketHandler(message_packet);
@@ -100,7 +112,8 @@ bool OnClientConnect(ClientConnectedToServerEvent& event) {
 void OnEvent(Event& event) {
   EventDispatcher dispatcher{event};
 
-  dispatcher.Dispatch<ClientConnectedToServerEvent>(ZNET_BIND_GLOBAL_FN(OnClientConnect));
+  dispatcher.Dispatch<ClientConnectedToServerEvent>(
+      ZNET_BIND_GLOBAL_FN(OnClientConnect));
 }
 
 int main() {
@@ -110,14 +123,11 @@ int main() {
     std::string ip;
     std::cin >> ip;
 
-    ClientConfig config{
-        ip,
-        25000
-    };
+    ClientConfig config{ip, 25000};
 
     Ref<Client> client = CreateRef<Client>(config);
     client->SetEventCallback(ZNET_BIND_GLOBAL_FN(OnEvent));
-    std::thread thread = std::thread([client](){
+    std::thread thread = std::thread([client]() {
       // Bind and listen
       client->Bind();
       client->Connect();

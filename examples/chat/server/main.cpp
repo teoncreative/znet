@@ -8,8 +8,8 @@
 //        http://www.apache.org/licenses/LICENSE-2.0
 //
 
-#include "packets.h"
 #include "chat_server.h"
+#include "packets.h"
 #include "user.h"
 
 using namespace znet;

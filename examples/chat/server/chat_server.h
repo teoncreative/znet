@@ -11,9 +11,9 @@
 
 #pragma once
 
-#include "znet/znet.h"
-#include "events.h"
 #include <thread>
+#include "events.h"
+#include "znet/znet.h"
 
 using namespace znet;
 
@@ -28,6 +28,7 @@ class ChatServer {
   void OnEvent(Event& event);
 
   void BroadcastPacket(Ref<Packet> packet);
+
  private:
   Server server_;
   std::unordered_map<int, Ref<User>> connected_users_;

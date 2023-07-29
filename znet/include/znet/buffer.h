@@ -45,19 +45,16 @@ class Buffer {
 
   ~Buffer() { delete[] data_; }
 
-  char ReadChar() {
-    return ReadInt<char>();
-  }
+  char ReadChar() { return ReadInt<char>(); }
 
-  bool ReadBool() {
-    return ReadInt<bool>();
-  }
+  bool ReadBool() { return ReadInt<bool>(); }
 
   template <typename T>
   T ReadInt() {
     ssize_t size = sizeof(T);
     char data[size];
-    if (!CheckReadableBytes(size)) failed_to_read_ = true;
+    if (!CheckReadableBytes(size))
+      failed_to_read_ = true;
     for (ssize_t i = 0; i < size; i++) {
       data[i] = data_[read_cursor_ + i];
     }
@@ -69,7 +66,8 @@ class Buffer {
 
   std::string ReadString() {
     auto size = ReadInt<size_t>();
-    if (!CheckReadableBytes(size)) failed_to_read_ = true;
+    if (!CheckReadableBytes(size))
+      failed_to_read_ = true;
     char data[size];
     for (int i = 0; i < size; i++) {
       data[i] = ReadInt<char>();
@@ -122,7 +120,9 @@ class Buffer {
 
   ZNET_NODISCARD size_t Size() const { return write_cursor_; }
 
-  ZNET_NODISCARD ssize_t ReadableBytes() const { return write_cursor_ - read_cursor_; }
+  ZNET_NODISCARD ssize_t ReadableBytes() const {
+    return write_cursor_ - read_cursor_;
+  }
 
   /**
    * @return true if previous read call was failed and clears the value.
@@ -137,9 +137,9 @@ class Buffer {
   ZNET_NODISCARD bool CheckReadableBytes(size_t required) const {
     size_t bytes_left = write_cursor_ - read_cursor_;
 #if defined(DEBUG) && !defined(DISABLE_ASSERT_READABLE_BYTES)
-      assert(bytes_left >= required);
+    assert(bytes_left >= required);
 #endif
-      return bytes_left >= required;
+    return bytes_left >= required;
   }
 
   void AssureSizeIncremental(size_t additional_bytes) {

@@ -10,24 +10,22 @@
 
 #include "user.h"
 
-
-User::User(ChatServer& server, int user_id, Ref<znet::ConnectionSession> session) : server_(server), user_id_(user_id), session_(session) {
+User::User(ChatServer& server, int user_id,
+           Ref<znet::ConnectionSession> session)
+    : server_(server), user_id_(user_id), session_(session) {
   HandlerLayer& handler = session->handler_layer();
 
-  auto login_request_packet =
-      CreateRef<PacketHandler<LoginRequestPacket,
-                              LoginRequestPacketSerializerV1>>();
+  auto login_request_packet = CreateRef<
+      PacketHandler<LoginRequestPacket, LoginRequestPacketSerializerV1>>();
   login_request_packet->AddReceiveCallback(ZNET_BIND_FN(OnLoginRequest));
   handler.AddPacketHandler(login_request_packet);
 
-  auto login_response_packet =
-      CreateRef<PacketHandler<LoginResponsePacket,
-                              LoginResponsePacketSerializerV1>>();
+  auto login_response_packet = CreateRef<
+      PacketHandler<LoginResponsePacket, LoginResponsePacketSerializerV1>>();
   handler.AddPacketHandler(login_response_packet);
 
-  auto server_settings_packet =
-      CreateRef<PacketHandler<ServerSettingsPacket,
-                              ServerSettingsPacketSerializerV1>>();
+  auto server_settings_packet = CreateRef<
+      PacketHandler<ServerSettingsPacket, ServerSettingsPacketSerializerV1>>();
   handler.AddPacketHandler(server_settings_packet);
 
   auto message_packet =
@@ -40,7 +38,8 @@ void User::SendPacket(Ref<znet::Packet> packet) {
   session_->SendPacket(packet);
 }
 
-void User::OnLoginRequest(znet::ConnectionSession& session, Ref<LoginRequestPacket> packet) {
+void User::OnLoginRequest(znet::ConnectionSession& session,
+                          Ref<LoginRequestPacket> packet) {
   ZNET_LOG_DEBUG("Received login request");
   username_ = packet->username_;
   password_ = packet->password_;
@@ -58,7 +57,8 @@ void User::OnLoginRequest(znet::ConnectionSession& session, Ref<LoginRequestPack
   server_.OnEvent(event);
 }
 
-void User::OnMessage(znet::ConnectionSession& session, Ref<MessagePacket> packet) {
+void User::OnMessage(znet::ConnectionSession& session,
+                     Ref<MessagePacket> packet) {
   if (!login_complete_) {
     return;
   }

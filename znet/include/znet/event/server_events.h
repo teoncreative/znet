@@ -31,7 +31,8 @@ class ServerClientConnectedEvent : public Event {
 
 class ServerClientDisconnectedEvent : public Event {
  public:
-  ServerClientDisconnectedEvent(Ref<ServerSession> session) : session_(session) {}
+  ServerClientDisconnectedEvent(Ref<ServerSession> session)
+      : session_(session) {}
 
   Ref<ServerSession> session() { return session_; }
 

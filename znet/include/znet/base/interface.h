@@ -27,7 +27,9 @@ class Interface {
 
   void SetEventCallback(EventCallbackFn fn) { event_callback_ = std::move(fn); }
 
-  ZNET_NODISCARD EventCallbackFn event_callback() const { return event_callback_; }
+  ZNET_NODISCARD EventCallbackFn event_callback() const {
+    return event_callback_;
+  }
 
  private:
   EventCallbackFn event_callback_;

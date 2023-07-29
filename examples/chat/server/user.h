@@ -11,8 +11,8 @@
 
 #pragma once
 
-#include "packets.h"
 #include "chat_server.h"
+#include "packets.h"
 
 class User {
  public:
@@ -21,6 +21,7 @@ class User {
   void SendPacket(Ref<Packet> packet);
 
   int user_id() const { return user_id_; }
+
  private:
   ChatServer& server_;
   Ref<znet::ConnectionSession> session_;
@@ -32,6 +33,7 @@ class User {
   int user_id_;
 
  private:
-  void OnLoginRequest(ConnectionSession& session, Ref<LoginRequestPacket> packet);
+  void OnLoginRequest(ConnectionSession& session,
+                      Ref<LoginRequestPacket> packet);
   void OnMessage(ConnectionSession& session, Ref<MessagePacket> packet);
 };

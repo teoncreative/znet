@@ -24,4 +24,4 @@ void RegisterSignalHandler(SignalHandlerFn fn) {
     }
   });
 }
-}
+}  // namespace znet

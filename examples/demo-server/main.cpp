@@ -8,8 +8,8 @@
 //        http://www.apache.org/licenses/LICENSE-2.0
 //
 
-#include "znet/znet.h"
 #include "packets.h"
+#include "znet/znet.h"
 
 using namespace znet;
 

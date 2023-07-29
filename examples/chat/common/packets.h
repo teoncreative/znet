@@ -16,7 +16,7 @@ using namespace znet;
 
 class LoginRequestPacket : public Packet {
  public:
-  LoginRequestPacket() : Packet(PacketId()) { }
+  LoginRequestPacket() : Packet(PacketId()) {}
 
   std::string username_;
   std::string password_;
@@ -26,7 +26,7 @@ class LoginRequestPacket : public Packet {
 
 class LoginResponsePacket : public Packet {
  public:
-  LoginResponsePacket() : Packet(PacketId()) { }
+  LoginResponsePacket() : Packet(PacketId()) {}
 
   bool succeeded_ = false;
   std::string message_;
@@ -37,7 +37,7 @@ class LoginResponsePacket : public Packet {
 
 class ServerSettingsPacket : public Packet {
  public:
-  ServerSettingsPacket() : Packet(PacketId()) { }
+  ServerSettingsPacket() : Packet(PacketId()) {}
 
   std::vector<std::string> user_list_;
 
@@ -46,7 +46,7 @@ class ServerSettingsPacket : public Packet {
 
 class MessagePacket : public Packet {
  public:
-  MessagePacket() : Packet(PacketId()) { }
+  MessagePacket() : Packet(PacketId()) {}
 
   std::string message_;
   std::string sender_username_;
@@ -55,11 +55,13 @@ class MessagePacket : public Packet {
   static PacketId PacketId() { return 4; }
 };
 
-class LoginRequestPacketSerializerV1 : public PacketSerializer<LoginRequestPacket> {
+class LoginRequestPacketSerializerV1
+    : public PacketSerializer<LoginRequestPacket> {
  public:
   LoginRequestPacketSerializerV1() : PacketSerializer<LoginRequestPacket>() {}
 
-  Ref<Buffer> Serialize(Ref<LoginRequestPacket> packet, Ref<Buffer> buffer) override {
+  Ref<Buffer> Serialize(Ref<LoginRequestPacket> packet,
+                        Ref<Buffer> buffer) override {
     buffer->WriteString(packet->username_);
     buffer->WriteString(packet->password_);
     return buffer;
@@ -73,11 +75,13 @@ class LoginRequestPacketSerializerV1 : public PacketSerializer<LoginRequestPacke
   }
 };
 
-class LoginResponsePacketSerializerV1 : public PacketSerializer<LoginResponsePacket> {
+class LoginResponsePacketSerializerV1
+    : public PacketSerializer<LoginResponsePacket> {
  public:
   LoginResponsePacketSerializerV1() : PacketSerializer<LoginResponsePacket>() {}
 
-  Ref<Buffer> Serialize(Ref<LoginResponsePacket> packet, Ref<Buffer> buffer) override {
+  Ref<Buffer> Serialize(Ref<LoginResponsePacket> packet,
+                        Ref<Buffer> buffer) override {
     buffer->WriteBool(packet->succeeded_);
     buffer->WriteString(packet->message_);
     buffer->WriteInt(packet->user_id_);
@@ -93,12 +97,14 @@ class LoginResponsePacketSerializerV1 : public PacketSerializer<LoginResponsePac
   }
 };
 
-
-class ServerSettingsPacketSerializerV1 : public PacketSerializer<ServerSettingsPacket> {
+class ServerSettingsPacketSerializerV1
+    : public PacketSerializer<ServerSettingsPacket> {
  public:
-  ServerSettingsPacketSerializerV1() : PacketSerializer<ServerSettingsPacket>() {}
+  ServerSettingsPacketSerializerV1()
+      : PacketSerializer<ServerSettingsPacket>() {}
 
-  Ref<Buffer> Serialize(Ref<ServerSettingsPacket> packet, Ref<Buffer> buffer) override {
+  Ref<Buffer> Serialize(Ref<ServerSettingsPacket> packet,
+                        Ref<Buffer> buffer) override {
     return buffer;
   }
 
@@ -112,7 +118,8 @@ class MessagePacketSerializerV1 : public PacketSerializer<MessagePacket> {
  public:
   MessagePacketSerializerV1() : PacketSerializer<MessagePacket>() {}
 
-  Ref<Buffer> Serialize(Ref<MessagePacket> packet, Ref<Buffer> buffer) override {
+  Ref<Buffer> Serialize(Ref<MessagePacket> packet,
+                        Ref<Buffer> buffer) override {
     buffer->WriteString(packet->message_);
     buffer->WriteString(packet->sender_username_);
     buffer->WriteInt(packet->user_id_);

@@ -17,13 +17,15 @@
 // Resolve which function signature macro will be used. Note that this only
 // is resolved when the (pre)compiler starts, so the syntax highlighting
 // could mark the wrong one in your editor!
-#if defined(__GNUC__) || (defined(__MWERKS__) && (__MWERKS__ >= 0x3000)) || (defined(__ICC) && (__ICC >= 600)) || defined(__ghs__)
+#if defined(__GNUC__) || (defined(__MWERKS__) && (__MWERKS__ >= 0x3000)) || \
+    (defined(__ICC) && (__ICC >= 600)) || defined(__ghs__)
 #define ZNET_FUNC_SIGN __PRETTY_FUNCTION__
 #elif defined(__DMC__) && (__DMC__ >= 0x810)
 #define ZNET_FUNC_SIGN __PRETTY_FUNCTION__
 #elif (defined(__FUNCSIG__) || (_MSC_VER))
 #define ZNET_FUNC_SIGN __FUNCSIG__
-#elif (defined(__INTEL_COMPILER) && (__INTEL_COMPILER >= 600)) || (defined(__IBMCPP__) && (__IBMCPP__ >= 500))
+#elif (defined(__INTEL_COMPILER) && (__INTEL_COMPILER >= 600)) || \
+    (defined(__IBMCPP__) && (__IBMCPP__ >= 500))
 #define ZNET_FUNC_SIGN __FUNCTION__
 #elif defined(__BORLANDC__) && (__BORLANDC__ >= 0x550)
 #define ZNET_FUNC_SIGN __FUNC__
@@ -43,32 +45,37 @@
 
 #define ZNET_LOG_LEVEL ZNET_LOG_LEVEL_DEBUG
 
-#define ZNET_PRINTFN(fmsg, func, msg, args...) fmt::print(fmsg, func, fmt::format(msg, ##args))
+#define ZNET_PRINTFN(fmsg, func, msg, args...) \
+  fmt::print(fmsg, func, fmt::format(msg, ##args))
 
 #if ZNET_LOG_LEVEL <= ZNET_LOG_LEVEL_DEBUG
 #define ZNET_LOG_DEBUG(msg, args...)                                    \
-  ZNET_PRINTFN("\x1b[44m[debug]\x1b[0m \x1b[35m{}: \x1b[0m{}\x1b[0m\n", ZNET_FUNC_SIGN, msg, ##args)
+  ZNET_PRINTFN("\x1b[44m[debug]\x1b[0m \x1b[35m{}: \x1b[0m{}\x1b[0m\n", \
+               ZNET_FUNC_SIGN, msg, ##args)
 #else
 #define ZNET_LOG_DEBUG(msg, args...)
 #endif
 
 #if ZNET_LOG_LEVEL <= ZNET_LOG_LEVEL_INFO
 #define ZNET_LOG_INFO(msg, args...)                                     \
-  ZNET_PRINTFN("\x1b[42m[info ]\x1b[0m \x1b[35m{}: \x1b[0m{}\x1b[0m\n", ZNET_FUNC_SIGN, msg, ##args)
+  ZNET_PRINTFN("\x1b[42m[info ]\x1b[0m \x1b[35m{}: \x1b[0m{}\x1b[0m\n", \
+               ZNET_FUNC_SIGN, msg, ##args)
 #else
 #define ZNET_LOG_INFO(msg, args...)
 #endif
 
 #if ZNET_LOG_LEVEL <= ZNET_LOG_LEVEL_WARN
 #define ZNET_LOG_WARN(msg, args...)                                      \
-  ZNET_PRINTFN("\x1b[41m[warn ]\x1b[0m \x1b[35m{}: \x1b[31m{}\x1b[0m\n", ZNET_FUNC_SIGN, msg, ##args)
+  ZNET_PRINTFN("\x1b[41m[warn ]\x1b[0m \x1b[35m{}: \x1b[31m{}\x1b[0m\n", \
+               ZNET_FUNC_SIGN, msg, ##args)
 #else
 #define ZNET_LOG_WARN(msg, args...)
 #endif
 
 #if ZNET_LOG_LEVEL <= ZNET_LOG_LEVEL_ERROR
-#define ZNET_LOG_ERROR(msg, args...)                                          \
-  ZNET_PRINTFN("\x1b[41m[error]\x1b[0m \x1b[35m{}: \x1b[31m{}\x1b[0m\n", ZNET_FUNC_SIGN, msg, ##args)
+#define ZNET_LOG_ERROR(msg, args...)                                     \
+  ZNET_PRINTFN("\x1b[41m[error]\x1b[0m \x1b[35m{}: \x1b[31m{}\x1b[0m\n", \
+               ZNET_FUNC_SIGN, msg, ##args)
 #else
 #define ZNET_LOG_ERROR(msg, args...)
 #endif

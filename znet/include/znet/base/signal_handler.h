@@ -24,11 +24,11 @@ enum Signal {
   kSignalTrap = SIGTRAP,
 #endif
   kSignalAbort = SIGABRT,
-#if  (defined(_POSIX_C_SOURCE) && !defined(_DARWIN_C_SOURCE))
+#if (defined(_POSIX_C_SOURCE) && !defined(_DARWIN_C_SOURCE))
   kSignalPoll = SIGPOLL,
-#elif !defined(TARGET_WIN)   /* (!_POSIX_C_SOURCE || _DARWIN_C_SOURCE) */
+#elif !defined(TARGET_WIN) /* (!_POSIX_C_SOURCE || _DARWIN_C_SOURCE) */
   kSignalEMT = SIGEMT,
-#endif  /* (!_POSIX_C_SOURCE || _DARWIN_C_SOURCE) */
+#endif                     /* (!_POSIX_C_SOURCE || _DARWIN_C_SOURCE) */
   kSignalFPE = SIGFPE,
   kSignalSegFault = SIGSEGV,
   kSignalTermination = SIGTERM,
@@ -45,14 +45,14 @@ enum Signal {
   kSignalChild = SIGCHLD,
   kSignalTTIN = SIGTTIN,
   kSignalTTOU = SIGTTOU,
-#if  (!defined(_POSIX_C_SOURCE) || defined(_DARWIN_C_SOURCE))
+#if (!defined(_POSIX_C_SOURCE) || defined(_DARWIN_C_SOURCE))
   kSignalIO = SIGIO,
 #endif
   kSignalXCPU = SIGXCPU,
   kSignalXFSZ = SIGXFSZ,
   kSignalVirtualAlarm = SIGVTALRM,
   kSignalProfilingAlarm = SIGPROF,
-#if  (!defined(_POSIX_C_SOURCE) || defined(_DARWIN_C_SOURCE))
+#if (!defined(_POSIX_C_SOURCE) || defined(_DARWIN_C_SOURCE))
   kSignalWindowSize = SIGWINCH,
   kSignalInfo = SIGINFO,
 #endif
@@ -65,4 +65,4 @@ typedef std::function<bool(Signal)>(SignalHandlerFn);
 
 void RegisterSignalHandler(SignalHandlerFn fn);
 
-}
+}  // namespace znet

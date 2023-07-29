@@ -21,6 +21,7 @@ template <typename T,
 class PacketSerializer {
  public:
   PacketSerializer() : packet_id_(T::PacketId()) {}
+
   PacketSerializer(PacketId packet_id) : packet_id_(packet_id) {}
 
   virtual Ref<Buffer> Serialize(Ref<T> packet, Ref<Buffer> buffer) {

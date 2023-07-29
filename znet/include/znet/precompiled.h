@@ -11,16 +11,16 @@
 #pragma once
 
 #include <any>
+#include <bit>
+#include <cassert>
+#include <csignal>
+#include <functional>
 #include <iostream>
 #include <sstream>
 #include <string>
 #include <typeindex>
 #include <unordered_map>
 #include <utility>
-#include <cassert>
-#include <bit>
-#include <functional>
-#include <csignal>
 
 #ifdef __APPLE__
 #define TARGET_APPLE

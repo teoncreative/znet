@@ -60,7 +60,7 @@ int main() {
   // If connection is successful, this function will block the flow
   // of the program until it disconnects.
   if (!client.Connect()) {
-    return 1; // Failed to connect
+    return 1;  // Failed to connect
   }
 
   // Connection was successful and completed.

@@ -15,8 +15,7 @@ namespace znet {
 
 ClientSession::ClientSession(Ref<InetAddress> local_address,
                              Ref<InetAddress> remote_address, SocketType socket)
-    : ConnectionSession(local_address, remote_address),
-      socket_(socket) {
+    : ConnectionSession(local_address, remote_address), socket_(socket) {
   is_alive_ = true;
   memset(&buffer_, 0, MAX_BUFFER_SIZE);
 }
@@ -30,7 +29,10 @@ void ClientSession::Process() {
   data_size_ = recv(socket_, buffer_, sizeof(buffer_), 0);
   if (data_size_ > MAX_BUFFER_SIZE) {
     Close();
-    ZNET_LOG_ERROR("Received data bigger than maximum buffer size (rx: {}, max: {}), closing connection!", data_size_, MAX_BUFFER_SIZE);
+    ZNET_LOG_ERROR(
+        "Received data bigger than maximum buffer size (rx: {}, max: {}), "
+        "closing connection!",
+        data_size_, MAX_BUFFER_SIZE);
     return;
   }
   if (data_size_ == 0) {

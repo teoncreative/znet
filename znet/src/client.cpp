@@ -46,7 +46,7 @@ void Client::Bind() {
 
 bool Client::Connect() {
   if (!server_address_ || connect(client_socket_, server_address_->handle_ptr(),
-              server_address_->addr_size()) < 0) {
+                                  server_address_->addr_size()) < 0) {
     ZNET_LOG_ERROR("Error connecting to server.");
     return false;
   }
