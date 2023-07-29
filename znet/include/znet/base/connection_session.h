@@ -17,8 +17,8 @@ class ConnectionSession {
  public:
   ConnectionSession(Ref<InetAddress> local_address,
                     Ref<InetAddress> remote_address)
-      : local_address_(std::move(local_address)),
-        remote_address_(std::move(remote_address)) {}
+      : local_address_(local_address),
+        remote_address_(remote_address) {}
 
   virtual void Process() {}
 
