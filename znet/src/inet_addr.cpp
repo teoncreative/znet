@@ -42,6 +42,9 @@ int GetDomainByInetProtocolVersion(InetProtocolVersion version) {
 }
 
 Ref<InetAddress> InetAddress::from(const std::string& ip_str, PortType port) {
+  if (ip_str.empty()) {
+    return CreateRef<InetAddressIPv4>("0.0.0.0", port);
+  }
   return CreateRef<InetAddressIPv4>(ip_str, port);
 }
 
