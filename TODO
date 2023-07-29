@@ -10,3 +10,5 @@
 - [ ] Endianness (Testing)
 - [ ] Saving packet buffer to a file
 - [ ] Async Example
+- [ ] More events
+- [ ] Better error handling
