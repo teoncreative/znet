@@ -82,18 +82,19 @@ class HandlerLayer {
   ~HandlerLayer() = default;
 
   void Handle(ConnectionSession& session, Ref<Buffer> buffer) {
-    auto packet_id = buffer->ReadInt<PacketId>();
-    bool handled = false;
-    for (const auto& item : handlers_) {
-      if (packet_id == item.first) {
-        item.second->Handle(session, buffer);
-        handled = true;
-        break;
+    while (buffer->ReadableBytes()) {
+      auto packet_id = buffer->ReadInt<PacketId>();
+      bool handled = false;
+      for (const auto& item : handlers_) {
+        if (packet_id == item.first) {
+          item.second->Handle(session, buffer);
+          handled = true;
+          break;
+        }
       }
-    }
-    if (!handled) {
-      ZNET_LOG_WARN("Received packet wasn't handled!");
-      // todo warn log
+      if (!handled) {
+        ZNET_LOG_WARN("Received packet wasn't handled!");
+      }
     }
   }
 

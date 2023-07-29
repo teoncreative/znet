@@ -29,6 +29,18 @@ class ServerClientConnectedEvent : public Event {
   Ref<ServerSession> session_;
 };
 
+class ServerClientDisconnectedEvent : public Event {
+ public:
+  ServerClientDisconnectedEvent(Ref<ServerSession> session) : session_(session) {}
+
+  Ref<ServerSession> session() { return session_; }
+
+  ZNET_EVENT_CLASS_TYPE(ServerClientDisconnected)
+  ZNET_EVENT_CLASS_CATEGORY(EventCategoryServer)
+ private:
+  Ref<ServerSession> session_;
+};
+
 class ClientConnectedToServerEvent : public Event {
  public:
   ClientConnectedToServerEvent(Ref<ClientSession> session)

@@ -45,6 +45,14 @@ class Buffer {
 
   ~Buffer() { delete[] data_; }
 
+  char ReadChar() {
+    return ReadInt<char>();
+  }
+
+  bool ReadBool() {
+    return ReadInt<bool>();
+  }
+
   template <typename T>
   T ReadInt() {
     ssize_t size = sizeof(T);
@@ -86,6 +94,8 @@ class Buffer {
   }
 
   void WriteChar(char c) { WriteInt(c); }
+
+  void WriteBool(bool b) { WriteInt(b); }
 
   template <typename T>
   void WriteInt(T c) {

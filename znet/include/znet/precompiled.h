@@ -19,6 +19,7 @@
 #include <utility>
 #include <cassert>
 #include <bit>
+#include <functional>
 
 #ifdef __APPLE__
 #define TARGET_APPLE
@@ -27,6 +28,8 @@
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <unistd.h>
+#endif
+#ifdef __WIN32__
 #endif
 
 #define ZNET_NODISCARD [[nodiscard]]

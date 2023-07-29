@@ -10,18 +10,25 @@
 
 #pragma once
 
+
 namespace znet {
 
 enum EventType {
   ServerClientConnected,    // new client connected to server
+  ServerClientDisconnected,    // new client disconnected to server
   ClientConnectedToServer,  // disconnected from server
+#ifdef USER_EVENTS
+  USER_EVENTS(),
+#endif
+  EventTypeLast
 };
 
 #define BIT(x) (1 << x)
 
 enum EventCategory {
   EventCategoryServer = BIT(0),
-  EventCategoryClient = BIT(1)
+  EventCategoryClient = BIT(1),
+  EventCategoryUser = BIT(2)
 };
 
 #undef BIT

@@ -30,6 +30,7 @@ class Client : public Interface {
   bool Connect();
   void Disconnect();
 
+  Ref<ClientSession> client_session() const { return client_session_; }
  private:
   ClientConfig config_;
   Ref<InetAddress> server_address_;

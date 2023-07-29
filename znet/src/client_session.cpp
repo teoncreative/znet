@@ -12,9 +12,10 @@
 #include "znet/logger.h"
 
 namespace znet {
+
 ClientSession::ClientSession(Ref<InetAddress> local_address,
                              Ref<InetAddress> remote_address, int socket)
-    : ConnectionSession(std::move(local_address), std::move(remote_address)),
+    : ConnectionSession(local_address, remote_address),
       socket_(socket) {
   is_alive_ = true;
   memset(&buffer_, 0, MAX_BUFFER_SIZE);

@@ -20,6 +20,7 @@ template <typename T,
           std::enable_if_t<std::is_base_of_v<Packet, T>, bool> = true>
 class PacketSerializer {
  public:
+  PacketSerializer() : packet_id_(T::PacketId()) {}
   PacketSerializer(PacketId packet_id) : packet_id_(packet_id) {}
 
   virtual Ref<Buffer> Serialize(Ref<T> packet, Ref<Buffer> buffer) {

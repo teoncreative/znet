@@ -14,6 +14,10 @@
 
 namespace znet {
 
+Server::Server() : Interface() {
+
+}
+
 Server::Server(const ServerConfig& config) : Interface(), config_(config) {
 
 }
@@ -120,6 +124,9 @@ void Server::ProcessSessions() {
   }
 
   for (auto&& key : vec) {
+    ServerClientDisconnectedEvent event{sessions_[key]};
+    event_callback()(event);
+
     ZNET_LOG_INFO("Client disconnected.");
     sessions_.erase(key);
   }
