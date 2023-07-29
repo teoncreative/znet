@@ -12,6 +12,7 @@
 
 #include <bit>
 #include "base/types.h"
+#include "logger.h"
 
 namespace znet {
 
@@ -59,7 +60,7 @@ class Buffer {
       data[i] = data_[read_cursor_ + i];
     }
     read_cursor_ += size;
-    long l;
+    T l = 0;
     memcpy(&l, data, size);
     return l;
   }

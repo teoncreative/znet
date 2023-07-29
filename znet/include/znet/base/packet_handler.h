@@ -84,7 +84,12 @@ class HandlerLayer {
   void Handle(ConnectionSession& session, Ref<Buffer> buffer) {
     while (buffer->ReadableBytes()) {
       auto packet_id = buffer->ReadInt<PacketId>();
+      if (buffer->IsFailedToRead()) {
+        ZNET_LOG_DEBUG("Read failed!");
+        break;
+      }
       bool handled = false;
+      ZNET_LOG_DEBUG("Packet: {} {}", packet_id, handlers_.size());
       for (const auto& item : handlers_) {
         if (packet_id == item.first) {
           item.second->Handle(session, buffer);
@@ -92,8 +97,11 @@ class HandlerLayer {
           break;
         }
       }
+      // For now, if it doesn't handle, it discards all the packets inside this
+      // data. We should store and use the length of each packet
       if (!handled) {
         ZNET_LOG_WARN("Received packet wasn't handled!");
+        break;
       }
     }
   }
