@@ -30,7 +30,13 @@ class Client : public Interface {
   bool Connect();
   void Disconnect();
 
-  Ref<ClientSession> client_session() const { return client_session_; }
+  ZNET_NODISCARD Ref<ClientSession> client_session() const {
+    return client_session_;
+  }
+
+  ZNET_NODISCARD Ref<InetAddress> server_address() const {
+    return server_address_;
+  }
 
  private:
   ClientConfig config_;

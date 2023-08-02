@@ -41,24 +41,24 @@ int GetDomainByInetProtocolVersion(InetProtocolVersion version) {
   return 0;
 }
 
-Ref<InetAddress> InetAddress::from(const std::string& ip_str, PortType port) {
+Scope<InetAddress> InetAddress::from(const std::string& ip_str, PortType port) {
   if (ip_str.empty()) {
-    return CreateRef<InetAddressIPv4>("0.0.0.0", port);
+    return CreateScope<InetAddressIPv4>("0.0.0.0", port);
   }
-  return CreateRef<InetAddressIPv4>(ip_str, port);
+  return CreateScope<InetAddressIPv4>(ip_str, port);
 }
 
-Ref<InetAddress> InetAddress::from(sockaddr* sock_addr) {
+Scope<InetAddress> InetAddress::from(sockaddr* sock_addr) {
   if (sock_addr->sa_family == AF_INET) {
     auto* addr = (sockaddr_in*)sock_addr;
 #ifdef TARGET_WIN
     return CreateRef<InetAddressIPv4>(addr->sin_addr, addr->sin_port);
 #else
-    return CreateRef<InetAddressIPv4>(addr->sin_addr.s_addr, addr->sin_port);
+    return CreateScope<InetAddressIPv4>(addr->sin_addr.s_addr, addr->sin_port);
 #endif
   } else if (sock_addr->sa_family == AF_INET6) {
     auto* addr = (sockaddr_in6*)sock_addr;
-    return CreateRef<InetAddressIPv6>(addr->sin6_addr, addr->sin6_port);
+    return CreateScope<InetAddressIPv6>(addr->sin6_addr, addr->sin6_port);
   }
 
 #if defined(DEBUG) && !defined(DISABLE_ASSERT_INVALID_ADDRESS_FAMILY)

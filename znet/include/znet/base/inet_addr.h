@@ -49,8 +49,8 @@ class InetAddress {
 
   ZNET_NODISCARD virtual sockaddr* handle_ptr() const { return nullptr; }
 
-  static Ref<InetAddress> from(const std::string& ip_str, PortType port);
-  static Ref<InetAddress> from(sockaddr* addr);
+  static Scope<InetAddress> from(const std::string& ip_str, PortType port);
+  static Scope<InetAddress> from(sockaddr* addr);
 
  protected:
   InetProtocolVersion ipv_;
