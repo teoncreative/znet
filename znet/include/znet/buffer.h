@@ -16,9 +16,6 @@
 
 namespace znet {
 
-// todo endian modes
-// current issue: endianness can change between computers
-// we are assuming both sides use the same memory endianness by copying things around.
 class Buffer {
  public:
   explicit Buffer(Endianness endianness = Endianness::LittleEndian) {
@@ -46,6 +43,13 @@ class Buffer {
 
   ~Buffer() { delete[] data_; }
 
+  // todo add a way to copy buffers easily
+  /**
+   * Buffer copy constructors are deleted intentionally to prevent
+   * accidental copying.
+   */
+  Buffer(const Buffer&) = delete;
+
   char ReadChar() { return ReadInt<char>(); }
 
   bool ReadBool() { return ReadInt<bool>(); }
@@ -56,8 +60,14 @@ class Buffer {
     char data[size];
     if (!CheckReadableBytes(size))
       failed_to_read_ = true;
-    for (ssize_t i = 0; i < size; i++) {
-      data[i] = data_[read_cursor_ + i];
+    if (GetSystemEndianness() == endianness_) {
+      for (size_t i = 0; i < size; i++) {
+        data[i] = data_[read_cursor_ + i];
+      }
+    } else {
+      for (size_t i = size, j = 0; i > 0; i--, j++) {
+        data[i - 1] = data_[read_cursor_ + j];
+      }
     }
     read_cursor_ += size;
     T l = 0;
@@ -70,7 +80,7 @@ class Buffer {
     if (!CheckReadableBytes(size))
       failed_to_read_ = true;
     char data[size];
-    for (int i = 0; i < size; i++) {
+    for (size_t i = 0; i < size; i++) {
       data[i] = ReadInt<char>();
     }
     return {data, size};
