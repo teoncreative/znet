@@ -89,7 +89,6 @@ class HandlerLayer {
         break;
       }
       bool handled = false;
-      ZNET_LOG_DEBUG("Packet: {} {}", packet_id, handlers_.size());
       for (const auto& item : handlers_) {
         if (packet_id == item.first) {
           item.second->Handle(session, buffer);

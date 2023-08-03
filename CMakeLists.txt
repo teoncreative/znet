@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.25)
-project(znet_parent)
+project(znet-parent)
 
 set(CMAKE_CXX_STANDARD 17)
 
