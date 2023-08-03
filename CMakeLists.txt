@@ -8,5 +8,4 @@ add_subdirectory(znet)
 add_subdirectory(examples/demo-server)
 add_subdirectory(examples/demo-client)
 add_subdirectory(examples/buffer-test)
-add_subdirectory(examples/chat)
 

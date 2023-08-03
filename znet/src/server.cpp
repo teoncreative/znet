@@ -79,12 +79,19 @@ void Server::Bind() {
   }
 #endif
 
-  bind(server_socket_, bind_address_->handle_ptr(), bind_address_->addr_size());
-  ZNET_LOG_DEBUG("Listening connections from: {}", bind_address_->readable());
+  if (bind(server_socket_, bind_address_->handle_ptr(), bind_address_->addr_size()) != 0) {
+    ZNET_LOG_DEBUG("Failed to bind: {}", bind_address_->readable());
+    exit(-1);
+  }
+  ZNET_LOG_DEBUG("Bind to: {}", bind_address_->readable());
 }
 
 void Server::Listen() {
-  listen(server_socket_, SOMAXCONN);
+  if (listen(server_socket_, SOMAXCONN) != 0) {
+    ZNET_LOG_DEBUG("Failed to listen connections from: {}", bind_address_->readable());
+    exit(-1);
+  }
+  ZNET_LOG_DEBUG("Listening connections from: {}", bind_address_->readable());
 
   is_listening_ = true;
   shutdown_complete_ = false;
@@ -104,7 +111,9 @@ void Server::Listen() {
 #ifdef TARGET_WIN
   closesocket(server_socket_);
 #else
-  close(server_socket_);
+  if (close(server_socket_) != 0) {
+    ZNET_LOG_DEBUG("Failed to close socket: {}", bind_address_->readable());
+  }
 #endif
   ZNET_LOG_DEBUG("Server shutdown complete.");
   shutdown_complete_ = true;
