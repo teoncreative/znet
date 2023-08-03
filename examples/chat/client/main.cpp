@@ -43,14 +43,8 @@ bool OnClientConnect(ClientConnectedToServerEvent& event) {
         }
         if (!packet->succeeded_) {
           std::cout << "Login was not successful!" << std::endl;
-          if (!packet->message_.empty()) {
-            std::cout << packet->message_ << std::endl << std::endl;
-          }
           session.Close();
           return true;
-        }
-        if (!packet->message_.empty()) {
-          std::cout << packet->message_ << std::endl << std::endl;
         }
         // Update the token
         user_id_ = packet->user_id_;

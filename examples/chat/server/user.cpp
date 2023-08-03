@@ -46,7 +46,6 @@ void User::OnLoginRequest(znet::ConnectionSession& session,
   // check registration
   auto login_response = CreateRef<LoginResponsePacket>();
   login_response->succeeded_ = true;
-  login_response->message_ = "Welcome to zchat!";
   login_response->user_id_ = user_id_;
   SendPacket(login_response);
   auto server_settings = CreateRef<ServerSettingsPacket>();
@@ -55,6 +54,11 @@ void User::OnLoginRequest(znet::ConnectionSession& session,
 
   UserAuthorizedEvent event{*this};
   server_.OnEvent(event);
+
+  Ref<MessagePacket> message = CreateRef<MessagePacket>();
+  message->message_ = "User " + username_ + " has joined the chat!";
+  message->sender_username_ = "SERVER";
+  server_.BroadcastPacket(message);
 }
 
 void User::OnMessage(znet::ConnectionSession& session,

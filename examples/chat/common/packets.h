@@ -29,7 +29,6 @@ class LoginResponsePacket : public Packet {
   LoginResponsePacket() : Packet(PacketId()) {}
 
   bool succeeded_ = false;
-  std::string message_;
   int user_id_;
 
   static PacketId PacketId() { return 2; }
@@ -83,7 +82,6 @@ class LoginResponsePacketSerializerV1
   Ref<Buffer> Serialize(Ref<LoginResponsePacket> packet,
                         Ref<Buffer> buffer) override {
     buffer->WriteBool(packet->succeeded_);
-    buffer->WriteString(packet->message_);
     buffer->WriteInt(packet->user_id_);
     return buffer;
   }
@@ -91,7 +89,6 @@ class LoginResponsePacketSerializerV1
   Ref<LoginResponsePacket> Deserialize(Ref<Buffer> buffer) override {
     auto packet = CreateRef<LoginResponsePacket>();
     packet->succeeded_ = buffer->ReadBool();
-    packet->message_ = buffer->ReadString();
     packet->user_id_ = buffer->ReadInt<int>();
     return packet;
   }
