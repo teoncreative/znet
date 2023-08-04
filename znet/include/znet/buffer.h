@@ -128,12 +128,17 @@ class Buffer {
   const char* data() { return data_; }
 
   ZNET_NODISCARD size_t write_cursor() const { return write_cursor_; }
+  void SetWriteCursor(size_t cursor) { write_cursor_ = cursor; }
+  ZNET_NODISCARD size_t read_cursor() const { return read_cursor_; }
 
   ZNET_NODISCARD size_t Size() const { return write_cursor_; }
 
   ZNET_NODISCARD ssize_t ReadableBytes() const {
     return write_cursor_ - read_cursor_;
   }
+
+  void SkipRead(size_t size) { read_cursor_ += size; }
+  void SkipWrite(size_t size) { write_cursor_ += size; }
 
   /**
    * @return true if previous read call was failed and clears the value.

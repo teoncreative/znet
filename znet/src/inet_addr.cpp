@@ -41,6 +41,7 @@ int GetDomainByInetProtocolVersion(InetProtocolVersion version) {
   return 0;
 }
 
+// todo address validation and ipv6 support
 Scope<InetAddress> InetAddress::from(const std::string& ip_str, PortType port) {
   if (ip_str.empty()) {
     return CreateScope<InetAddressIPv4>("0.0.0.0", port);

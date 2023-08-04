@@ -64,9 +64,21 @@ class PacketHandler : public PacketHandlerBase {
   Ref<Buffer> Serialize(ConnectionSession& session,
                         Ref<Packet> packet) override {
     Ref<Buffer> buffer = CreateRef<Buffer>();
-    buffer->WriteInt(packet->id());
-    return serializer_->Serialize(std::static_pointer_cast<PacketType>(packet),
+    buffer->WriteInt(packet_id());
+    size_t write_cursor = buffer->write_cursor();
+    buffer->WriteInt<size_t>(0);
+    auto ptr = buffer.get();
+    buffer = serializer_->Serialize(std::static_pointer_cast<PacketType>(packet),
                                   buffer);
+    // Serializer can change the buffer, so we need to check if it changed.
+    if (ptr == buffer.get()) {
+      size_t full_size = buffer->write_cursor();
+      size_t size = full_size - write_cursor;
+      buffer->SetWriteCursor(write_cursor);
+      buffer->WriteInt(size);
+      buffer->SetWriteCursor(full_size);
+    }
+    return buffer;
   }
 
   PacketId packet_id() override { return serializer_->packet_id(); }
@@ -84,10 +96,12 @@ class HandlerLayer {
   void Handle(ConnectionSession& session, Ref<Buffer> buffer) {
     while (buffer->ReadableBytes()) {
       auto packet_id = buffer->ReadInt<PacketId>();
+      auto size = buffer->ReadInt<size_t>();
       if (buffer->IsFailedToRead()) {
-        ZNET_LOG_DEBUG("Read failed!");
+        ZNET_LOG_DEBUG("Reading packet header failed, dropping buffer!");
         break;
       }
+      size_t read_cursor = buffer->read_cursor();
       bool handled = false;
       for (const auto& item : handlers_) {
         if (packet_id == item.first) {
@@ -96,11 +110,15 @@ class HandlerLayer {
           break;
         }
       }
-      // For now, if it doesn't handle, it discards all the packets inside this
-      // data. We should store and use the length of each packet
       if (!handled) {
-        ZNET_LOG_WARN("Received packet wasn't handled!");
-        break;
+        ZNET_LOG_WARN("Packet {} was not handled!", packet_id);
+        buffer->SkipRead(size);
+      } else {
+        size_t read_cursor_end = buffer->read_cursor();
+        size_t read_bytes = read_cursor_end - read_cursor;
+        if (read_bytes < size) {
+          ZNET_LOG_WARN("Packet {} size mismatch! Expected {}, read {}", packet_id, size, read_bytes);
+        }
       }
     }
   }
