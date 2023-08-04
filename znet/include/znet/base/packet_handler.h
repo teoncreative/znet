@@ -65,18 +65,18 @@ class PacketHandler : public PacketHandlerBase {
                         Ref<Packet> packet) override {
     Ref<Buffer> buffer = CreateRef<Buffer>();
     buffer->WriteInt(packet_id());
-    size_t write_cursor = buffer->write_cursor();
     buffer->WriteInt<size_t>(0);
+    size_t write_cursor = buffer->write_cursor();
     auto ptr = buffer.get();
     buffer = serializer_->Serialize(std::static_pointer_cast<PacketType>(packet),
-                                  buffer);
+        buffer);
     // Serializer can change the buffer, so we need to check if it changed.
     if (ptr == buffer.get()) {
-      size_t full_size = buffer->write_cursor();
-      size_t size = full_size - write_cursor;
-      buffer->SetWriteCursor(write_cursor);
+      size_t write_cursor_end = buffer->write_cursor();
+      size_t size = write_cursor_end - write_cursor;
+      buffer->SetWriteCursor(write_cursor - sizeof(size_t));
       buffer->WriteInt(size);
-      buffer->SetWriteCursor(full_size);
+      buffer->SetWriteCursor(write_cursor_end);
     }
     return buffer;
   }
