@@ -159,7 +159,7 @@ class Buffer {
   }
 
   void AssureSizeIncremental(size_t additional_bytes) {
-    AssureSize(allocated_size_ + additional_bytes);
+    AssureSize(write_cursor_ + additional_bytes);
   }
 
   void AssureSize(size_t size) {
