@@ -138,7 +138,10 @@ class Buffer {
   }
 
   void SkipRead(size_t size) { read_cursor_ += size; }
-  void SkipWrite(size_t size) { write_cursor_ += size; }
+  void SkipWrite(size_t size) {
+    AssureSizeIncremental(size);
+    write_cursor_ += size;
+  }
 
   /**
    * @return true if previous read call was failed and clears the value.
