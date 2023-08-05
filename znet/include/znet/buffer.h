@@ -86,6 +86,54 @@ class Buffer {
     return {data, size};
   }
 
+  template <typename Map, typename KeyFunc, typename ValueFunc>
+  Map ReadMap(KeyFunc key_func, ValueFunc value_func) {
+    auto size = ReadInt<size_t>();
+    Map map;
+    for (int i = 0; i < size; i++) {
+      auto key = (this->*key_func)();
+      auto value = (this->*value_func)();
+      map[key] = value;
+    }
+    return map;
+  }
+
+  template <typename T, typename ValueFunc>
+  std::vector<T> ReadVector(ValueFunc value_func) {
+    auto size = ReadInt<size_t>();
+    std::vector<T> v;
+    v.resize(size);
+    for (int i = 0; i < size; i++) {
+      v[i] = (this->*value_func)();
+    }
+    return v;
+  }
+
+  template <typename T, typename ValueFunc>
+  Ref<T[]> ReadArray(ValueFunc value_func) {
+    auto size = ReadInt<size_t>();
+    Ref<T[]> array = CreateRef<T[]>(size);
+    for (int i = 0; i < size; i++) {
+      array[i] = (this->*value_func)();
+    }
+    return array;
+  }
+
+  template <typename T, size_t size, typename ValueFunc>
+  std::array<T, size> ReadArray(ValueFunc value_func) {
+    auto size_r = ReadInt<size_t>();
+    if (size_r != size) {
+      ZNET_LOG_ERROR("Array size mismatch. Expected: {}, Actual: {}", size, size_r);
+      failed_to_read_ = true;
+      return {};
+    }
+    std::array<T, size> array;
+    for (int i = 0; i < size; i++) {
+      array[i] = (this->*value_func)();
+    }
+    return array;
+  }
+
   void WriteString(const std::string& str) {
     size_t size = str.size();
     const char* data = str.data();
@@ -121,6 +169,52 @@ class Buffer {
       }
     }
     write_cursor_ += size;
+  }
+
+  template <typename KeyFunc, typename ValueFunc, typename Map>
+  void WriteMap(Map& map, KeyFunc key_func, ValueFunc value_func) {
+    size_t size = map.size();
+    WriteInt(size);
+    for (auto& [key, value] : map) {
+      (this->*key_func)(key);
+      (this->*value_func)(value);
+    }
+  }
+
+  template <typename ValueFunc, typename T>
+  void WriteVector(std::vector<T>& v, ValueFunc value_func) {
+    size_t size = v.size();
+    WriteInt(size);
+    for (auto& value : v) {
+      (this->*value_func)(value);
+    }
+  }
+
+  template <typename ValueFunc, typename T, size_t size>
+  void WriteArray(T (&v)[size], ValueFunc value_func) {
+    WriteInt(size);
+    for (int i = 0; i < size; i++) {
+      auto& value = v[i];
+      (this->*value_func)(value);
+    }
+  }
+
+  template <typename ValueFunc, typename T>
+  void WriteArray(T* v, size_t size, ValueFunc value_func) {
+    WriteInt(size);
+    for (int i = 0; i < size; i++) {
+      auto& value = v[i];
+      (this->*value_func)(value);
+    }
+  }
+
+  template <typename ValueFunc, typename T>
+  void WriteArray(Ref<T[]>& v, size_t size, ValueFunc value_func) {
+    WriteInt(size);
+    for (int i = 0; i < size; i++) {
+      auto& value = v[i];
+      (this->*value_func)(value);
+    }
   }
 
   std::string ToStr() { return {data_, write_cursor_}; }
