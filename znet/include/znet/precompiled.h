@@ -10,6 +10,19 @@
 
 #pragma once
 
+enum class Result {
+  Failure,
+  Success,
+  AlreadyStopped,
+  AlreadyClosed,
+  AlreadyDisconnected,
+  CannotBind,
+  InvalidAddress,
+  CannotCreateSocket,
+  CannotListen,
+  Completed
+};
+
 #include <any>
 #include <bit>
 #include <cassert>

@@ -26,9 +26,9 @@ class Client : public Interface {
 
   ~Client();
 
-  void Bind() override;
-  bool Connect();
-  void Disconnect();
+  Result Bind() override;
+  Result Connect();
+  Result Disconnect();
 
   ZNET_NODISCARD Ref<ClientSession> client_session() const {
     return client_session_;

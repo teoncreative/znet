@@ -20,7 +20,7 @@ class ClientSession : public ConnectionSession {
                 SocketType socket_);
 
   void Process() override;
-  void Close() override;
+  Result Close() override;
 
   bool IsAlive() override;
 

@@ -43,7 +43,10 @@ void ServerSession::Process() {
   }
 }
 
-void ServerSession::Close() {
+Result ServerSession::Close() {
+  if (!is_alive_) {
+    return Result::AlreadyClosed;
+  }
   // Close the client socket
 #ifdef TARGET_WIN
   closesocket(socket_);
@@ -51,6 +54,7 @@ void ServerSession::Close() {
   close(socket_);
 #endif
   is_alive_ = false;
+  return Result::Success;
 }
 
 bool ServerSession::IsAlive() {

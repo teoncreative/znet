@@ -21,7 +21,7 @@ class ConnectionSession {
 
   virtual void Process() {}
 
-  virtual void Close() {}
+  virtual Result Close() { return Result::Failure; }
 
   virtual bool IsAlive() { return false; }
 

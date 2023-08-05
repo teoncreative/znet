@@ -24,7 +24,7 @@ Server::~Server() {
 #endif
 }
 
-void Server::Bind() {
+Result Server::Bind() {
   bind_address_ = InetAddress::from(config_.bind_ip_, config_.bind_port_);
 
   const char option = 1;
@@ -39,7 +39,7 @@ void Server::Bind() {
   err = WSAStartup(wVersionRequested, &wsaData);
   if (err != 0) {
     ZNET_LOG_ERROR("WSAStartup error. {}", err);
-    exit(-1);
+    return Result::Failure;
   }
 #endif
   server_socket_ = socket(
@@ -59,7 +59,7 @@ void Server::Bind() {
 #else
     ZNET_LOG_ERROR("Error creating socket.");
 #endif
-    exit(-1);
+    return Result::CannotCreateSocket;
   }
 #ifdef TARGET_WIN
   u_long mode = 1;  // 1 to enable non-blocking socket
@@ -70,28 +70,29 @@ void Server::Bind() {
   if (flags < 0) {
     ZNET_LOG_ERROR("Error getting socket flags.");
     close(server_socket_);
-    return;
+    return Result::Failure;
   }
   if (fcntl(server_socket_, F_SETFL, flags | O_NONBLOCK) < 0) {
     ZNET_LOG_ERROR("Error setting socket to non-blocking mode.");
     close(server_socket_);
-    return;
+    return Result::Failure;
   }
 #endif
 
   if (bind(server_socket_, bind_address_->handle_ptr(),
            bind_address_->addr_size()) != 0) {
     ZNET_LOG_DEBUG("Failed to bind: {}", bind_address_->readable());
-    exit(-1);
+    return Result::CannotBind;
   }
   ZNET_LOG_DEBUG("Bind to: {}", bind_address_->readable());
+  return Result::Success;
 }
 
-void Server::Listen() {
+Result Server::Listen() {
   if (listen(server_socket_, SOMAXCONN) != 0) {
     ZNET_LOG_DEBUG("Failed to listen connections from: {}",
                    bind_address_->readable());
-    exit(-1);
+    return Result::CannotListen;
   }
   ZNET_LOG_DEBUG("Listening connections from: {}", bind_address_->readable());
 
@@ -119,10 +120,15 @@ void Server::Listen() {
 #endif
   ZNET_LOG_DEBUG("Server shutdown complete.");
   shutdown_complete_ = true;
+  return Result::Completed;
 }
 
-void Server::Stop() {
+Result Server::Stop() {
+  if (!is_listening_) {
+    return Result::AlreadyStopped;
+  }
   is_listening_ = false;
+  return Result::Success;
 }
 
 void Server::CheckNetwork() {

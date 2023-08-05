@@ -23,7 +23,7 @@ class Interface {
 
   virtual ~Interface() = default;
 
-  virtual void Bind() = 0;
+  virtual Result Bind() = 0;
 
   void SetEventCallback(EventCallbackFn fn) { event_callback_ = std::move(fn); }
 

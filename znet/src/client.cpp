@@ -24,7 +24,7 @@ Client::~Client() {
 #endif
 }
 
-void Client::Bind() {
+Result Client::Bind() {
 #ifdef TARGET_WIN
   WORD wVersionRequested;
   WSADATA wsaData;
@@ -34,21 +34,24 @@ void Client::Bind() {
   err = WSAStartup(wVersionRequested, &wsaData);
   if (err != 0) {
     ZNET_LOG_ERROR("WSAStartup error. {}", err);
-    exit(-1);
+    return Result::Failure;
   }
 #endif
   client_socket_ = socket(AF_INET, SOCK_STREAM, 0);
   if (client_socket_ < 0) {
     ZNET_LOG_ERROR("Error binding socket.");
-    return;
+    return Result::CannotBind;
   }
 }
 
-bool Client::Connect() {
-  if (!server_address_ || connect(client_socket_, server_address_->handle_ptr(),
+Result Client::Connect() {
+  if (!server_address_) {
+    return Result::InvalidAddress;
+  }
+  if (connect(client_socket_, server_address_->handle_ptr(),
                                   server_address_->addr_size()) < 0) {
     ZNET_LOG_ERROR("Error connecting to server.");
-    return false;
+    return Result::Failure;
   }
   const char option = 1;
 #ifdef TARGET_WIN
@@ -78,11 +81,11 @@ bool Client::Connect() {
   close(client_socket_);
 #endif
   ZNET_LOG_DEBUG("Disconnected from the server.");
-  return true;
+  return Result::Completed;
 }
 
-void Client::Disconnect() {
-  client_session_->Close();
+Result Client::Disconnect() {
+  return client_session_->Close();
 }
 
 }  // namespace znet

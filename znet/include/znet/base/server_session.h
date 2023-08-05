@@ -19,7 +19,7 @@ class ServerSession : public ConnectionSession {
                 SocketType socket);
 
   void Process() override;
-  void Close() override;
+  Result Close() override;
 
   bool IsAlive() override;
 

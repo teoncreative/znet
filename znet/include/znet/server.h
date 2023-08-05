@@ -28,9 +28,9 @@ class Server : public Interface {
 
   ~Server();
 
-  void Bind() override;
-  void Listen();
-  void Stop();
+  Result Bind() override;
+  Result Listen();
+  Result Stop();
 
   ZNET_NODISCARD bool shutdown_complete() const { return shutdown_complete_; }
 

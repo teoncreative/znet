@@ -9,6 +9,7 @@
 //
 
 #include "znet/base/client_session.h"
+#include "znet/base/interface.h"
 #include "znet/logger.h"
 
 namespace znet {
@@ -44,7 +45,10 @@ void ClientSession::Process() {
   }
 }
 
-void ClientSession::Close() {
+Result ClientSession::Close() {
+  if (!is_alive_) {
+    return Result::AlreadyDisconnected;
+  }
   // Close the client socket
   is_alive_ = false;
 #ifdef TARGET_WIN
@@ -52,6 +56,7 @@ void ClientSession::Close() {
 #else
   close(socket_);
 #endif
+  return Result::Success;
 }
 
 bool ClientSession::IsAlive() {
