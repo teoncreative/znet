@@ -123,7 +123,8 @@ class Buffer {
   std::array<T, size> ReadArray(ValueFunc value_func) {
     auto size_r = ReadInt<size_t>();
     if (size_r != size) {
-      ZNET_LOG_ERROR("Array size mismatch. Expected: {}, Actual: {}", size, size_r);
+      ZNET_LOG_ERROR("Array size mismatch. Expected: {}, Actual: {}", size,
+                     size_r);
       failed_to_read_ = true;
       return {};
     }
@@ -222,7 +223,9 @@ class Buffer {
   const char* data() { return data_; }
 
   ZNET_NODISCARD size_t write_cursor() const { return write_cursor_; }
+
   void SetWriteCursor(size_t cursor) { write_cursor_ = cursor; }
+
   ZNET_NODISCARD size_t read_cursor() const { return read_cursor_; }
 
   ZNET_NODISCARD size_t Size() const { return write_cursor_; }
@@ -232,6 +235,7 @@ class Buffer {
   }
 
   void SkipRead(size_t size) { read_cursor_ += size; }
+
   void SkipWrite(size_t size) {
     AssureSizeIncremental(size);
     write_cursor_ += size;

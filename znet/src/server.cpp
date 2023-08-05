@@ -79,7 +79,8 @@ void Server::Bind() {
   }
 #endif
 
-  if (bind(server_socket_, bind_address_->handle_ptr(), bind_address_->addr_size()) != 0) {
+  if (bind(server_socket_, bind_address_->handle_ptr(),
+           bind_address_->addr_size()) != 0) {
     ZNET_LOG_DEBUG("Failed to bind: {}", bind_address_->readable());
     exit(-1);
   }
@@ -88,7 +89,8 @@ void Server::Bind() {
 
 void Server::Listen() {
   if (listen(server_socket_, SOMAXCONN) != 0) {
-    ZNET_LOG_DEBUG("Failed to listen connections from: {}", bind_address_->readable());
+    ZNET_LOG_DEBUG("Failed to listen connections from: {}",
+                   bind_address_->readable());
     exit(-1);
   }
   ZNET_LOG_DEBUG("Listening connections from: {}", bind_address_->readable());
@@ -173,7 +175,8 @@ void Server::ProcessSessions() {
     ServerClientDisconnectedEvent event{sessions_[key]};
     event_callback()(event);
 
-    ZNET_LOG_DEBUG("Client disconnected: {}", event.session()->remote_address()->readable());
+    ZNET_LOG_DEBUG("Client disconnected: {}",
+                   event.session()->remote_address()->readable());
     sessions_.erase(key);
   }
 }

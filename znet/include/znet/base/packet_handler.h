@@ -68,8 +68,8 @@ class PacketHandler : public PacketHandlerBase {
     buffer->WriteInt<size_t>(0);
     size_t write_cursor = buffer->write_cursor();
     auto ptr = buffer.get();
-    buffer = serializer_->Serialize(std::static_pointer_cast<PacketType>(packet),
-        buffer);
+    buffer = serializer_->Serialize(
+        std::static_pointer_cast<PacketType>(packet), buffer);
     // Serializer can change the buffer, so we need to check if it changed.
     if (ptr == buffer.get()) {
       size_t write_cursor_end = buffer->write_cursor();
@@ -117,7 +117,8 @@ class HandlerLayer {
         size_t read_cursor_end = buffer->read_cursor();
         size_t read_bytes = read_cursor_end - read_cursor;
         if (read_bytes < size) {
-          ZNET_LOG_WARN("Packet {} size mismatch! Expected {}, read {}", packet_id, size, read_bytes);
+          ZNET_LOG_WARN("Packet {} size mismatch! Expected {}, read {}",
+                        packet_id, size, read_bytes);
         }
       }
     }

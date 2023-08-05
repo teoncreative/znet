@@ -12,11 +12,11 @@ set(ZNET_SOURCES
         src/client_session.cpp
         src/server.cpp
         src/client.cpp
-        )
+)
 
 add_library(znet STATIC
         ${ZNET_SOURCES}
-        )
+)
 
 target_precompile_headers(znet PUBLIC include/znet/precompiled.h)
 target_include_directories(znet PUBLIC include)
