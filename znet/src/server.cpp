@@ -26,6 +26,9 @@ Server::~Server() {
 
 Result Server::Bind() {
   bind_address_ = InetAddress::from(config_.bind_ip_, config_.bind_port_);
+  if (!bind_address_ || !bind_address_->is_valid()) {
+    return Result::InvalidAddress;
+  }
 
   const char option = 1;
 

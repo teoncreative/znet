@@ -45,8 +45,8 @@ Result Client::Bind() {
 }
 
 Result Client::Connect() {
-  if (!server_address_) {
-    return Result::InvalidAddress;
+  if (!server_address_ && !server_address_->is_valid()) {
+    return Result::InvalidRemoteAddress;
   }
   if (connect(client_socket_, server_address_->handle_ptr(),
                                   server_address_->addr_size()) < 0) {

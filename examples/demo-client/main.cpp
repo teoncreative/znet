@@ -59,7 +59,7 @@ int main() {
 
   // If connection is successful, this function will block the flow
   // of the program until it disconnects.
-  if (!client.Connect()) {
+  if (client.Connect() != Result::Completed) {
     return 1;  // Failed to connect
   }
 

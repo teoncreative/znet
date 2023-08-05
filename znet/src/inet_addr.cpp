@@ -9,23 +9,18 @@
 //
 
 #include "znet/base/inet_addr.h"
+#include <regex>
 
 namespace znet {
 
 IPv4Type ParseIPv4(const std::string& ip_str) {
-  sockaddr_in antelope{};
-  inet_pton(AF_INET, ip_str.c_str(), &(antelope.sin_addr));
-#ifdef TARGET_WIN
-  return antelope.sin_addr;
-#else
-  return antelope.sin_addr.s_addr;
-#endif
+  return inet_addr(ip_str.c_str());
 }
 
 IPv6Type ParseIPv6(const std::string& ip_str) {
-  sockaddr_in6 antelope{};
-  inet_pton(AF_INET6, ip_str.c_str(), &(antelope.sin6_addr));
-  return antelope.sin6_addr;
+  in6_addr addr{};
+  inet_pton(AF_INET6, ip_str.c_str(), &addr);
+  return addr;
 }
 
 int GetDomainByInetProtocolVersion(InetProtocolVersion version) {
@@ -41,12 +36,40 @@ int GetDomainByInetProtocolVersion(InetProtocolVersion version) {
   return 0;
 }
 
-// todo address validation and ipv6 support
+bool IsIPv4(const std::string& ip) {
+  static std::regex ipv4_regex("^((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.){3}(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$");
+  return std::regex_match(ip, ipv4_regex);
+}
+
+bool IsIPv6(const std::string& ip) {
+  static std::regex ipv6_regex("^([0-9a-fA-F]{1,4}:){7}([0-9a-fA-F]{1,4})$");
+  return std::regex_match(ip, ipv6_regex);
+}
+
+bool IsValidIPv4(const std::string& ip) {
+  in_addr_t addr = inet_addr(ip.c_str());
+  return addr != INADDR_NONE;
+}
+
+bool IsValidIPv6(const std::string& ip) {
+  in6_addr addr{};
+  return inet_pton(AF_INET6, ip.c_str(), &addr) == 1;
+}
+
 Scope<InetAddress> InetAddress::from(const std::string& ip_str, PortType port) {
-  if (ip_str.empty()) {
-    return CreateScope<InetAddressIPv4>("0.0.0.0", port);
+  if (ip_str.empty() || ip_str == "localhost") {
+#ifdef DEFAULT_IPV6
+    return CreateScope<InetAddressIPv6>(port);
+#else
+    return CreateScope<InetAddressIPv4>(port);
+#endif
   }
-  return CreateScope<InetAddressIPv4>(ip_str, port);
+  if (IsIPv4(ip_str)) {
+    return CreateScope<InetAddressIPv4>(ip_str, port);
+  } else if (IsIPv6(ip_str)) {
+    return CreateScope<InetAddressIPv6>(ip_str, port);
+  }
+  return nullptr;
 }
 
 Scope<InetAddress> InetAddress::from(sockaddr* sock_addr) {

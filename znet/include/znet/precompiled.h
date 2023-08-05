@@ -18,6 +18,7 @@ enum class Result {
   AlreadyDisconnected,
   CannotBind,
   InvalidAddress,
+  InvalidRemoteAddress,
   CannotCreateSocket,
   CannotListen,
   Completed
