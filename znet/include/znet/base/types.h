@@ -84,10 +84,4 @@ enum class Result {
   Completed
 };
 
-template<typename Enum>
-std::string GetEnumName(Enum value) {
-  static_assert(std::is_enum<Enum>::value, "Enum type required.");
-  return std::to_string(static_cast<std::underlying_type_t<Enum>>(value));
-}
-
 }  // namespace znet

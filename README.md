@@ -1,6 +1,6 @@
 # Welcome to znet
 
-znet is a modern C++17 networking library designed to provide seamless packet serialization support and platform independence, making it easy to develop robust and efficient networking applications. With a focus on simplicity and friendly code, this library empowers developers to create networking solutions with ease.
+znet is a modern C++20 networking library designed to provide seamless packet serialization support and platform independence, making it easy to develop robust and efficient networking applications. With a focus on simplicity and friendly code, this library empowers developers to create networking solutions with ease.
 
 ## Key Features
 
