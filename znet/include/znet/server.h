@@ -26,6 +26,7 @@ class Server : public Interface {
  public:
   Server();
   Server(const ServerConfig& config);
+  Server(const Server&) = delete;
 
   ~Server();
 

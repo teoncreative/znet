@@ -23,6 +23,7 @@ struct ClientConfig {
 class Client : public Interface {
  public:
   Client(const ClientConfig& config);
+  Client(const Client&) = delete;
 
   ~Client();
 
