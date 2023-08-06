@@ -11,8 +11,8 @@
 #pragma once
 
 enum class Result {
-  Failure,
   Success,
+  Failure,
   AlreadyStopped,
   AlreadyClosed,
   AlreadyDisconnected,
