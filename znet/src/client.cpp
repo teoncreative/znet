@@ -85,6 +85,9 @@ Result Client::Connect() {
 }
 
 Result Client::Disconnect() {
+  if (!client_session_) {
+    return Result::Failure;
+  }
   return client_session_->Close();
 }
 
