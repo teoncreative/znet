@@ -18,8 +18,8 @@ namespace znet {
 #ifdef TARGET_APPLE
 using SocketType = int;
 using PortType = in_port_t;
-using IPv4Type = in_addr_t;
-using IPv6Type = in6_addr_t;
+using IPv4Type = in_addr;
+using IPv6Type = in6_addr;
 #elif defined(TARGET_WIN)
 using SocketType = SOCKET;
 using PortType = USHORT;
@@ -86,11 +86,7 @@ class InetAddressIPv4 : public InetAddress {
     addr.sin_addr.s_addr = INADDR_ANY;
     addr.sin_family = AF_INET;
     addr.sin_port = htons(port);
-#ifdef TARGET_WIN
     addr.sin_addr = ip;
-#else
-    addr.sin_addr.s_addr = ip;
-#endif
 
     char src[INET_ADDRSTRLEN];
     inet_ntop(AF_INET, &addr.sin_addr, src, sizeof(src));
@@ -109,11 +105,7 @@ class InetAddressIPv4 : public InetAddress {
     addr.sin_addr.s_addr = INADDR_ANY;
     addr.sin_family = AF_INET;
     addr.sin_port = htons(port);
-#ifdef TARGET_WIN
     addr.sin_addr = ParseIPv4(str);
-#else
-    addr.sin_addr.s_addr = ParseIPv4(str);
-#endif
     char src[INET_ADDRSTRLEN];
     inet_ntop(AF_INET, &addr.sin_addr, src, sizeof(src));
     readable_ = std::string(src) + ":" + std::to_string(ntohs(addr.sin_port));

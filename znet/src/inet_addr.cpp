@@ -14,7 +14,9 @@
 namespace znet {
 
 IPv4Type ParseIPv4(const std::string& ip_str) {
-  return inet_addr(ip_str.c_str());
+  in_addr addr{};
+  inet_pton(AF_INET, ip_str.c_str(), &addr);
+  return addr;
 }
 
 IPv6Type ParseIPv6(const std::string& ip_str) {
@@ -49,8 +51,8 @@ bool IsIPv6(const std::string& ip) {
 }
 
 bool IsValidIPv4(const std::string& ip) {
-  in_addr_t addr = inet_addr(ip.c_str());
-  return addr != INADDR_NONE;
+  in_addr addr{};
+  return inet_pton(AF_INET, ip.c_str(), &addr) == 1;
 }
 
 bool IsValidIPv6(const std::string& ip) {
@@ -77,11 +79,7 @@ Scope<InetAddress> InetAddress::from(const std::string& ip_str, PortType port) {
 Scope<InetAddress> InetAddress::from(sockaddr* sock_addr) {
   if (sock_addr->sa_family == AF_INET) {
     auto* addr = (sockaddr_in*)sock_addr;
-#ifdef TARGET_WIN
-    return CreateRef<InetAddressIPv4>(addr->sin_addr, addr->sin_port);
-#else
-    return CreateScope<InetAddressIPv4>(addr->sin_addr.s_addr, addr->sin_port);
-#endif
+    return CreateScope<InetAddressIPv4>(addr->sin_addr, addr->sin_port);
   } else if (sock_addr->sa_family == AF_INET6) {
     auto* addr = (sockaddr_in6*)sock_addr;
     return CreateScope<InetAddressIPv6>(addr->sin6_addr, addr->sin6_port);
