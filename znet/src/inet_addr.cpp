@@ -37,7 +37,9 @@ int GetDomainByInetProtocolVersion(InetProtocolVersion version) {
 }
 
 bool IsIPv4(const std::string& ip) {
-  static std::regex ipv4_regex("^((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.){3}(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$");
+  static std::regex ipv4_regex(
+      "^((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.){3}(25[0-5]|2[0-4][0-9]|[01]"
+      "?[0-9][0-9]?)$");
   return std::regex_match(ip, ipv4_regex);
 }
 

@@ -37,6 +37,7 @@ class Server : public Interface {
   void SetTicksPerSecond(int tps);
 
   ZNET_NODISCARD bool shutdown_complete() const { return shutdown_complete_; }
+
   ZNET_NODISCARD int tps() const { return tps_; }
 
  private:

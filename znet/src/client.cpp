@@ -49,7 +49,7 @@ Result Client::Connect() {
     return Result::InvalidRemoteAddress;
   }
   if (connect(client_socket_, server_address_->handle_ptr(),
-                                  server_address_->addr_size()) < 0) {
+              server_address_->addr_size()) < 0) {
     ZNET_LOG_ERROR("Error connecting to server.");
     return Result::Failure;
   }

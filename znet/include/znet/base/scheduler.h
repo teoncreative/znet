@@ -34,6 +34,7 @@ class Scheduler {
   void End();
 
   void Wait();
+
  private:
   static void PreciseSleep(Duration duration);
 
@@ -42,5 +43,4 @@ class Scheduler {
   Duration delta_time_;
   Duration target_delta_time_;
   int tps_;
-
 };
