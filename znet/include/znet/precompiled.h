@@ -36,6 +36,7 @@
 #endif
 #if defined(_WIN32) || defined(__WIN32__) || defined(WIN32)
 #define TARGET_WIN
+#define NOMINMAX
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #include <cstdio>
