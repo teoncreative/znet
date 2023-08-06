@@ -10,6 +10,8 @@
 
 #pragma once
 
+//#define ZNET_PREFER_STD_SLEEP
+
 #include <any>
 #include <bit>
 #include <cassert>
@@ -21,6 +23,8 @@
 #include <typeindex>
 #include <unordered_map>
 #include <utility>
+
+#include <fcntl.h>
 
 #ifdef __APPLE__
 #define TARGET_APPLE

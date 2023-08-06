@@ -9,7 +9,7 @@
 //
 
 #include "znet/server.h"
-#include <fcntl.h>  // For fcntl
+#include "znet/base/scheduler.h"
 #include "znet/event/server_events.h"
 
 namespace znet {
@@ -103,8 +103,12 @@ Result Server::Listen() {
   shutdown_complete_ = false;
 
   while (is_listening_) {
+    std::scoped_lock lock(mutex_);
+    scheduler_.Start();
     CheckNetwork();
     ProcessSessions();
+    scheduler_.End();
+    scheduler_.Wait();
   }
 
   ZNET_LOG_DEBUG("Shutting down server!");
@@ -127,11 +131,19 @@ Result Server::Listen() {
 }
 
 Result Server::Stop() {
+  std::scoped_lock lock(mutex_);
   if (!is_listening_) {
     return Result::AlreadyStopped;
   }
   is_listening_ = false;
   return Result::Success;
+}
+
+void Server::SetTicksPerSecond(int tps) {
+  std::scoped_lock lock(mutex_);
+  tps = std::max(tps, 1);
+  tps_ = tps;
+  scheduler_.SetTicksPerSecond(tps);
 }
 
 void Server::CheckNetwork() {

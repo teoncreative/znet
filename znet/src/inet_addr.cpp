@@ -58,7 +58,7 @@ bool IsValidIPv6(const std::string& ip) {
 
 Scope<InetAddress> InetAddress::from(const std::string& ip_str, PortType port) {
   if (ip_str.empty() || ip_str == "localhost") {
-#ifdef DEFAULT_IPV6
+#ifdef ZNET_DEFAULT_IPV6
     return CreateScope<InetAddressIPv6>(port);
 #else
     return CreateScope<InetAddressIPv4>(port);

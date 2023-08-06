@@ -13,6 +13,7 @@
 #include "base/interface.h"
 #include "base/server_session.h"
 #include "logger.h"
+#include "znet/base/scheduler.h"
 
 namespace znet {
 
@@ -32,18 +33,24 @@ class Server : public Interface {
   Result Listen();
   Result Stop();
 
+  void SetTicksPerSecond(int tps);
+
   ZNET_NODISCARD bool shutdown_complete() const { return shutdown_complete_; }
+  ZNET_NODISCARD int tps() const { return tps_; }
 
  private:
   void CheckNetwork();
   void ProcessSessions();
 
  private:
+  std::mutex mutex_;
   ServerConfig config_;
   Ref<InetAddress> bind_address_;
   bool is_listening_ = false;
   SocketType server_socket_ = -1;
   bool shutdown_complete_ = false;
+  int tps_ = 120;
+  Scheduler scheduler_{tps_};
 
   std::unordered_map<Ref<InetAddress>, Ref<ServerSession>> sessions_;
 };

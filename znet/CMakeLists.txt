@@ -5,6 +5,7 @@ set(CMAKE_CXX_STANDARD 20)
 
 
 set(ZNET_SOURCES
+        src/scheduler.cpp
         src/signal_handler.cpp
         src/inet_addr.cpp
         src/connection_session.cpp
