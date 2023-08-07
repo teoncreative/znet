@@ -43,7 +43,9 @@
 #define ZNET_LOG_LEVEL_ERROR 3
 #define ZNET_LOG_LEVEL_NONE 4
 
+#ifndef ZNET_LOG_LEVEL
 #define ZNET_LOG_LEVEL ZNET_LOG_LEVEL_DEBUG
+#endif
 
 #define ZNET_PRINTFN(fmsg, func, msg, args...) \
   fmt::print(fmsg, func, fmt::format(msg, ##args))
