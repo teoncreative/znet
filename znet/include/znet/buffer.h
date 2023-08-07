@@ -140,14 +140,8 @@ class Buffer {
     const char* data = str.data();
     AssureSizeIncremental(size + sizeof(size));
     WriteInt(size);
-    if (GetSystemEndianness() == endianness_) {
-      for (size_t i = 0; i < size; i++) {
-        WriteInt(data[i]);
-      }
-    } else {
-      for (size_t i = size; i > 0; i--) {
-        WriteInt(data[i - 1]);
-      }
+    for (size_t i = 0; i < size; i++) {
+      WriteInt(data[i]);
     }
   }
 
@@ -165,8 +159,8 @@ class Buffer {
         data_[write_cursor_ + i] = pt[i];
       }
     } else {
-      for (size_t i = size; i > 0; i--) {
-        data_[write_cursor_ + i - 1] = pt[i - 1];
+      for (size_t i = size, j = 0; i > 0; i--, j++) {
+        data_[write_cursor_ + j] = pt[i - 1];
       }
     }
     write_cursor_ += size;
@@ -217,6 +211,8 @@ class Buffer {
       (this->*value_func)(value);
     }
   }
+
+  void SetEndianness(Endianness endianness) { endianness_ = endianness; }
 
   std::string ToStr() { return {data_, write_cursor_}; }
 

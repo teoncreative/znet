@@ -21,4 +21,12 @@ int main() {
   ZNET_LOG_INFO("|{}|", buffer->ToStr());
   ZNET_LOG_INFO("|{}|", buffer->ReadString());
   ZNET_LOG_INFO("|{}|", buffer->ReadInt<int64_t>());
+
+  auto buffer2 = CreateRef<Buffer>(Endianness::BigEndian);
+  buffer2->WriteString("Hello World!");
+  buffer2->WriteInt(asd);
+
+  ZNET_LOG_INFO("|{}|", buffer2->ToStr());
+  ZNET_LOG_INFO("|{}|", buffer2->ReadString());
+  ZNET_LOG_INFO("|{}|", buffer2->ReadInt<int64_t>());
 }
