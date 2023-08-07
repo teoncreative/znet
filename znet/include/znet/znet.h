@@ -16,6 +16,7 @@
 #include "base/packet_serializer.h"
 #include "base/signal_handler.h"
 #include "base/types.h"
+#include "base/util.h"
 #include "buffer.h"
 #include "client.h"
 #include "event/event.h"

@@ -13,6 +13,7 @@
 #include <bit>
 #include "base/types.h"
 #include "logger.h"
+#include "znet/base/util.h"
 
 namespace znet {
 
@@ -214,7 +215,20 @@ class Buffer {
 
   void SetEndianness(Endianness endianness) { endianness_ = endianness; }
 
-  std::string ToStr() { return {data_, write_cursor_}; }
+  std::string Dump(int width = 2, int wrap = 8) {
+    std::string str;
+    for (int i = 0; i < write_cursor_; i++) {
+      if (i != 0) {
+        if (i % wrap == 0) {
+          str += "\n";
+        } else {
+          str += " ";
+        }
+      }
+      str += ToHex((uint8_t)data_[i], width);
+    }
+    return str;
+  }
 
   const char* data() { return data_; }
 

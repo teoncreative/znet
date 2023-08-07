@@ -30,14 +30,6 @@ namespace znet {
 #ifndef MAX_BUFFER_SIZE
 #define MAX_BUFFER_SIZE 4096
 #endif
-#define ZNET_BIND_FN(fn)                                    \
-  [this](auto&&... args) -> decltype(auto) {                \
-    return this->fn(std::forward<decltype(args)>(args)...); \
-  }
-#define ZNET_BIND_GLOBAL_FN(fn)                       \
-  [](auto&&... args) -> decltype(auto) {              \
-    return fn(std::forward<decltype(args)>(args)...); \
-  }
 
 template <typename T>
 using Weak = std::weak_ptr<T>;
@@ -83,5 +75,6 @@ enum class Result {
   CannotListen,
   Completed
 };
+
 
 }  // namespace znet
