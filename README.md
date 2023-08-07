@@ -6,9 +6,9 @@ znet is a modern C++20 networking library designed to provide seamless packet se
 
 - **Packet Serialization Support**: znet comes with built-in packet serialization support, allowing you to easily encode and decode packets between peers.
 
-- **Platform Independence**: The library is carefully designed to be platform-independent, ensuring that your networking code can be effortlessly deployed across various operating systems.
+- **Platform Independence**: znet currently supports Windows and macOS, with Linux support coming soon.
 
-- **Modern C++17**: Leveraging the power of C++17, znet employs the latest language features to deliver an intuitive and elegant development experience.
+- **Modern C++20**: Leveraging the power of C++20, znet employs the latest language features to deliver an intuitive and elegant development experience.
 
 - **Ease of Use**: Simple and intuitive design make it a breeze to integrate znet into your projects, regardless of your level of networking expertise.
 
