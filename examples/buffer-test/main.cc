@@ -39,12 +39,35 @@ void TestBuffer(Ref<Buffer> buffer, int test_no) {
   ZNET_LOG_INFO("size: {}", buffer->size());
   ZNET_LOG_INFO("capacity: {}", buffer->capacity());
   ZNET_LOG_INFO("mem_allocations: {}", buffer->mem_allocations());
-  ZNET_LOG_INFO("Buffer test {} passed!", test_no);
+  ZNET_LOG_INFO("buffer test {} passed!", test_no);
+}
+
+void TestVarInt(Ref<Buffer> buffer, int test_no) {
+  int64_t n1 = INT64_MAX;
+  int64_t n2 = 124;
+  int64_t n3 = 258;
+
+  buffer->WriteVarInt(n1);
+  buffer->WriteVarInt(n2);
+  buffer->WriteVarInt(n3);
+
+  std::cout << buffer->Dump() << std::endl;
+  MATCH_AND_EXIT_A(buffer->ReadVarInt<int64_t>(), n1)
+  MATCH_AND_EXIT_A(buffer->ReadVarInt<int64_t>(), n2)
+  MATCH_AND_EXIT_A(buffer->ReadVarInt<int64_t>(), n3)
+
+  ZNET_LOG_INFO("size: {}", buffer->size());
+  ZNET_LOG_INFO("var-int test {} passed!", test_no);
 }
 
 int main() {
   auto buffer = CreateRef<Buffer>(Endianness::LittleEndian);
   TestBuffer(buffer, 1);
+  buffer->Reset(true);
+  TestVarInt(buffer, 1);
+
   buffer = CreateRef<Buffer>(Endianness::BigEndian);
   TestBuffer(buffer, 2);
+  buffer->Reset(true);
+  TestVarInt(buffer, 2);
 }

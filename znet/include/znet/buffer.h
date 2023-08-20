@@ -318,6 +318,17 @@ class Buffer {
     allocated_size_ = write_cursor_;
   }
 
+  void Reset(bool deallocate = false) {
+    write_cursor_ = 0;
+    read_cursor_ = 0;
+    failed_to_read_ = false;
+    if (deallocate) {
+      allocated_size_ = 0;
+      delete[] data_;
+      data_ = nullptr;
+    }
+  }
+
   void set_endianness(Endianness endianness) { endianness_ = endianness; }
 
   const char* data() { return data_; }
