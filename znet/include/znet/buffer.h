@@ -48,7 +48,7 @@ class Buffer {
     mem_allocations_ = 1;
 #endif
     data_ = new char[allocated_size_];
-    memcpy(data_, data, write_cursor_);
+    std::memcpy(data_, data, write_cursor_);
   }
 
   ~Buffer() { delete[] data_; }
@@ -69,7 +69,7 @@ class Buffer {
     mem_allocations_ = 0;
 #endif
     data_ = new char[allocated_size_];
-    memcpy(data_, buffer.data_, allocated_size_);
+    std::memcpy(data_, buffer.data_, allocated_size_);
   }
 #endif
 
@@ -96,7 +96,7 @@ class Buffer {
     }
     read_cursor_ += size;
     T l = 0;
-    memcpy(&l, data, size);
+    std::memcpy(&l, data, size);
     return l;
   }
 
@@ -104,6 +104,7 @@ class Buffer {
   T ReadVarInt() {
     uint8_t size = sizeof(T);
     char* data = new char[size];
+    std::memset(data, 0, size);
     if (!CheckReadableBytes(1)) {
       failed_to_read_ = true;
       return 0;
@@ -122,16 +123,18 @@ class Buffer {
         data[i - 1] = data_[read_cursor_ + j];
       }
     }
-    read_cursor_ += size;
+    read_cursor_ += actual_size;
     T l = 0;
-    memcpy(&l, data, size);
+    std::memcpy(&l, data, size);
     return l;
   }
 
   std::string ReadString() {
     Number auto size = ReadInt<size_t>();
-    if (!CheckReadableBytes(size))
+    if (!CheckReadableBytes(size)) {
       failed_to_read_ = true;
+      return "";
+    }
     char* data = new char[size];
     for (size_t i = 0; i < size; i++) {
       data[i] = ReadInt<char>();
@@ -226,7 +229,7 @@ class Buffer {
     uint8_t actual_size = 0;
     for (size_t i = 0; i < size; i++) {
       if (pt[i] != 0) {
-        actual_size = i;
+        actual_size = i + 1;
       }
     }
     ReserveIncremental(actual_size + 1);
@@ -309,7 +312,7 @@ class Buffer {
       return;
     }
     char* new_data = new char[write_cursor_];
-    memcpy(new_data, data_, write_cursor_);
+    std::memcpy(new_data, data_, write_cursor_);
     delete[] data_;
     data_ = new_data;
     allocated_size_ = write_cursor_;
@@ -381,7 +384,7 @@ class Buffer {
     }
     allocated_size_ = size * 2;
     char* tmp_data = new char[allocated_size_];
-    memcpy(tmp_data, data_, write_cursor_);
+    std::memcpy(tmp_data, data_, write_cursor_);
     delete[] data_;
     data_ = tmp_data;
 #ifdef ZNET_BUFFER_COUNT_MEMORY_ALLOCATIONS
