@@ -6,13 +6,13 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wvla -Werror=vla")
 
 set(ZNET_SOURCES
-        src/scheduler.cpp
-        src/signal_handler.cpp
-        src/inet_addr.cpp
-        src/server_session.cpp
-        src/client_session.cpp
-        src/server.cpp
-        src/client.cpp
+        src/scheduler.cc
+        src/signal_handler.cc
+        src/inet_addr.cc
+        src/server_session.cc
+        src/client_session.cc
+        src/server.cc
+        src/client.cc
 )
 
 add_library(znet STATIC

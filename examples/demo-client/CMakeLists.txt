@@ -3,7 +3,7 @@ project(demo-client)
 
 set(CMAKE_CXX_STANDARD 20)
 
-add_executable(demo-client main.cpp)
+add_executable(demo-client main.cc)
 target_link_libraries(demo-client PRIVATE znet)
 include_directories(../demo-common)
 

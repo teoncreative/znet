@@ -3,6 +3,6 @@ project(buffer-test)
 
 set(CMAKE_CXX_STANDARD 20)
 
-add_executable(buffer-test main.cpp)
+add_executable(buffer-test main.cc)
 target_link_libraries(buffer-test PRIVATE znet)
 
