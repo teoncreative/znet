@@ -10,10 +10,10 @@
 
 #pragma once
 
-#include "base/interface.h"
-#include "base/server_session.h"
+#include "interface.h"
+#include "server_session.h"
 #include "logger.h"
-#include "znet/base/scheduler.h"
+#include "base/scheduler.h"
 
 namespace znet {
 

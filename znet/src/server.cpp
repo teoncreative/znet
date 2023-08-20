@@ -8,9 +8,9 @@
 //        http://www.apache.org/licenses/LICENSE-2.0
 //
 
-#include "znet/server.h"
-#include "znet/base/scheduler.h"
-#include "znet/event/server_events.h"
+#include "server.h"
+#include "base/scheduler.h"
+#include "server_events.h"
 
 namespace znet {
 

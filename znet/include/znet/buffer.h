@@ -11,56 +11,80 @@
 #pragma once
 
 #include <bit>
+
 #include "base/types.h"
 #include "logger.h"
 #include "znet/base/util.h"
 
 namespace znet {
 
+// For numbers, sizeof(T) is guarantied to be less than 8 bytes, but we
+// still do the check.
+template <typename T>
+concept Number = std::is_arithmetic_v<T> && sizeof(T) <= 8;
+
 class Buffer {
  public:
   explicit Buffer(Endianness endianness = Endianness::LittleEndian) {
     failed_to_read_ = false;
     endianness_ = endianness;
-    resize_chain_count_ = 0;
     read_cursor_ = 0;
     write_cursor_ = 0;
     allocated_size_ = 0;
+#ifdef ZNET_BUFFER_COUNT_MEMORY_ALLOCATIONS
+    mem_allocations_ = 0;
+#endif
     data_ = nullptr;
-    AssureSize(0);
   }
 
   Buffer(char* data, int data_size,
          Endianness endianness = Endianness::LittleEndian) {
     failed_to_read_ = false;
     endianness_ = endianness;
-    resize_chain_count_ = 0;
     read_cursor_ = 0;
     write_cursor_ = data_size;
     allocated_size_ = data_size;
+#ifdef ZNET_BUFFER_COUNT_MEMORY_ALLOCATIONS
+    mem_allocations_ = 1;
+#endif
     data_ = new char[allocated_size_];
     memcpy(data_, data, write_cursor_);
   }
 
   ~Buffer() { delete[] data_; }
 
-  // todo add a way to copy buffers easily
-  /**
-   * Buffer copy constructors are deleted intentionally to prevent
-   * accidental copying.
-   */
+#ifdef ZNET_BUFFER_DISABLE_COPY
   Buffer(const Buffer&) = delete;
+#else
+  Buffer(const Buffer& buffer) {
+#ifdef ZNET_BUFFER_WARN_COPY
+    ZNET_LOG_WARN("Buffer copy constructor called!");
+#endif
+    endianness_ = buffer.endianness_;
+    allocated_size_ = buffer.allocated_size_;
+    write_cursor_ = 0;
+    read_cursor_ = 0;
+    failed_to_read_ = false;
+#ifdef ZNET_BUFFER_COUNT_MEMORY_ALLOCATIONS
+    mem_allocations_ = 0;
+#endif
+    data_ = new char[allocated_size_];
+    memcpy(data_, buffer.data_, allocated_size_);
+  }
+#endif
 
   char ReadChar() { return ReadInt<char>(); }
 
   bool ReadBool() { return ReadInt<bool>(); }
 
-  template <typename T>
+  template <Number T>
   T ReadInt() {
-    ssize_t size = sizeof(T);
-    char data[size];
-    if (!CheckReadableBytes(size))
+    size_t size = sizeof(T);
+    char* data = new char[size];
+    if (!CheckReadableBytes(size)) {
       failed_to_read_ = true;
+      return 0;
+    }
     if (GetSystemEndianness() == endianness_) {
       for (size_t i = 0; i < size; i++) {
         data[i] = data_[read_cursor_ + i];
@@ -76,11 +100,39 @@ class Buffer {
     return l;
   }
 
+  template <Number T>
+  T ReadVarInt() {
+    uint8_t size = sizeof(T);
+    char* data = new char[size];
+    if (!CheckReadableBytes(1)) {
+      failed_to_read_ = true;
+      return 0;
+    }
+    uint8_t actual_size = ReadChar();
+    if (!CheckReadableBytes(actual_size)) {
+      failed_to_read_ = true;
+      return 0;
+    }
+    if (GetSystemEndianness() == endianness_) {
+      for (size_t i = 0; i < actual_size; i++) {
+        data[i] = data_[read_cursor_ + i];
+      }
+    } else {
+      for (size_t i = actual_size, j = 0; i > 0; i--, j++) {
+        data[i - 1] = data_[read_cursor_ + j];
+      }
+    }
+    read_cursor_ += size;
+    T l = 0;
+    memcpy(&l, data, size);
+    return l;
+  }
+
   std::string ReadString() {
-    auto size = ReadInt<size_t>();
+    Number auto size = ReadInt<size_t>();
     if (!CheckReadableBytes(size))
       failed_to_read_ = true;
-    char data[size];
+    char* data = new char[size];
     for (size_t i = 0; i < size; i++) {
       data[i] = ReadInt<char>();
     }
@@ -89,7 +141,7 @@ class Buffer {
 
   template <typename Map, typename KeyFunc, typename ValueFunc>
   Map ReadMap(KeyFunc key_func, ValueFunc value_func) {
-    auto size = ReadInt<size_t>();
+    Number auto size = ReadInt<size_t>();
     Map map;
     for (int i = 0; i < size; i++) {
       auto key = (this->*key_func)();
@@ -101,18 +153,18 @@ class Buffer {
 
   template <typename T, typename ValueFunc>
   std::vector<T> ReadVector(ValueFunc value_func) {
-    auto size = ReadInt<size_t>();
+    Number auto size = ReadInt<size_t>();
     std::vector<T> v;
-    v.resize(size);
+    v.reserve(size);
     for (int i = 0; i < size; i++) {
-      v[i] = (this->*value_func)();
+      v.push_back((this->*value_func)());
     }
     return v;
   }
 
   template <typename T, typename ValueFunc>
   Ref<T[]> ReadArray(ValueFunc value_func) {
-    auto size = ReadInt<size_t>();
+    Number auto size = ReadInt<size_t>();
     Ref<T[]> array = CreateRef<T[]>(size);
     for (int i = 0; i < size; i++) {
       array[i] = (this->*value_func)();
@@ -122,7 +174,7 @@ class Buffer {
 
   template <typename T, size_t size, typename ValueFunc>
   std::array<T, size> ReadArray(ValueFunc value_func) {
-    auto size_r = ReadInt<size_t>();
+    Number auto size_r = ReadInt<size_t>();
     if (size_r != size) {
       ZNET_LOG_ERROR("Array size mismatch. Expected: {}, Actual: {}", size,
                      size_r);
@@ -130,7 +182,7 @@ class Buffer {
       return {};
     }
     std::array<T, size> array;
-    for (int i = 0; i < size; i++) {
+    for (size_t i = 0; i < size; i++) {
       array[i] = (this->*value_func)();
     }
     return array;
@@ -139,7 +191,7 @@ class Buffer {
   void WriteString(const std::string& str) {
     size_t size = str.size();
     const char* data = str.data();
-    AssureSizeIncremental(size + sizeof(size));
+    ReserveIncremental(size + sizeof(size));
     WriteInt(size);
     for (size_t i = 0; i < size; i++) {
       WriteInt(data[i]);
@@ -150,11 +202,11 @@ class Buffer {
 
   void WriteBool(bool b) { WriteInt(b); }
 
-  template <typename T>
+  template <Number T>
   void WriteInt(T c) {
     char* pt = reinterpret_cast<char*>(&c);
-    size_t size = sizeof(c);
-    AssureSizeIncremental(size);
+    uint8_t size = sizeof(c);
+    ReserveIncremental(size);
     if (GetSystemEndianness() == endianness_) {
       for (size_t i = 0; i < size; i++) {
         data_[write_cursor_ + i] = pt[i];
@@ -165,6 +217,30 @@ class Buffer {
       }
     }
     write_cursor_ += size;
+  }
+
+  template <Number T>
+  void WriteVarInt(T c) {
+    char* pt = reinterpret_cast<char*>(&c);
+    uint8_t size = sizeof(c);  // assume 1 byte for the size
+    uint8_t actual_size = 0;
+    for (size_t i = 0; i < size; i++) {
+      if (pt[i] != 0) {
+        actual_size = i;
+      }
+    }
+    ReserveIncremental(actual_size + 1);
+    WriteInt((uint8_t)actual_size);
+    if (GetSystemEndianness() == endianness_) {
+      for (size_t i = 0; i < actual_size; i++) {
+        data_[write_cursor_ + i] = pt[i];
+      }
+    } else {
+      for (size_t i = actual_size, j = 0; i > 0; i--, j++) {
+        data_[write_cursor_ + j] = pt[i - 1];
+      }
+    }
+    write_cursor_ += actual_size;
   }
 
   template <typename KeyFunc, typename ValueFunc, typename Map>
@@ -213,8 +289,6 @@ class Buffer {
     }
   }
 
-  void SetEndianness(Endianness endianness) { endianness_ = endianness; }
-
   std::string Dump(int width = 2, int wrap = 8) {
     std::string str;
     for (int i = 0; i < write_cursor_; i++) {
@@ -230,24 +304,47 @@ class Buffer {
     return str;
   }
 
+  void Trim() {
+    if (write_cursor_ == allocated_size_) {
+      return;
+    }
+    char* new_data = new char[write_cursor_];
+    memcpy(new_data, data_, write_cursor_);
+    delete[] data_;
+    data_ = new_data;
+    allocated_size_ = write_cursor_;
+  }
+
+  void set_endianness(Endianness endianness) { endianness_ = endianness; }
+
   const char* data() { return data_; }
 
   ZNET_NODISCARD size_t write_cursor() const { return write_cursor_; }
 
-  void SetWriteCursor(size_t cursor) { write_cursor_ = cursor; }
+  void set_write_cursor(size_t cursor) { write_cursor_ = cursor; }
 
   ZNET_NODISCARD size_t read_cursor() const { return read_cursor_; }
 
-  ZNET_NODISCARD size_t Size() const { return write_cursor_; }
+  ZNET_NODISCARD size_t size() const { return write_cursor_; }
 
-  ZNET_NODISCARD ssize_t ReadableBytes() const {
+  ZNET_NODISCARD size_t capacity() const { return allocated_size_; }
+
+  ZNET_NODISCARD ssize_t readable_bytes() const {
     return write_cursor_ - read_cursor_;
   }
+
+  ZNET_NODISCARD size_t writable_bytes() const {
+    return allocated_size_ - write_cursor_;
+  }
+
+#ifdef ZNET_BUFFER_COUNT_MEMORY_ALLOCATIONS
+  ZNET_NODISCARD size_t mem_allocations() const { return mem_allocations_; }
+#endif
 
   void SkipRead(size_t size) { read_cursor_ += size; }
 
   void SkipWrite(size_t size) {
-    AssureSizeIncremental(size);
+    ReserveIncremental(size);
     write_cursor_ += size;
   }
 
@@ -260,6 +357,38 @@ class Buffer {
     return failed_to_read;
   }
 
+  void ReserveIncremental(size_t additional_bytes) {
+    Reserve(write_cursor_ + additional_bytes);
+  }
+
+  void ReserveExact(size_t size) { Reserve(size, true); }
+
+  void Reserve(size_t size, bool exact = false) {
+    if (!data_) {
+      if (exact) {
+        allocated_size_ = size;
+      } else {
+        allocated_size_ = size * 2;
+      }
+      data_ = new char[allocated_size_];
+#ifdef ZNET_BUFFER_COUNT_MEMORY_ALLOCATIONS
+      mem_allocations_++;
+#endif
+      return;
+    }
+    if (allocated_size_ >= size) {
+      return;
+    }
+    allocated_size_ = size * 2;
+    char* tmp_data = new char[allocated_size_];
+    memcpy(tmp_data, data_, write_cursor_);
+    delete[] data_;
+    data_ = tmp_data;
+#ifdef ZNET_BUFFER_COUNT_MEMORY_ALLOCATIONS
+    mem_allocations_++;
+#endif
+  }
+
  private:
   ZNET_NODISCARD bool CheckReadableBytes(size_t required) const {
     size_t bytes_left = write_cursor_ - read_cursor_;
@@ -269,38 +398,14 @@ class Buffer {
     return bytes_left >= required;
   }
 
-  void AssureSizeIncremental(size_t additional_bytes) {
-    AssureSize(write_cursor_ + additional_bytes);
-  }
-
-  void AssureSize(size_t size) {
-    if (!data_) {
-      allocated_size_ = size;
-      data_ = new char[allocated_size_];
-      return;
-    }
-    if (allocated_size_ >= size) {
-      resize_chain_count_ = 0;
-      return;
-    }
-    resize_chain_count_++;
-    size_t additional_size = 16;
-    if (resize_chain_count_ > 2) {
-      additional_size += resize_chain_count_ * 16;
-    }
-    allocated_size_ = size + additional_size;
-    char* tmp_data = new char[allocated_size_];
-    memcpy(tmp_data, data_, write_cursor_);
-    delete[] data_;
-    data_ = tmp_data;
-  }
-
   Endianness endianness_;
   size_t allocated_size_;
   size_t write_cursor_;
   size_t read_cursor_;
   char* data_;
-  int resize_chain_count_;
   bool failed_to_read_;
+#ifdef ZNET_BUFFER_COUNT_MEMORY_ALLOCATIONS
+  size_t mem_allocations_;
+#endif
 };
 }  // namespace znet

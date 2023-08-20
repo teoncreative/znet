@@ -8,7 +8,8 @@
 //        http://www.apache.org/licenses/LICENSE-2.0
 //
 
-#include "znet/base/inet_addr.h"
+#include "base/inet_addr.h"
+
 #include <regex>
 
 namespace znet {

@@ -45,8 +45,7 @@ class InetAddress {
   InetAddress(InetProtocolVersion ipv, std::string readable)
       : ipv_(ipv), readable_(std::move(readable)) {}
 
-  // this check is important!
-  operator bool() const { return this && is_valid(); }
+  operator bool() const { return is_valid(); }
 
   ZNET_NODISCARD virtual bool is_valid() const { return false; }
 

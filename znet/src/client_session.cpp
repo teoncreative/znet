@@ -8,9 +8,8 @@
 //        http://www.apache.org/licenses/LICENSE-2.0
 //
 
-#include "znet/base/client_session.h"
-#include "znet/base/interface.h"
-#include "znet/logger.h"
+#include "client_session.h"
+#include "logger.h"
 
 namespace znet {
 
@@ -71,7 +70,7 @@ void ClientSession::SendPacket(Ref<Packet> packet) {
 }
 
 void ClientSession::SendRaw(Ref<Buffer> buffer) {
-  if (send(socket_, buffer->data(), buffer->Size(), 0) < 0) {
+  if (send(socket_, buffer->data(), buffer->size(), 0) < 0) {
     ZNET_LOG_ERROR("Error sending data to the server.");
     return;
   }

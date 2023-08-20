@@ -10,16 +10,16 @@
 
 #pragma once
 
-#include "base/interface.h"
+#include "interface.h"
 #include "base/packet.h"
-#include "base/packet_handler.h"
-#include "base/packet_serializer.h"
+#include "packet_handler.h"
+#include "packet_serializer.h"
 #include "base/signal_handler.h"
 #include "base/types.h"
 #include "base/util.h"
 #include "buffer.h"
 #include "client.h"
 #include "event/event.h"
-#include "event/server_events.h"
+#include "server_events.h"
 #include "logger.h"
 #include "server.h"

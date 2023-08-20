@@ -12,7 +12,7 @@
 
 #include <utility>
 
-#include "../event/event.h"
+#include "event/event.h"
 #include "packet_handler.h"
 
 namespace znet {

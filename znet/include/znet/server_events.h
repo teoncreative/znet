@@ -11,9 +11,9 @@
 
 #pragma once
 
-#include "../base/client_session.h"
-#include "../base/server_session.h"
-#include "event.h"
+#include "client_session.h"
+#include "server_session.h"
+#include "event/event.h"
 
 namespace znet {
 

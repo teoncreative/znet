@@ -8,10 +8,12 @@
 //        http://www.apache.org/licenses/LICENSE-2.0
 //
 
-#include "znet/client.h"
+#include "client.h"
+
 #include <fcntl.h>  // For fcntl
-#include "znet/event/server_events.h"
-#include "znet/logger.h"
+
+#include "server_events.h"
+#include "logger.h"
 
 namespace znet {
 Client::Client(const ClientConfig& config) : config_(config) {
@@ -42,6 +44,7 @@ Result Client::Bind() {
     ZNET_LOG_ERROR("Error binding socket.");
     return Result::CannotBind;
   }
+  return Result::Success;
 }
 
 Result Client::Connect() {

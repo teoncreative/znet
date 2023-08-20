@@ -10,9 +10,9 @@
 
 #pragma once
 
-#include "packet.h"
+#include "base/packet.h"
 #include "packet_serializer.h"
-#include "znet/logger.h"
+#include "logger.h"
 
 namespace znet {
 
@@ -74,9 +74,9 @@ class PacketHandler : public PacketHandlerBase {
     if (ptr == buffer.get()) {
       size_t write_cursor_end = buffer->write_cursor();
       size_t size = write_cursor_end - write_cursor;
-      buffer->SetWriteCursor(write_cursor - sizeof(size_t));
+      buffer->set_write_cursor(write_cursor - sizeof(size_t));
       buffer->WriteInt(size);
-      buffer->SetWriteCursor(write_cursor_end);
+      buffer->set_write_cursor(write_cursor_end);
     }
     return buffer;
   }
@@ -94,7 +94,7 @@ class HandlerLayer {
   ~HandlerLayer() = default;
 
   void Handle(ConnectionSession& session, Ref<Buffer> buffer) {
-    while (buffer->ReadableBytes()) {
+    while (buffer->readable_bytes()) {
       auto packet_id = buffer->ReadInt<PacketId>();
       auto size = buffer->ReadInt<size_t>();
       if (buffer->IsFailedToRead()) {

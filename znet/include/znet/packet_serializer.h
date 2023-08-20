@@ -11,8 +11,8 @@
 #pragma once
 
 #include <any>
-#include "../buffer.h"
-#include "packet.h"
+#include "buffer.h"
+#include "base/packet.h"
 
 namespace znet {
 

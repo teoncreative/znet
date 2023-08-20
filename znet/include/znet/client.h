@@ -10,8 +10,8 @@
 
 #pragma once
 
-#include "base/client_session.h"
-#include "base/interface.h"
+#include "client_session.h"
+#include "interface.h"
 
 namespace znet {
 
