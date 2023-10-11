@@ -50,10 +50,10 @@ Result Server::Bind() {
       0);  // SOCK_STREAM for TCP, SOCK_DGRAM for UDP, there is also SOCK_RAW,
            // but we don't care about that.
 #ifdef TARGET_WIN
-  setsockopt(server_socket_, SOL_SOCKET, SO_REUSEADDR | SO_BROADCAST, &option,
+  setsockopt(server_socket_, SOL_SOCKET, SO_REUSEADDR | SO_REUSEPORT | SO_BROADCAST, &option,
              sizeof(option));
 #else
-  setsockopt(server_socket_, SOL_SOCKET, SO_REUSEADDR | SO_REUSEPORT, &option,
+  setsockopt(server_socket_, SOL_SOCKET, SO_REUSEADDR | SO_REUSEPORT | SO_BROADCAST, &option,
              sizeof(option));
 #endif
   if (server_socket_ == -1) {

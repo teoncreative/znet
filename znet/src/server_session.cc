@@ -79,7 +79,7 @@ void ServerSession::SendPacket(Ref<Packet> packet) {
 #pragma comment(lib, "Ws2_32.lib")
 void ServerSession::SendRaw(Ref<Buffer> buffer) {
   if (send(socket_, buffer->data(), buffer->size(), 0) < 0) {
-    ZNET_LOG_ERROR("Error sending data to the server.");
+    ZNET_LOG_ERROR("Error sending data to the client.");
     return;
   }
 }
