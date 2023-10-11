@@ -24,3 +24,6 @@ target_include_directories(znet PUBLIC include)
 target_include_directories(znet PRIVATE include/znet)
 
 target_link_libraries(znet fmt)
+if(WIN32)
+    target_link_libraries(znet winmm ws2_32)
+endif()

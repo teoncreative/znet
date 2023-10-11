@@ -38,6 +38,7 @@
 #define TARGET_WIN
 #define NOMINMAX
 #include <winsock2.h>
+#include <windows.h>
 #include <ws2tcpip.h>
 #include <cstdio>
 #include <cstdlib>

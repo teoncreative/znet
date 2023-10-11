@@ -36,11 +36,20 @@ void ServerSession::Process() {
   }
   if (data_size_ == 0) {
     Close();
-    return;
   } else if (data_size_ > 0) {
     auto buffer = CreateRef<Buffer>(buffer_, data_size_);
     handler_layer_.Handle(*this, buffer);
   }
+#ifdef WIN32
+  else if (data_size_ == -1) {
+    int err = WSAGetLastError();
+    if (err == WSAEWOULDBLOCK) {
+      return; // no data received
+    }
+    ZNET_LOG_ERROR("Closing connection due to an error. (error code: {})", err);
+    Close();
+  }
+#endif
 }
 
 Result ServerSession::Close() {
@@ -67,7 +76,7 @@ void ServerSession::SendPacket(Ref<Packet> packet) {
     SendRaw(buffer);
   }
 }
-
+#pragma comment(lib, "Ws2_32.lib")
 void ServerSession::SendRaw(Ref<Buffer> buffer) {
   if (send(socket_, buffer->data(), buffer->size(), 0) < 0) {
     ZNET_LOG_ERROR("Error sending data to the server.");
