@@ -58,7 +58,7 @@ Result Client::Connect() {
   }
   const char option = 1;
 #ifdef TARGET_WIN
-  setsockopt(client_socket_, SOL_SOCKET, SO_REUSEADDR | SO_REUSEPORT | SO_BROADCAST, &option,
+  setsockopt(client_socket_, SOL_SOCKET, SO_REUSEADDR | SO_BROADCAST, &option,
              sizeof(option));
 #else
   setsockopt(client_socket_, SOL_SOCKET, SO_REUSEADDR | SO_REUSEPORT | SO_BROADCAST, &option,
