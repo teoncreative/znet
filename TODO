@@ -5,10 +5,18 @@
 - [x] Client Implementation
 - [ ] Compression (optional if zlib or zstd is added)
 - [ ] Encryption
+- [ ] Protocol version check
+- [ ] TCP options
 - [ ] UDP
-- [ ] Windows and Linux support (Linux should be the same, Windows has some work)
-- [ ] Endianness (Testing)
+- [x] Windows support
+- [ ] Linux support (Linux should be the same)
+- [x] Endianness
 - [ ] Saving packet buffer to a file
 - [ ] Async Example
 - [ ] More events
 - [ ] Better error handling
+- [ ] Unit tests
+- [ ] Documentation
+- [ ] Server Started Listening Event
+- [ ] Error handling in SendPacket and SendRaw
+- [ ] Proxy support
