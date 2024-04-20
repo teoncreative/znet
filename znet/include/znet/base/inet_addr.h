@@ -15,7 +15,7 @@
 
 namespace znet {
 
-#ifdef TARGET_APPLE
+#if defined(TARGET_APPLE) || defined(TARGET_WEB)
 using SocketType = int;
 using PortType = in_port_t;
 using IPv4Type = in_addr;
@@ -71,24 +71,28 @@ class InetAddressIPv4 : public InetAddress {
  public:
   explicit InetAddressIPv4(PortType port)
       : InetAddress(InetProtocolVersion::IPv4, "") {
-    addr.sin_addr.s_addr = INADDR_ANY;
     addr.sin_family = AF_INET;
     addr.sin_port = htons(port);
+#ifdef TARGET_APPLE
+    addr.sin_len = sizeof(sockaddr_in);
+#endif
     char src[INET_ADDRSTRLEN];
-    inet_ntop(AF_INET, &addr.sin_addr, src, sizeof(src));
+    inet_ntop(AF_INET, &addr.sin_addr, src, INET_ADDRSTRLEN);
     readable_ = std::string(src) + ":" + std::to_string(ntohs(addr.sin_port));
     is_valid_ = true;
   }
 
   InetAddressIPv4(IPv4Type ip, PortType port)
       : InetAddress(InetProtocolVersion::IPv4, "") {
-    addr.sin_addr.s_addr = INADDR_ANY;
     addr.sin_family = AF_INET;
     addr.sin_port = htons(port);
     addr.sin_addr = ip;
+#ifdef TARGET_APPLE
+    addr.sin_len = sizeof(sockaddr_in);
+#endif
 
     char src[INET_ADDRSTRLEN];
-    inet_ntop(AF_INET, &addr.sin_addr, src, sizeof(src));
+    inet_ntop(AF_INET, &addr.sin_addr, src, INET_ADDRSTRLEN);
     readable_ = std::string(src) + ":" + std::to_string(ntohs(addr.sin_port));
     is_valid_ = true;
   }
@@ -101,12 +105,14 @@ class InetAddressIPv4 : public InetAddress {
       return;
     }
 
-    addr.sin_addr.s_addr = INADDR_ANY;
     addr.sin_family = AF_INET;
     addr.sin_port = htons(port);
     addr.sin_addr = ParseIPv4(str);
+#ifdef TARGET_APPLE
+    addr.sin_len = sizeof(sockaddr_in);
+#endif
     char src[INET_ADDRSTRLEN];
-    inet_ntop(AF_INET, &addr.sin_addr, src, sizeof(src));
+    inet_ntop(AF_INET, &addr.sin_addr, src, INET_ADDRSTRLEN);
     readable_ = std::string(src) + ":" + std::to_string(ntohs(addr.sin_port));
     is_valid_ = true;
   }
@@ -128,13 +134,12 @@ class InetAddressIPv6 : public InetAddress {
  public:
   explicit InetAddressIPv6(PortType port)
       : InetAddress(InetProtocolVersion::IPv6, "") {
-#ifndef TARGET_WIN
-    addr.sin6_len = sizeof(sockaddr_in6);
-#endif
     addr.sin6_family = AF_INET6;
     addr.sin6_flowinfo = 0;
     addr.sin6_port = htons(port);
-    addr.sin6_addr = in6addr_any;
+#if !defined(TARGET_WIN) && !defined(TARGET_WEB)
+    addr.sin6_len = sizeof(sockaddr_in6);
+#endif
     char src[INET6_ADDRSTRLEN];
     inet_ntop(AF_INET6, &addr.sin6_addr, src, sizeof(src));
     readable_ = std::string(src) + ":" + std::to_string(ntohs(addr.sin6_port));
@@ -143,13 +148,13 @@ class InetAddressIPv6 : public InetAddress {
 
   InetAddressIPv6(IPv6Type ip, PortType port)
       : InetAddress(InetProtocolVersion::IPv6, "") {
-#ifndef TARGET_WIN
-    addr.sin6_len = sizeof(sockaddr_in6);
-#endif
     addr.sin6_family = AF_INET6;
     addr.sin6_flowinfo = 0;
     addr.sin6_port = htons(port);
     addr.sin6_addr = ip;
+#if !defined(TARGET_WIN) && !defined(TARGET_WEB)
+    addr.sin6_len = sizeof(sockaddr_in6);
+#endif
     char src[INET6_ADDRSTRLEN];
     inet_ntop(AF_INET6, &addr.sin6_addr, src, sizeof(src));
     readable_ = std::string(src) + ":" + std::to_string(ntohs(addr.sin6_port));
@@ -163,7 +168,7 @@ class InetAddressIPv6 : public InetAddress {
       readable_ = "Invalid Address";
       return;
     }
-#ifndef TARGET_WIN
+#if !defined(TARGET_WIN) && !defined(TARGET_WEB)
     addr.sin6_len = sizeof(sockaddr_in6);
 #endif
     addr.sin6_family = AF_INET6;
