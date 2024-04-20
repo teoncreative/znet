@@ -24,7 +24,7 @@ enum Signal {
   kSignalTrap = SIGTRAP,
 #endif
   kSignalAbort = SIGABRT,
-#if (defined(_POSIX_C_SOURCE) && !defined(_DARWIN_C_SOURCE))
+#if (defined(_POSIX_C_SOURCE) && !defined(_DARWIN_C_SOURCE)) || defined(EMSCRIPTEN)
   kSignalPoll = SIGPOLL,
 #elif !defined(TARGET_WIN) /* (!_POSIX_C_SOURCE || _DARWIN_C_SOURCE) */
   kSignalEMT = SIGEMT,
@@ -54,7 +54,9 @@ enum Signal {
   kSignalProfilingAlarm = SIGPROF,
 #if (!defined(_POSIX_C_SOURCE) || defined(_DARWIN_C_SOURCE))
   kSignalWindowSize = SIGWINCH,
+#if !defined(EMSCRIPTEN)
   kSignalInfo = SIGINFO,
+#endif
 #endif
   kSignalUser1 = SIGUSR1,
   kSignalUser2 = SIGUSR2

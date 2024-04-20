@@ -26,8 +26,13 @@
 
 #include <fcntl.h>
 
-#ifdef __APPLE__
+#if defined(__APPLE__)
 #define TARGET_APPLE
+#endif
+#if defined(EMSCRIPTEN)
+#define TARGET_WEB
+#endif
+#if defined(__APPLE__) || defined(EMSCRIPTEN)
 #include <arpa/inet.h>
 #include <netdb.h>
 #include <sys/socket.h>
