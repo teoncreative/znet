@@ -26,5 +26,14 @@ LoggerInitializer::LoggerInitializer() {
 
   dwMode |= ENABLE_VIRTUAL_TERMINAL_PROCESSING;
   SetConsoleMode(hOut, dwMode);
+
+  CONSOLE_SCREEN_BUFFER_INFO csbi;
+  if (!GetConsoleScreenBufferInfo(hOut, &csbi)) {
+    return;  // Handle error
+  }
+  COORD newSize;
+  newSize.X = 1000;
+  newSize.Y = csbi.dwSize.Y;
+  SetConsoleScreenBufferSize(hOut, newSize);
 #endif
 }

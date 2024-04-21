@@ -48,7 +48,7 @@
 #endif
 
 #define ZNET_PRINTFN(fmsg, func, msg, args...) \
-  fmt::print(fmsg, func, fmt::format(msg, ##args))
+  fmt::print(fmsg, func, fmt::format(msg, ##args)); std::cout << std::flush
 
 #if ZNET_LOG_LEVEL <= ZNET_LOG_LEVEL_DEBUG
 #define ZNET_LOG_DEBUG(msg, args...)                                    \

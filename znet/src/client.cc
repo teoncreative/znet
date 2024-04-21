@@ -73,18 +73,20 @@ Result Client::Connect() {
 
   // Connected to the server
   thread_ = CreateScope<std::thread>([this]() {
+    // setup
+    while (!client_session_->IsReady() && client_session_->IsAlive()) {
+      client_session_->Process();
+    }
+    if (!client_session_->IsAlive()) {
+      thread_ = nullptr;
+      return;
+    }
     ZNET_LOG_DEBUG("Connected to the server.");
     ClientConnectedToServerEvent connected_event{client_session_};
     event_callback()(connected_event);
-
     while (client_session_->IsAlive()) {
       client_session_->Process();
     }
-#ifdef TARGET_WIN
-    closesocket(client_socket_);
-#else
-    close(client_socket_);
-#endif
     ZNET_LOG_DEBUG("Disconnected from the server.");
     ClientDisconnectedFromServerEvent disconnected_event{client_session_};
     event_callback()(disconnected_event);

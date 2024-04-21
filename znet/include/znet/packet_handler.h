@@ -64,7 +64,7 @@ class PacketHandler : public PacketHandlerBase {
   Ref<Buffer> Serialize(ConnectionSession& session,
                         Ref<Packet> packet) override {
     Ref<Buffer> buffer = CreateRef<Buffer>();
-    buffer->WriteInt(packet_id());
+    buffer->WriteInt<PacketId>(packet_id());
     buffer->WriteInt<size_t>(0);
     size_t write_cursor = buffer->write_cursor();
     auto ptr = buffer.get();
@@ -90,58 +90,17 @@ class PacketHandler : public PacketHandlerBase {
 
 class HandlerLayer {
  public:
-  HandlerLayer() = default;
+  HandlerLayer(ConnectionSession& session) : session_(session) { }
   ~HandlerLayer() = default;
 
-  void Handle(ConnectionSession& session, Ref<Buffer> buffer) {
-    while (buffer->readable_bytes()) {
-      auto packet_id = buffer->ReadInt<PacketId>();
-      auto size = buffer->ReadInt<size_t>();
-      if (buffer->IsFailedToRead()) {
-        ZNET_LOG_DEBUG("Reading packet header failed, dropping buffer!");
-        break;
-      }
-      size_t read_cursor = buffer->read_cursor();
-      bool handled = false;
-      for (const auto& item : handlers_) {
-        if (packet_id == item.first) {
-          item.second->Handle(session, buffer);
-          handled = true;
-          break;
-        }
-      }
-      if (!handled) {
-        ZNET_LOG_WARN("Packet {} was not handled!", packet_id);
-        buffer->SkipRead(size);
-      } else {
-        size_t read_cursor_end = buffer->read_cursor();
-        size_t read_bytes = read_cursor_end - read_cursor;
-        if (read_bytes < size) {
-          ZNET_LOG_WARN("Packet {} size mismatch! Expected {}, read {}",
-                        packet_id, size, read_bytes);
-        }
-      }
-    }
-  }
+  void HandleIn(Ref<Buffer> buffer);
 
-  Ref<Buffer> Serialize(ConnectionSession& session, Ref<Packet> packet) {
-    for (const auto& item : handlers_) {
-      if (packet->id() == item.first) {
-        Ref<Buffer> buffer = item.second->Serialize(session, packet);
-        if (buffer) {
-          return buffer;
-        }
-      }
-    }
+  Ref<Buffer> HandleOut(Ref<Packet> packet);
 
-    return nullptr;
-  }
-
-  void AddPacketHandler(Ref<PacketHandlerBase> handler) {
-    handlers_[handler->packet_id()] = handler;
-  }
+  void AddPacketHandler(Ref<PacketHandlerBase> handler);
 
  private:
+  ConnectionSession& session_;
   std::unordered_map<PacketId, Ref<PacketHandlerBase>> handlers_;
 };
 }  // namespace znet

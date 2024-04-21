@@ -25,6 +25,7 @@ struct ServerConfig {
 
 class Server : public Interface {
  public:
+  using SessionMap = std::unordered_map<Ref<InetAddress>, Ref<ServerSession>>;
   Server();
   Server(const ServerConfig& config);
   Server(const Server&) = delete;
@@ -45,6 +46,7 @@ class Server : public Interface {
  private:
   void CheckNetwork();
   void ProcessSessions();
+  void CleanupAndProcessSessions(SessionMap& map);
 
  private:
   std::mutex mutex_;
@@ -57,6 +59,7 @@ class Server : public Interface {
   Scheduler scheduler_{tps_};
   Scope<std::thread> thread_;
 
-  std::unordered_map<Ref<InetAddress>, Ref<ServerSession>> sessions_;
+  SessionMap sessions_;
+  SessionMap pending_sessions_;
 };
 }  // namespace znet
