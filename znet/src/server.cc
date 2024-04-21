@@ -185,11 +185,10 @@ void Server::CheckNetwork() {
 void Server::ProcessSessions() {
   std::vector<decltype(sessions_)::key_type> vec;
   for (auto&& item : sessions_) {
-    if (!item.second->IsAlive()) {
-      vec.emplace_back(item.first);
+    if (item.second->IsAlive()) {
       continue;
     }
-    item.second->Process();
+    vec.emplace_back(item.first);
   }
 
   for (auto&& key : vec) {
@@ -199,6 +198,10 @@ void Server::ProcessSessions() {
     ZNET_LOG_DEBUG("Client disconnected: {}",
                    event.session()->remote_address()->readable());
     sessions_.erase(key);
+  }
+
+  for (auto&& item : sessions_) {
+    item.second->Process();
   }
 }
 
