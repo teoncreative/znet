@@ -20,6 +20,7 @@
 #include "buffer.h"
 #include "client.h"
 #include "event/event.h"
+#include "client_events.h"
 #include "server_events.h"
 #include "logger.h"
 #include "server.h"

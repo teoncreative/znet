@@ -14,6 +14,7 @@
 #include "server_session.h"
 #include "logger.h"
 #include "base/scheduler.h"
+#include <thread>
 
 namespace znet {
 
@@ -31,6 +32,7 @@ class Server : public Interface {
   ~Server();
 
   Result Bind() override;
+  void Wait() override;
   Result Listen();
   Result Stop();
 
@@ -53,6 +55,7 @@ class Server : public Interface {
   bool shutdown_complete_ = false;
   int tps_ = 120;
   Scheduler scheduler_{tps_};
+  Scope<std::thread> thread_;
 
   std::unordered_map<Ref<InetAddress>, Ref<ServerSession>> sessions_;
 };

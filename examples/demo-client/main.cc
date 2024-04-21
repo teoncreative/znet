@@ -8,11 +8,6 @@
 //        http://www.apache.org/licenses/LICENSE-2.0
 //
 
-#include <arpa/inet.h>
-#include <netinet/in.h>
-#include <sys/socket.h>
-#include <unistd.h>
-#include <cstring>  // For memset
 #include <iostream>
 #include "packets.h"
 #include "znet/znet.h"
@@ -57,11 +52,10 @@ int main() {
   // Bind and connect
   client.Bind();
 
-  // If connection is successful, this function will block the flow
-  // of the program until it disconnects.
-  if (client.Connect() != Result::Completed) {
+  if (client.Connect() != Result::Connected) {
     return 1;  // Failed to connect
   }
+  client.Wait();
 
   // Connection was successful and completed.
   return 0;

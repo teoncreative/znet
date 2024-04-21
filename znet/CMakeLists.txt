@@ -13,6 +13,7 @@ set(ZNET_SOURCES
         src/client_session.cc
         src/server.cc
         src/client.cc
+        src/error.cc
 )
 
 add_library(znet STATIC

@@ -42,16 +42,30 @@ class ServerClientDisconnectedEvent : public Event {
   Ref<ServerSession> session_;
 };
 
-class ClientConnectedToServerEvent : public Event {
+class Server;
+
+class ServerStartupEvent : public Event {
  public:
-  ClientConnectedToServerEvent(Ref<ClientSession> session)
-      : session_(session) {}
+  ServerStartupEvent(Server& server) : server_(server) {}
 
-  Ref<ClientSession> session() { return session_; }
+  Server& server() { return server_; }
 
-  ZNET_EVENT_CLASS_TYPE(ClientConnectedToServer)
-  ZNET_EVENT_CLASS_CATEGORY(EventCategoryClient)
+  ZNET_EVENT_CLASS_TYPE(ServerStartup)
+  ZNET_EVENT_CLASS_CATEGORY(EventCategoryServer)
  private:
-  Ref<ClientSession> session_;
+  Server& server_;
 };
+
+class ServerShutdownEvent : public Event {
+ public:
+  ServerShutdownEvent(Server& server) : server_(server) {}
+
+  Server& server() { return server_; }
+
+  ZNET_EVENT_CLASS_TYPE(ServerShutdown)
+  ZNET_EVENT_CLASS_CATEGORY(EventCategoryServer)
+ private:
+  Server& server_;
+};
+
 }  // namespace znet

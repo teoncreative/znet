@@ -10,6 +10,7 @@
 
 #include "server.h"
 #include "base/scheduler.h"
+#include "error.h"
 #include "server_events.h"
 
 namespace znet {
@@ -57,7 +58,8 @@ Result Server::Bind() {
   setsockopt(server_socket_, SOL_SOCKET, SO_REUSEADDR | SO_BROADCAST, &option,
              sizeof(option));
 #else
-  setsockopt(server_socket_, SOL_SOCKET, SO_REUSEADDR | SO_REUSEPORT | SO_BROADCAST, &option,
+  setsockopt(server_socket_, SOL_SOCKET,
+             SO_REUSEADDR | SO_REUSEPORT | SO_BROADCAST, &option,
              sizeof(option));
 #endif
 #ifdef TARGET_WIN
@@ -80,52 +82,76 @@ Result Server::Bind() {
 #endif
   if (bind(server_socket_, bind_address_->handle_ptr(),
            bind_address_->addr_size()) != 0) {
-    ZNET_LOG_DEBUG("Failed to bind: {}, {}", bind_address_->readable(), GetLastErrorInfo());
+    ZNET_LOG_DEBUG("Failed to bind: {}, {}", bind_address_->readable(),
+                   GetLastErrorInfo());
     return Result::CannotBind;
   }
   ZNET_LOG_DEBUG("Bind to: {}", bind_address_->readable());
   return Result::Success;
 }
 
+void Server::Wait() {
+  if (thread_) {
+    thread_->join();
+  }
+}
+
 Result Server::Listen() {
+  if (thread_) {
+    return Result::AlreadyListening;
+  }
   if (listen(server_socket_, SOMAXCONN) != 0) {
     ZNET_LOG_DEBUG("Failed to listen connections from: {}, {}",
                    bind_address_->readable(), GetLastErrorInfo());
     return Result::CannotListen;
   }
-  ZNET_LOG_DEBUG("Listening connections from: {}, {}", bind_address_->readable(),
-                 strerror(errno));
 
   is_listening_ = true;
   shutdown_complete_ = false;
 
-  while (is_listening_) {
-    std::scoped_lock lock(mutex_);
-    scheduler_.Start();
-    CheckNetwork();
-    ProcessSessions();
-    scheduler_.End();
-    scheduler_.Wait();
-  }
+  thread_ = CreateScope<std::thread>([this]() {
+    ZNET_LOG_DEBUG("Listening connections from: {}, {}",
+                   bind_address_->readable(), GetLastErrorInfo());
+    ServerStartupEvent startup_event{*this};
+    event_callback()(startup_event);
 
-  ZNET_LOG_DEBUG("Shutting down server!");
-  // Disconnect all sessions
-  for (const auto& item : sessions_) {
-    item.second->Close();
-  }
-  sessions_.clear();
-  // Close the server
+    while (is_listening_) {
+      std::scoped_lock lock(mutex_);
+      scheduler_.Start();
+      CheckNetwork();
+      ProcessSessions();
+      scheduler_.End();
+      scheduler_.Wait();
+    }
+
+    ZNET_LOG_DEBUG("Shutting down server!");
+    ServerShutdownEvent shutdown_event{*this};
+    event_callback()(shutdown_event);
+
+    // Disconnect all sessions
+    for (const auto& item : sessions_) {
+      item.second->Close();
+    }
+    sessions_.clear();
+
+    // Close the server
 #ifdef TARGET_WIN
-  closesocket(server_socket_);
+    if (closesocket(server_socket_) != 0) {
+      ZNET_LOG_DEBUG("Failed to close socket: {}, {}",
+                     bind_address_->readable(), GetLastErrorInfo());
+    }
 #else
-  if (close(server_socket_) != 0) {
-    ZNET_LOG_DEBUG("Failed to close socket: {}, {}", bind_address_->readable(),
-                   strerror(errno));
-  }
+    if (close(server_socket_) != 0) {
+      ZNET_LOG_DEBUG("Failed to close socket: {}, {}",
+                     bind_address_->readable(), GetLastErrorInfo());
+    }
 #endif
-  ZNET_LOG_DEBUG("Server shutdown complete.");
-  shutdown_complete_ = true;
-  return Result::Completed;
+
+    ZNET_LOG_DEBUG("Server shutdown complete.");
+    shutdown_complete_ = true;
+    thread_ = nullptr;
+  });
+  return Result::Listening;
 }
 
 Result Server::Stop() {
@@ -145,40 +171,43 @@ void Server::SetTicksPerSecond(int tps) {
 }
 
 void Server::CheckNetwork() {
-  sockaddr client_address{};
-  socklen_t addr_len = sizeof(client_address);
-  SocketType client_socket = accept(server_socket_, &client_address, &addr_len);
-  if (client_socket < 0) {
-    return;
-  }
+  while (true) {
+    sockaddr client_address{};
+    socklen_t addr_len = sizeof(client_address);
+    SocketType client_socket =
+        accept(server_socket_, &client_address, &addr_len);
+    if (client_socket < 0) {
+      break;
+    }
 #ifdef TARGET_WIN
-  u_long mode = 1;  // 1 to enable non-blocking socket
-  ioctlsocket(server_socket_, FIONBIO, &mode);
+    u_long mode = 1;  // 1 to enable non-blocking socket
+    ioctlsocket(server_socket_, FIONBIO, &mode);
 #else
-  // Set socket to non-blocking mode
-  int flags = fcntl(server_socket_, F_GETFL, 0);
-  if (flags < 0) {
-    ZNET_LOG_ERROR("Error getting socket flags: {}", GetLastErrorInfo());
-    close(client_socket);
-    return;
-  }
-  if (fcntl(server_socket_, F_SETFL, flags | O_NONBLOCK) < 0) {
-    ZNET_LOG_ERROR("Error setting socket to non-blocking mode: {}",
-                   strerror(errno));
-    close(client_socket);
-    return;
-  }
+    // Set socket to non-blocking mode
+    int flags = fcntl(server_socket_, F_GETFL, 0);
+    if (flags < 0) {
+      ZNET_LOG_ERROR("Error getting socket flags: {}", GetLastErrorInfo());
+      close(client_socket);
+      return;
+    }
+    if (fcntl(server_socket_, F_SETFL, flags | O_NONBLOCK) < 0) {
+      ZNET_LOG_ERROR("Error setting socket to non-blocking mode: {}",
+                     GetLastErrorInfo());
+      close(client_socket);
+      return;
+    }
 #endif
-  Ref<InetAddress> remote_address = InetAddress::from(&client_address);
-  if (remote_address == nullptr) {
-    return;
+    Ref<InetAddress> remote_address = InetAddress::from(&client_address);
+    if (remote_address == nullptr) {
+      return;
+    }
+    auto session =
+        CreateRef<ServerSession>(bind_address_, remote_address, client_socket);
+    sessions_[remote_address] = session;
+    ServerClientConnectedEvent event{session};
+    event_callback()(event);
+    ZNET_LOG_DEBUG("New connection is ready. {}", remote_address->readable());
   }
-  auto session =
-      CreateRef<ServerSession>(bind_address_, remote_address, client_socket);
-  sessions_[remote_address] = session;
-  ServerClientConnectedEvent event{session};
-  event_callback()(event);
-  ZNET_LOG_DEBUG("New connection is ready. {}", remote_address->readable());
 }
 
 void Server::ProcessSessions() {

@@ -73,7 +73,10 @@ enum class Result {
   InvalidRemoteAddress,
   CannotCreateSocket,
   CannotListen,
-  Completed
+  Listening,
+  Connected,
+  AlreadyConnected,
+  AlreadyListening
 };
 
 

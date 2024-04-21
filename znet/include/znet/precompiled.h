@@ -62,11 +62,3 @@ typedef SSIZE_T ssize_t;
 #endif
 
 #define ZNET_NODISCARD [[nodiscard]]
-
-std::string GetLastErrorInfo() {
-#ifdef TARGET_WIN
-#error todo
-#else
-    return strerror(errno);
-#endif
-}
