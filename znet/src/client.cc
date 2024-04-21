@@ -54,7 +54,7 @@ Result Client::Connect() {
   if (connect(client_socket_, server_address_->handle_ptr(),
               server_address_->addr_size()) < 0) {
     // todo handle errors better
-    ZNET_LOG_ERROR("Error connecting to server: {}", errno);
+    ZNET_LOG_ERROR("Error connecting to server: {}", strerror(errno));
     return Result::Failure;
   }
   const char option = 1;

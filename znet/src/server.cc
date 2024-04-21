@@ -49,6 +49,10 @@ Result Server::Bind() {
       domain, SOCK_STREAM,
       0);  // SOCK_STREAM for TCP, SOCK_DGRAM for UDP, there is also SOCK_RAW,
            // but we don't care about that.
+  if (server_socket_ == -1) {
+    ZNET_LOG_ERROR("Error creating socket. {}", GetLastErrorInfo());
+    return Result::CannotCreateSocket;
+  }
 #ifdef TARGET_WIN
   setsockopt(server_socket_, SOL_SOCKET, SO_REUSEADDR | SO_BROADCAST, &option,
              sizeof(option));
@@ -56,14 +60,6 @@ Result Server::Bind() {
   setsockopt(server_socket_, SOL_SOCKET, SO_REUSEADDR | SO_REUSEPORT | SO_BROADCAST, &option,
              sizeof(option));
 #endif
-  if (server_socket_ == -1) {
-#ifdef TARGET_WIN
-    ZNET_LOG_ERROR("Error creating socket. {}", WSAGetLastError());
-#else
-    ZNET_LOG_ERROR("Error creating socket.");
-#endif
-    return Result::CannotCreateSocket;
-  }
 #ifdef TARGET_WIN
   u_long mode = 1;  // 1 to enable non-blocking socket
   ioctlsocket(server_socket_, FIONBIO, &mode);
@@ -71,20 +67,20 @@ Result Server::Bind() {
   // Set socket to non-blocking mode
   int flags = fcntl(server_socket_, F_GETFL, 0);
   if (flags < 0) {
-    ZNET_LOG_ERROR("Error getting socket flags.");
+    ZNET_LOG_ERROR("Error getting socket flags: {}", GetLastErrorInfo());
     close(server_socket_);
     return Result::Failure;
   }
   if (fcntl(server_socket_, F_SETFL, flags | O_NONBLOCK) < 0) {
-    ZNET_LOG_ERROR("Error setting socket to non-blocking mode.");
+    ZNET_LOG_ERROR("Error setting socket to non-blocking mode: {}",
+                   GetLastErrorInfo());
     close(server_socket_);
     return Result::Failure;
   }
 #endif
-
   if (bind(server_socket_, bind_address_->handle_ptr(),
            bind_address_->addr_size()) != 0) {
-    ZNET_LOG_DEBUG("Failed to bind: {}", bind_address_->readable());
+    ZNET_LOG_DEBUG("Failed to bind: {}, {}", bind_address_->readable(), GetLastErrorInfo());
     return Result::CannotBind;
   }
   ZNET_LOG_DEBUG("Bind to: {}", bind_address_->readable());
@@ -93,11 +89,12 @@ Result Server::Bind() {
 
 Result Server::Listen() {
   if (listen(server_socket_, SOMAXCONN) != 0) {
-    ZNET_LOG_DEBUG("Failed to listen connections from: {}",
-                   bind_address_->readable());
+    ZNET_LOG_DEBUG("Failed to listen connections from: {}, {}",
+                   bind_address_->readable(), GetLastErrorInfo());
     return Result::CannotListen;
   }
-  ZNET_LOG_DEBUG("Listening connections from: {}", bind_address_->readable());
+  ZNET_LOG_DEBUG("Listening connections from: {}, {}", bind_address_->readable(),
+                 strerror(errno));
 
   is_listening_ = true;
   shutdown_complete_ = false;
@@ -122,7 +119,8 @@ Result Server::Listen() {
   closesocket(server_socket_);
 #else
   if (close(server_socket_) != 0) {
-    ZNET_LOG_DEBUG("Failed to close socket: {}", bind_address_->readable());
+    ZNET_LOG_DEBUG("Failed to close socket: {}, {}", bind_address_->readable(),
+                   strerror(errno));
   }
 #endif
   ZNET_LOG_DEBUG("Server shutdown complete.");
@@ -160,12 +158,13 @@ void Server::CheckNetwork() {
   // Set socket to non-blocking mode
   int flags = fcntl(server_socket_, F_GETFL, 0);
   if (flags < 0) {
-    ZNET_LOG_ERROR("Error getting socket flags.");
+    ZNET_LOG_ERROR("Error getting socket flags: {}", GetLastErrorInfo());
     close(client_socket);
     return;
   }
   if (fcntl(server_socket_, F_SETFL, flags | O_NONBLOCK) < 0) {
-    ZNET_LOG_ERROR("Error setting socket to non-blocking mode.");
+    ZNET_LOG_ERROR("Error setting socket to non-blocking mode: {}",
+                   strerror(errno));
     close(client_socket);
     return;
   }
