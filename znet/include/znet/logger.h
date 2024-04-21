@@ -81,3 +81,13 @@
 #else
 #define ZNET_LOG_ERROR(msg, args...)
 #endif
+
+
+class LoggerInitializer {
+ public:
+  static bool s_Initialized;
+
+  LoggerInitializer();
+};
+
+static LoggerInitializer s_LoggerInitializer;
