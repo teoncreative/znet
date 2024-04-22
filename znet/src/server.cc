@@ -173,13 +173,16 @@ void Server::CheckNetwork() {
   sockaddr client_address{};
   socklen_t addr_len = sizeof(client_address);
   SocketType client_socket = accept(server_socket_, &client_address, &addr_len);
+#ifdef TARGET_WIN
   if (client_socket == INVALID_SOCKET) {
     return;
   }
-#ifdef TARGET_WIN
   u_long mode = 1;  // 1 to enable non-blocking socket
   ioctlsocket(server_socket_, FIONBIO, &mode);
 #else
+  if (client_socket <= 0) {
+    return;
+  }
   // Set socket to non-blocking mode
   int flags = fcntl(server_socket_, F_GETFL, 0);
   if (flags < 0) {

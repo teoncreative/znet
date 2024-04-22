@@ -23,7 +23,7 @@ std::string GetLastErrorInfo() {
   return {buf};
 #else
   char buf[256];
-  strerror_s(buf, 256, errno);
+  strerror_r(errno, buf, 256);
   return {buf};
 #endif
 }
