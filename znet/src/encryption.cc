@@ -309,8 +309,8 @@ EncryptionLayer::EncryptionLayer(ConnectionSession& session)
   handshake_packet_handler->AddReceiveCallback(ZNET_BIND_FN(OnHandshakePacket));
   handler_layer_.AddPacketHandler(handshake_packet_handler);
   auto ack_packet_handler =
-      CreateRef<PacketHandler<ConnectionCompletePacket,
-                              ConnectionCompletePacketSerializerV1>>();
+      CreateRef<PacketHandler<ConnectionReadyPacket,
+                              ConnectionReadyPacketSerializerV1>>();
   ack_packet_handler->AddReceiveCallback(ZNET_BIND_FN(OnAcknowledgePacket));
   handler_layer_.AddPacketHandler(ack_packet_handler);
 }
@@ -416,13 +416,13 @@ void EncryptionLayer::OnHandshakePacket(ConnectionSession&,
 
   if (!sent_handshake_) {
     SendHandshake();
-  } else if (!sent_ack_) {
-    SendAcknowledge();
+  } else if (!sent_ready_) {
+    SendReady();
   }
 }
 
 void EncryptionLayer::OnAcknowledgePacket(
-    ConnectionSession&, Ref<ConnectionCompletePacket> packet) {
+    ConnectionSession&, Ref<ConnectionReadyPacket> packet) {
   if (!peer_pkey_ || !key_filled_) {
     ZNET_LOG_ERROR(
         "Received connection complete packet it wasn't expected, closing the "
@@ -437,8 +437,8 @@ void EncryptionLayer::OnAcknowledgePacket(
     session_.Close();
     return;
   }
-  if (!sent_ack_) {
-    SendAcknowledge();
+  if (!sent_ready_) {
+    SendReady();
   }
   handoff_ = true;
   session_.Ready();
@@ -455,15 +455,15 @@ void EncryptionLayer::SendHandshake() {
   sent_handshake_ = true;
 }
 
-void EncryptionLayer::SendAcknowledge() {
+void EncryptionLayer::SendReady() {
   enable_encryption_ = true;
-  auto packet = CreateRef<ConnectionCompletePacket>();
+  auto packet = CreateRef<ConnectionReadyPacket>();
   packet->magic_ = "343693b5-2b04-4d56-a3b5-48582ca37c7d";
   auto buffer = handler_layer_.HandleOut(packet);
   if (buffer) {
     session_.SendRaw(buffer);
   }
-  sent_ack_ = true;
+  sent_ready_ = true;
 }
 
 }  // namespace znet

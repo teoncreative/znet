@@ -33,7 +33,7 @@ class HandshakePacket : public Packet {
     }
   }
 
-  static PacketId PacketId() { return 10000; }
+  static PacketId PacketId() { return -1; }
 
   EVP_PKEY* pub_key_;
   bool owner_; // means we have to deallocate the key
@@ -65,28 +65,29 @@ class HandshakePacketSerializerV1 : public PacketSerializer<HandshakePacket> {
 };
 
 
-class ConnectionCompletePacket : public Packet {
+class ConnectionReadyPacket : public Packet {
  public:
-  ConnectionCompletePacket() : Packet(PacketId()) { }
-  ~ConnectionCompletePacket() {
+  ConnectionReadyPacket() : Packet(PacketId()) { }
+  ~ConnectionReadyPacket() {
   }
 
-  static PacketId PacketId() { return 10001; }
+  static PacketId PacketId() { return -2; }
 
   std::string magic_;
 };
 
-class ConnectionCompletePacketSerializerV1 : public PacketSerializer<ConnectionCompletePacket> {
+class ConnectionReadyPacketSerializerV1
+    : public PacketSerializer<ConnectionReadyPacket> {
  public:
-  ConnectionCompletePacketSerializerV1() : PacketSerializer<ConnectionCompletePacket>() {}
+  ConnectionReadyPacketSerializerV1() : PacketSerializer<ConnectionReadyPacket>() {}
 
-  Ref<Buffer> Serialize(Ref<ConnectionCompletePacket> packet, Ref<Buffer> buffer) override {
+  Ref<Buffer> Serialize(Ref<ConnectionReadyPacket> packet, Ref<Buffer> buffer) override {
     buffer->WriteString(packet->magic_);
     return buffer;
   }
 
-  Ref<ConnectionCompletePacket> Deserialize(Ref<Buffer> buffer) override {
-    auto packet = CreateRef<ConnectionCompletePacket>();
+  Ref<ConnectionReadyPacket> Deserialize(Ref<Buffer> buffer) override {
+    auto packet = CreateRef<ConnectionReadyPacket>();
     packet->magic_ = buffer->ReadString();
     return packet;
   }
@@ -106,7 +107,7 @@ class EncryptionLayer {
   Ref<Buffer> HandleOut(Ref<Buffer> buffer);
 
   void OnHandshakePacket(ConnectionSession& session, Ref<HandshakePacket> packet);
-  void OnAcknowledgePacket(ConnectionSession& session, Ref<ConnectionCompletePacket> packet);
+  void OnAcknowledgePacket(ConnectionSession& session, Ref<ConnectionReadyPacket> packet);
 
  private:
   ConnectionSession& session_;
@@ -115,7 +116,7 @@ class EncryptionLayer {
   EVP_PKEY* pub_key_ = nullptr;
   EVP_PKEY* peer_pkey_ = nullptr;
   bool sent_handshake_ = false;
-  bool sent_ack_ = false;
+  bool sent_ready_ = false;
   bool enable_encryption_ = false;
   bool handoff_ = false;
   unsigned char* shared_secret_ = nullptr;
@@ -128,7 +129,7 @@ class EncryptionLayer {
   Ref<Buffer> HandleDecrypt(Ref<Buffer> buffer);
 
   void SendHandshake();
-  void SendAcknowledge();
+  void SendReady();
 };
 
 }
