@@ -14,7 +14,7 @@ namespace znet {
 
 void HandlerLayer::HandleIn(Ref<Buffer> buffer) {
   while (buffer->readable_bytes() > 0) {
-    auto packet_id = buffer->ReadInt<PacketId>();
+    auto packet_id = buffer->ReadVarInt<PacketId>();
     auto size = buffer->ReadInt<size_t>();
     if (buffer->IsFailedToRead()) {
       ZNET_LOG_DEBUG("Reading packet header failed, dropping buffer!");

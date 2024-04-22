@@ -64,7 +64,7 @@ class PacketHandler : public PacketHandlerBase {
   Ref<Buffer> Serialize(ConnectionSession& session,
                         Ref<Packet> packet) override {
     Ref<Buffer> buffer = CreateRef<Buffer>();
-    buffer->WriteInt<PacketId>(packet_id());
+    buffer->WriteVarInt(packet_id());
     buffer->WriteInt<size_t>(0);
     size_t write_cursor = buffer->write_cursor();
     auto ptr = buffer.get();

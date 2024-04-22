@@ -144,7 +144,7 @@ class Buffer {
   }
 
   std::string ReadString() {
-    Number auto size = ReadInt<size_t>();
+    Number auto size = ReadVarInt<size_t>();
     if (!CheckReadableBytes(size)) {
       failed_to_read_ = true;
       return "";
@@ -158,7 +158,7 @@ class Buffer {
 
   template <typename Map, typename KeyFunc, typename ValueFunc>
   Map ReadMap(KeyFunc key_func, ValueFunc value_func) {
-    Number auto size = ReadInt<size_t>();
+    Number auto size = ReadVarInt<size_t>();
     Map map;
     for (int i = 0; i < size; i++) {
       auto key = (this->*key_func)();
@@ -170,7 +170,7 @@ class Buffer {
 
   template <typename T, typename ValueFunc>
   std::vector<T> ReadVector(ValueFunc value_func) {
-    Number auto size = ReadInt<size_t>();
+    Number auto size = ReadVarInt<size_t>();
     std::vector<T> v;
     v.reserve(size);
     for (int i = 0; i < size; i++) {
@@ -181,7 +181,7 @@ class Buffer {
 
   template <typename T, typename ValueFunc>
   Scope<T[]> ReadArray(ValueFunc value_func) {
-    Number auto size = ReadInt<size_t>();
+    Number auto size = ReadVarInt<size_t>();
     Scope<T[]> array = CreateScope<T[]>(size);
     for (int i = 0; i < size; i++) {
       array[i] = (this->*value_func)();
@@ -191,7 +191,7 @@ class Buffer {
 
   template <typename T, size_t size, typename ValueFunc>
   std::array<T, size> ReadArray(ValueFunc value_func) {
-    Number auto size_r = ReadInt<size_t>();
+    auto size_r = ReadVarInt<size_t>();
     if (size_r != size) {
       ZNET_LOG_ERROR("Array size mismatch. Expected: {}, Actual: {}", size,
                      size_r);
@@ -209,7 +209,7 @@ class Buffer {
     size_t size = str.size();
     const char* data = str.data();
     ReserveIncremental(size + sizeof(size));
-    WriteInt(size);
+    WriteVarInt(size);
     for (size_t i = 0; i < size; i++) {
       WriteInt(data[i]);
     }
