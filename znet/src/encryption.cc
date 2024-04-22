@@ -341,16 +341,21 @@ Ref<Buffer> EncryptionLayer::HandleDecrypt(Ref<Buffer> buffer) {
     ZNET_LOG_ERROR("Encryption mode {} is not known/supported!", mode);
     return nullptr;
   }
-  auto actual_size = buffer->ReadInt<uint64_t>();
-  auto* actual = new unsigned char[actual_size];
-  auto* iv = new unsigned char[16];
-  //memset(iv, 0, 16);
-  buffer->Read(iv, 16);
-  auto cipher_len = buffer->ReadInt<uint64_t>();
-  const char* data_ptr = buffer->data() + buffer->read_cursor();
-  DecryptData(reinterpret_cast<const unsigned char*>(data_ptr), cipher_len,
-              key_, iv, actual);
-  return CreateRef<Buffer>(reinterpret_cast<char*>(actual), actual_size);
+  auto* actual = new unsigned char[buffer->size()];
+  int total_size = 0;
+  while (buffer->readable_bytes() > 0) {
+    auto actual_size = buffer->ReadInt<uint64_t>();
+    auto* iv = new unsigned char[16];
+    //memset(iv, 0, 16);
+    buffer->Read(iv, 16);
+    auto cipher_len = buffer->ReadInt<uint64_t>();
+    const char* data_ptr = buffer->data() + buffer->read_cursor();
+    DecryptData(reinterpret_cast<const unsigned char*>(data_ptr), cipher_len,
+                key_, iv, actual);
+    buffer->SkipRead(cipher_len);
+    total_size += actual_size;
+  }
+  return CreateRef<Buffer>(reinterpret_cast<char*>(actual), total_size);
 }
 
 Ref<Buffer> EncryptionLayer::HandleIn(Ref<znet::Buffer> buffer) {
