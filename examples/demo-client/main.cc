@@ -52,7 +52,7 @@ int main() {
   // Bind and connect
   client.Bind();
 
-  if (client.Connect() != Result::Connected) {
+  if (client.Connect() != Result::Success) {
     return 1;  // Failed to connect
   }
   client.Wait();

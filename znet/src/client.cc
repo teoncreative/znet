@@ -92,7 +92,7 @@ Result Client::Connect() {
     event_callback()(disconnected_event);
     thread_ = nullptr;
   });
-  return Result::Connected;
+  return Result::Success;
 }
 
 void Client::Wait() {
