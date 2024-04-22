@@ -39,7 +39,7 @@ unsigned char* SerializePublicKey(EVP_PKEY* pkey, uint32_t* len) {
   *len = i2d_PUBKEY(pkey, &der);  // Serialize the public key to DER format
   if (*len <= 0) {
     fprintf(stderr, "Failed to serialize public key\n");
-    if (der){
+    if (der) {
       OPENSSL_free(der);
     }
     return nullptr;
@@ -64,7 +64,7 @@ EVP_PKEY* DeserializePublicKey(const unsigned char* der, int len) {
 
 EVP_PKEY* GenerateKey() {
   /* Create the context for generating the parameters */
-  EVP_PKEY_CTX* pctx = EVP_PKEY_CTX_new_id(EVP_PKEY_DH, NULL);
+  EVP_PKEY_CTX* pctx = EVP_PKEY_CTX_new_id(EVP_PKEY_DH, nullptr);
   if (!pctx) {
     return nullptr;
   }
@@ -80,22 +80,21 @@ EVP_PKEY* GenerateKey() {
     return nullptr;
   }
 
-
   /* Use built-in parameters */
   EVP_PKEY* params = EVP_PKEY_new();
-  if (params == NULL){
+  if (params == nullptr) {
     EVP_PKEY_CTX_free(pctx);
     return nullptr;
   }
 
-  if (EVP_PKEY_assign(params, EVP_PKEY_DHX, DH_get_2048_256())  <= 0) {
+  if (EVP_PKEY_assign(params, EVP_PKEY_DHX, DH_get_2048_256()) <= 0) {
     EVP_PKEY_CTX_free(pctx);
     return nullptr;
   }
 
   EVP_PKEY_CTX_free(pctx);
 
-  EVP_PKEY_CTX* kctx = EVP_PKEY_CTX_new(params, NULL);
+  EVP_PKEY_CTX* kctx = EVP_PKEY_CTX_new(params, nullptr);
   /* Create context for the key generation */
   if (!kctx) {
     EVP_PKEY_CTX_free(kctx);
@@ -137,7 +136,7 @@ unsigned char* ComputeSharedSecret(EVP_PKEY* pkey, EVP_PKEY* peer_pkey,
     return nullptr;
   }
 
-  EVP_PKEY_CTX* ctx = EVP_PKEY_CTX_new(pkey, NULL);
+  EVP_PKEY_CTX* ctx = EVP_PKEY_CTX_new(pkey, nullptr);
   if (!ctx) {
     std::cerr << "Failed to create EVP_PKEY_CTX." << std::endl;
     return nullptr;
@@ -184,7 +183,7 @@ unsigned char* ComputeSharedSecret(EVP_PKEY* pkey, EVP_PKEY* peer_pkey,
 bool DeriveKeyFromSharedSecret(const unsigned char* shared_secret,
                                size_t secret_len, unsigned char* key,
                                size_t key_len) {
-  EVP_PKEY_CTX* pctx = EVP_PKEY_CTX_new_id(EVP_PKEY_HKDF, NULL);
+  EVP_PKEY_CTX* pctx = EVP_PKEY_CTX_new_id(EVP_PKEY_HKDF, nullptr);
   if (!pctx) {
     std::cerr << "Failed to create EVP_PKEY_CTX for HKDF." << std::endl;
     return false;
@@ -216,7 +215,7 @@ int EncryptData(const unsigned char* plaintext, int plaintext_len,
     return false;
   }
 
-  if (1 != EVP_EncryptInit_ex(ctx, EVP_aes_256_cbc(), NULL, key, iv)) {
+  if (1 != EVP_EncryptInit_ex(ctx, EVP_aes_256_cbc(), nullptr, key, iv)) {
     std::cerr << "Failed to initialize encryption" << std::endl;
     EVP_CIPHER_CTX_free(ctx);
     return false;
@@ -251,7 +250,7 @@ int DecryptData(const unsigned char* ciphertext, int ciphertext_len,
     return false;
   }
 
-  if (1 != EVP_DecryptInit_ex(ctx, EVP_aes_256_cbc(), NULL, key, iv)) {
+  if (1 != EVP_DecryptInit_ex(ctx, EVP_aes_256_cbc(), nullptr, key, iv)) {
     std::cerr << "Failed to initialize decryption" << std::endl;
     EVP_CIPHER_CTX_free(ctx);
     return false;
