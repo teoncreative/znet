@@ -80,15 +80,9 @@ EVP_PKEY* GenerateKey() {
     return nullptr;
   }
 
-  EVP_PKEY* params = nullptr;
-  /* Generate parameters */
-  if (!EVP_PKEY_paramgen(pctx, &params)) {
-    EVP_PKEY_CTX_free(pctx);
-    return nullptr;
-  }
 
   /* Use built-in parameters */
-  params = EVP_PKEY_new();
+  EVP_PKEY* params = EVP_PKEY_new();
   if (params == NULL){
     EVP_PKEY_CTX_free(pctx);
     return nullptr;
@@ -162,7 +156,7 @@ unsigned char* ComputeSharedSecret(EVP_PKEY* pkey, EVP_PKEY* peer_pkey,
   }
 
   // Determine buffer length
-  if (EVP_PKEY_derive(ctx, NULL, secret_len) <= 0) {
+  if (EVP_PKEY_derive(ctx, nullptr, secret_len) <= 0) {
     std::cerr << "Failed to determine shared secret length." << std::endl;
     EVP_PKEY_CTX_free(ctx);
     return nullptr;
