@@ -27,9 +27,12 @@ void ClientSession::Process() {
     return;
   }
   // Handle the client connection
-  mutex_.lock();
+  // since recv is in blocking mode here, locking the mutex would cause
+  // it to be locked until the data is received. which means if
+  // client is the one initiating the connection, it will be stuck
+  //mutex_.lock();
   data_size_ = recv(socket_, buffer_, sizeof(buffer_), 0);
-  mutex_.unlock();
+  //mutex_.unlock();
 
   if (data_size_ > MAX_BUFFER_SIZE) {
     Close();
