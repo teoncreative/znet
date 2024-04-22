@@ -150,7 +150,7 @@ Result Server::Listen() {
     shutdown_complete_ = true;
     thread_ = nullptr;
   });
-  return Result::Listening;
+  return Result::Success;
 }
 
 Result Server::Stop() {

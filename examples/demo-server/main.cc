@@ -61,7 +61,7 @@ int main() {
 
   // Bind and listen
   server.Bind();
-  if (server.Listen() != Result::Listening) {
+  if (server.Listen() != Result::Success) {
     return 1; // failed to listen
   }
   server.Wait();
