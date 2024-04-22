@@ -73,7 +73,21 @@ class Buffer {
   }
 #endif
 
+  template<Number T>
+  void Read(T* arr, size_t size) {
+    char* pt = reinterpret_cast<char*>(arr);
+    size_t calculated_size = sizeof(T) * size;
+    if (!CheckReadableBytes(size)) {
+      failed_to_read_ = true;
+      return;
+    }
+    memcpy(pt, data_ + read_cursor_, calculated_size);
+    read_cursor_ += calculated_size;
+  }
+
   char ReadChar() { return ReadInt<char>(); }
+
+  unsigned char ReadUnsignedChar() { return ReadInt<unsigned char>(); }
 
   bool ReadBool() { return ReadInt<bool>(); }
 
@@ -166,9 +180,9 @@ class Buffer {
   }
 
   template <typename T, typename ValueFunc>
-  Ref<T[]> ReadArray(ValueFunc value_func) {
+  Scope<T[]> ReadArray(ValueFunc value_func) {
     Number auto size = ReadInt<size_t>();
-    Ref<T[]> array = CreateRef<T[]>(size);
+    Scope<T[]> array = CreateScope<T[]>(size);
     for (int i = 0; i < size; i++) {
       array[i] = (this->*value_func)();
     }
@@ -203,12 +217,14 @@ class Buffer {
 
   void WriteChar(char c) { WriteInt(c); }
 
+  void WriteUnsignedChar(unsigned char c) { WriteInt(c); }
+
   void WriteBool(bool b) { WriteInt(b); }
 
   template <Number T>
   void WriteInt(T c) {
     char* pt = reinterpret_cast<char*>(&c);
-    uint8_t size = sizeof(c);
+    size_t size = sizeof(c);
     ReserveIncremental(size);
     if (GetSystemEndianness() == endianness_) {
       for (size_t i = 0; i < size; i++) {
@@ -220,6 +236,15 @@ class Buffer {
       }
     }
     write_cursor_ += size;
+  }
+
+  template<Number T>
+  void Write(T* arr, size_t size) {
+    auto* pt = reinterpret_cast<const char*>(arr);
+    size_t calculated_size = sizeof(T) * size;
+    ReserveIncremental(calculated_size);
+    memcpy(data_ + write_cursor_, pt, calculated_size);
+    write_cursor_ += calculated_size;
   }
 
   template <Number T>
@@ -405,11 +430,10 @@ class Buffer {
 
  private:
   ZNET_NODISCARD bool CheckReadableBytes(size_t required) const {
-    size_t bytes_left = write_cursor_ - read_cursor_;
 #if defined(DEBUG) && !defined(DISABLE_ASSERT_READABLE_BYTES)
-    assert(bytes_left >= required);
+    assert(write_cursor_ >= read_cursor_ + required);
 #endif
-    return bytes_left >= required;
+    return write_cursor_ >= read_cursor_ + required;
   }
 
   Endianness endianness_;

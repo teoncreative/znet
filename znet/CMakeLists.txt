@@ -13,6 +13,10 @@ set(ZNET_SOURCES
         src/client_session.cc
         src/server.cc
         src/client.cc
+        src/error.cc
+        src/logger.cc
+        src/packet_handler.cc
+        src/encryption.cc
 )
 
 add_library(znet STATIC
@@ -23,7 +27,17 @@ target_precompile_headers(znet PUBLIC include/znet/precompiled.h)
 target_include_directories(znet PUBLIC include)
 target_include_directories(znet PRIVATE include/znet)
 
-target_link_libraries(znet fmt)
+## Dependencies
+
 if(WIN32)
     target_link_libraries(znet winmm ws2_32)
 endif()
+
+# FMT
+find_package(fmt CONFIG REQUIRED)
+target_link_libraries(znet fmt::fmt)
+
+# OpenSSL
+find_package(OpenSSL REQUIRED)
+target_link_libraries(znet OpenSSL::SSL OpenSSL::Crypto)
+

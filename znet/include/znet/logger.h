@@ -48,7 +48,7 @@
 #endif
 
 #define ZNET_PRINTFN(fmsg, func, msg, args...) \
-  fmt::print(fmsg, func, fmt::format(msg, ##args))
+  fmt::print(fmsg, func, fmt::format(msg, ##args)); std::cout << std::flush
 
 #if ZNET_LOG_LEVEL <= ZNET_LOG_LEVEL_DEBUG
 #define ZNET_LOG_DEBUG(msg, args...)                                    \
@@ -81,3 +81,13 @@
 #else
 #define ZNET_LOG_ERROR(msg, args...)
 #endif
+
+
+class LoggerInitializer {
+ public:
+  static bool s_Initialized;
+
+  LoggerInitializer();
+};
+
+static LoggerInitializer s_LoggerInitializer;

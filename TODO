@@ -4,10 +4,9 @@
 - [x] Server Implementation
 - [x] Client Implementation
 - [ ] Compression (optional if zlib or zstd is added)
-- [ ] Encryption
+- [x] Encryption
 - [ ] Protocol version check
 - [ ] TCP options
-- [ ] UDP
 - [x] Windows support
 - [ ] Linux support (Linux should be the same)
 - [x] Endianness

@@ -15,7 +15,10 @@ namespace znet {
 enum EventType {
   ServerClientConnected,     // new client connected to server
   ServerClientDisconnected,  // new client disconnected to server
-  ClientConnectedToServer,   // disconnected from server
+  ClientConnectedToServer,   // connected to server
+  ClientDisconnectedFromServer,   // disconnected from server
+  ServerStartup,   // disconnected from server
+  ServerShutdown,   // disconnected from server
 #ifdef USER_EVENTS
   USER_EVENTS(),
 #endif

@@ -10,9 +10,8 @@
 
 #include "client.h"
 
-#include <fcntl.h>  // For fcntl
-
-#include "server_events.h"
+#include "client_events.h"
+#include "error.h"
 #include "logger.h"
 
 namespace znet {
@@ -48,13 +47,15 @@ Result Client::Bind() {
 }
 
 Result Client::Connect() {
+  if (thread_) {
+    return Result::AlreadyConnected;
+  }
   if (!server_address_ || !server_address_->is_valid()) {
     return Result::InvalidRemoteAddress;
   }
   if (connect(client_socket_, server_address_->handle_ptr(),
               server_address_->addr_size()) < 0) {
-    // todo handle errors better
-    ZNET_LOG_ERROR("Error connecting to server: {}", errno);
+    ZNET_LOG_ERROR("Error connecting to server: {}", GetLastErrorInfo());
     return Result::Failure;
   }
   const char option = 1;
@@ -62,30 +63,42 @@ Result Client::Connect() {
   setsockopt(client_socket_, SOL_SOCKET, SO_REUSEADDR | SO_BROADCAST, &option,
              sizeof(option));
 #else
-  setsockopt(client_socket_, SOL_SOCKET, SO_REUSEADDR | SO_REUSEPORT | SO_BROADCAST, &option,
+  setsockopt(client_socket_, SOL_SOCKET,
+             SO_REUSEADDR | SO_REUSEPORT | SO_BROADCAST, &option,
              sizeof(option));
 #endif
   // todo local address
   client_session_ =
       CreateRef<ClientSession>(nullptr, server_address_, client_socket_);
 
-  ClientConnectedToServerEvent event{client_session_};
-  event_callback()(event);
-
   // Connected to the server
-  ZNET_LOG_DEBUG("Connected to the server.");
+  thread_ = CreateScope<std::thread>([this]() {
+    // setup
+    while (!client_session_->IsReady() && client_session_->IsAlive()) {
+      client_session_->Process();
+    }
+    if (!client_session_->IsAlive()) {
+      thread_ = nullptr;
+      return;
+    }
+    ZNET_LOG_DEBUG("Connected to the server.");
+    ClientConnectedToServerEvent connected_event{client_session_};
+    event_callback()(connected_event);
+    while (client_session_->IsAlive()) {
+      client_session_->Process();
+    }
+    ZNET_LOG_DEBUG("Disconnected from the server.");
+    ClientDisconnectedFromServerEvent disconnected_event{client_session_};
+    event_callback()(disconnected_event);
+    thread_ = nullptr;
+  });
+  return Result::Connected;
+}
 
-  while (client_session_->IsAlive()) {
-    client_session_->Process();
+void Client::Wait() {
+  if (thread_) {
+    thread_->join();
   }
-
-#ifdef TARGET_WIN
-  closesocket(client_socket_);
-#else
-  close(client_socket_);
-#endif
-  ZNET_LOG_DEBUG("Disconnected from the server.");
-  return Result::Completed;
 }
 
 Result Client::Disconnect() {

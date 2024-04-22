@@ -11,6 +11,8 @@
 #pragma once
 
 #include "packet_handler.h"
+#include "connection_session.h"
+#include "encryption.h"
 
 namespace znet {
 class ConnectionSession {
@@ -24,6 +26,8 @@ class ConnectionSession {
   virtual Result Close() { return Result::Failure; }
 
   virtual bool IsAlive() { return false; }
+
+  bool IsReady() { return is_ready_; }
 
   ZNET_NODISCARD virtual Ref<InetAddress> local_address() const {
     return local_address_;
@@ -39,9 +43,18 @@ class ConnectionSession {
 
   HandlerLayer& handler_layer() { return handler_layer_; }
 
+  EncryptionLayer& encryption_layer() { return encryption_layer_; }
+
  protected:
-  HandlerLayer handler_layer_;
+  friend class EncryptionLayer;
+  virtual void Ready() {
+    is_ready_ = true;
+  }
+
+  EncryptionLayer encryption_layer_{*this};
+  HandlerLayer handler_layer_{*this};
   Ref<InetAddress> local_address_;
   Ref<InetAddress> remote_address_;
+  bool is_ready_ = false;
 };
 }  // namespace znet

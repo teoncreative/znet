@@ -9,6 +9,7 @@
 //
 
 #include "server_session.h"
+#include "error.h"
 #include "logger.h"
 
 namespace znet {
@@ -17,6 +18,7 @@ ServerSession::ServerSession(Ref<InetAddress> local_address,
     : ConnectionSession(local_address, remote_address), socket_(socket) {
   is_alive_ = true;
   memset(&buffer_, 0, MAX_BUFFER_SIZE);
+  encryption_layer_.Initialize(false);
 }
 
 void ServerSession::Process() {
@@ -25,7 +27,10 @@ void ServerSession::Process() {
   }
 
   // Handle the client connection
+  mutex_.lock();
   data_size_ = recv(socket_, buffer_, sizeof(buffer_), 0);
+  mutex_.unlock();
+
   if (data_size_ > MAX_BUFFER_SIZE) {
     Close();
     ZNET_LOG_ERROR(
@@ -34,11 +39,15 @@ void ServerSession::Process() {
         data_size_, MAX_BUFFER_SIZE);
     return;
   }
+
   if (data_size_ == 0) {
     Close();
   } else if (data_size_ > 0) {
     auto buffer = CreateRef<Buffer>(buffer_, data_size_);
-    handler_layer_.Handle(*this, buffer);
+    buffer = encryption_layer_.HandleIn(buffer);
+    if (buffer) {
+      handler_layer_.HandleIn(buffer);
+    }
   }
 #ifdef WIN32
   else if (data_size_ == -1) {
@@ -53,33 +62,38 @@ void ServerSession::Process() {
 }
 
 Result ServerSession::Close() {
+  std::scoped_lock lock(mutex_);
   if (!is_alive_) {
     return Result::AlreadyClosed;
   }
-  // Close the client socket
+  // Close the socket
+  is_alive_ = false;
 #ifdef TARGET_WIN
   closesocket(socket_);
 #else
   close(socket_);
 #endif
-  is_alive_ = false;
   return Result::Success;
 }
 
-bool ServerSession::IsAlive() {
-  return is_alive_;
-}
-
 void ServerSession::SendPacket(Ref<Packet> packet) {
-  auto buffer = handler_layer_.Serialize(*this, packet);
+  auto buffer = handler_layer_.HandleOut(packet);
   if (buffer) {
     SendRaw(buffer);
   }
 }
-#pragma comment(lib, "Ws2_32.lib")
+
 void ServerSession::SendRaw(Ref<Buffer> buffer) {
+  buffer = encryption_layer_.HandleOut(buffer);
+  if (!buffer) {
+    return;
+  }
+  std::scoped_lock lock(mutex_);
+  if (!is_alive_) {
+    return;
+  }
   if (send(socket_, buffer->data(), buffer->size(), 0) < 0) {
-    ZNET_LOG_ERROR("Error sending data to the client.");
+    ZNET_LOG_ERROR("Error sending data to the server: {}", GetLastErrorInfo());
     return;
   }
 }

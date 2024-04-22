@@ -12,6 +12,7 @@
 
 #include "client_session.h"
 #include "interface.h"
+#include <thread>
 
 namespace znet {
 
@@ -28,6 +29,7 @@ class Client : public Interface {
   ~Client();
 
   Result Bind() override;
+  void Wait() override;
   Result Connect();
   Result Disconnect();
 
@@ -45,6 +47,7 @@ class Client : public Interface {
   SocketType client_socket_ = -1;
 
   Ref<ClientSession> client_session_;
+  Scope<std::thread> thread_;
 };
 
 }  // namespace znet

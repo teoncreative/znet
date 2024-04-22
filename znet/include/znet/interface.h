@@ -25,6 +25,8 @@ class Interface {
 
   virtual Result Bind() = 0;
 
+  virtual void Wait() = 0;
+
   void SetEventCallback(EventCallbackFn fn) { event_callback_ = std::move(fn); }
 
   ZNET_NODISCARD EventCallbackFn event_callback() const {

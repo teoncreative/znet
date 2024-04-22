@@ -11,6 +11,7 @@
 #pragma once
 
 #include "connection_session.h"
+#include <mutex>
 
 namespace znet {
 
@@ -22,12 +23,14 @@ class ClientSession : public ConnectionSession {
   void Process() override;
   Result Close() override;
 
-  bool IsAlive() override;
+  bool IsAlive() override { return is_alive_; }
 
   void SendPacket(Ref<Packet> packet) override;
+
   void SendRaw(Ref<Buffer> buffer) override;
 
  private:
+  std::mutex mutex_;
   SocketType socket_;
   char buffer_[MAX_BUFFER_SIZE]{};
   ssize_t data_size_ = 0;
