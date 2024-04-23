@@ -11,7 +11,7 @@
 #pragma once
 
 #include "interface.h"
-#include "server_session.h"
+#include "peer_session.h"
 #include "logger.h"
 #include "base/scheduler.h"
 #include <thread>
@@ -25,7 +25,7 @@ struct ServerConfig {
 
 class Server : public Interface {
  public:
-  using SessionMap = std::unordered_map<Ref<InetAddress>, Ref<ServerSession>>;
+  using SessionMap = std::unordered_map<Ref<InetAddress>, Ref<PeerSession>>;
   Server();
   Server(const ServerConfig& config);
   Server(const Server&) = delete;

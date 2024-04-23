@@ -362,6 +362,8 @@ class Buffer {
 
   void set_write_cursor(size_t cursor) { write_cursor_ = cursor; }
 
+  void set_read_cursor(size_t cursor) { read_cursor_ = cursor; }
+
   ZNET_NODISCARD size_t read_cursor() const { return read_cursor_; }
 
   ZNET_NODISCARD size_t size() const { return write_cursor_; }

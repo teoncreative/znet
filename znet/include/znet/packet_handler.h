@@ -16,18 +16,18 @@
 
 namespace znet {
 
-class ConnectionSession;
+class PeerSession;
 
 template <typename PacketType,
           std::enable_if_t<std::is_base_of_v<Packet, PacketType>, bool> = true>
 using PacketHandlerFn =
-    std::function<void(ConnectionSession&, Ref<PacketType>)>;
+    std::function<void(PeerSession&, Ref<PacketType>)>;
 
 class PacketHandlerBase {
  public:
-  virtual void Handle(ConnectionSession& session, Ref<Buffer> buffer) {}
+  virtual void Handle(PeerSession& session, Ref<Buffer> buffer) {}
 
-  virtual Ref<Buffer> Serialize(ConnectionSession& session,
+  virtual Ref<Buffer> Serialize(PeerSession& session,
                                 Ref<Packet> packet) {
     return nullptr;
   }
@@ -54,14 +54,14 @@ class PacketHandler : public PacketHandlerBase {
     callbacks_.push_back(fn);
   }
 
-  void Handle(ConnectionSession& session, Ref<Buffer> buffer) override {
+  void Handle(PeerSession& session, Ref<Buffer> buffer) override {
     auto packet = serializer_->Deserialize(buffer);
     for (const auto& item : callbacks_) {
       item(session, packet);
     }
   }
 
-  Ref<Buffer> Serialize(ConnectionSession& session,
+  Ref<Buffer> Serialize(PeerSession& session,
                         Ref<Packet> packet) override {
     Ref<Buffer> buffer = CreateRef<Buffer>();
     buffer->WriteVarInt(packet_id());
@@ -90,7 +90,7 @@ class PacketHandler : public PacketHandlerBase {
 
 class HandlerLayer {
  public:
-  HandlerLayer(ConnectionSession& session) : session_(session) { }
+  HandlerLayer(PeerSession& session) : session_(session) { }
   ~HandlerLayer() = default;
 
   void HandleIn(Ref<Buffer> buffer);
@@ -100,7 +100,7 @@ class HandlerLayer {
   void AddPacketHandler(Ref<PacketHandlerBase> handler);
 
  private:
-  ConnectionSession& session_;
+  PeerSession& session_;
   std::unordered_map<PacketId, Ref<PacketHandlerBase>> handlers_;
 };
 }  // namespace znet
