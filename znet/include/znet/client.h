@@ -10,7 +10,7 @@
 
 #pragma once
 
-#include "client_session.h"
+#include "peer_session.h"
 #include "interface.h"
 #include <thread>
 
@@ -33,7 +33,7 @@ class Client : public Interface {
   Result Connect();
   Result Disconnect();
 
-  ZNET_NODISCARD Ref<ClientSession> client_session() const {
+  ZNET_NODISCARD Ref<PeerSession> client_session() const {
     return client_session_;
   }
 
@@ -46,7 +46,7 @@ class Client : public Interface {
   Ref<InetAddress> server_address_;
   SocketType client_socket_ = -1;
 
-  Ref<ClientSession> client_session_;
+  Ref<PeerSession> client_session_;
   Scope<std::thread> thread_;
 };
 

@@ -202,7 +202,7 @@ void Server::CheckNetwork() {
     return;
   }
   auto session =
-      CreateRef<ServerSession>(bind_address_, remote_address, client_socket);
+      CreateRef<PeerSession>(bind_address_, remote_address, client_socket);
   pending_sessions_[remote_address] = session;
 }
 

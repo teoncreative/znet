@@ -69,7 +69,7 @@ Result Client::Connect() {
 #endif
   // todo local address
   client_session_ =
-      CreateRef<ClientSession>(nullptr, server_address_, client_socket_);
+      CreateRef<PeerSession>(nullptr, server_address_, client_socket_, true);
 
   // Connected to the server
   thread_ = CreateScope<std::thread>([this]() {

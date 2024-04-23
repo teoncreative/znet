@@ -93,24 +93,23 @@ class ConnectionReadyPacketSerializerV1
   }
 };
 
-class ConnectionSession;
+class PeerSession;
 
 class EncryptionLayer {
  public:
-  EncryptionLayer(ConnectionSession& session);
+  EncryptionLayer(PeerSession& session);
   ~EncryptionLayer();
 
   void Initialize(bool send);
 
   Ref<Buffer> HandleIn(Ref<Buffer> buffer);
-
   Ref<Buffer> HandleOut(Ref<Buffer> buffer);
 
-  void OnHandshakePacket(ConnectionSession& session, Ref<HandshakePacket> packet);
-  void OnAcknowledgePacket(ConnectionSession& session, Ref<ConnectionReadyPacket> packet);
+  void OnHandshakePacket(PeerSession& session, Ref<HandshakePacket> packet);
+  void OnAcknowledgePacket(PeerSession& session, Ref<ConnectionReadyPacket> packet);
 
  private:
-  ConnectionSession& session_;
+  PeerSession& session_;
   HandlerLayer handler_layer_;
 
   EVP_PKEY* pub_key_ = nullptr;

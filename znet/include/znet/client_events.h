@@ -11,36 +11,35 @@
 
 #pragma once
 
-#include "client_session.h"
-#include "server_session.h"
+#include "peer_session.h"
 #include "event/event.h"
 
 namespace znet {
 
 class ClientConnectedToServerEvent : public Event {
  public:
-  ClientConnectedToServerEvent(Ref<ClientSession> session)
+  ClientConnectedToServerEvent(Ref<PeerSession> session)
       : session_(session) {}
 
-  Ref<ClientSession> session() { return session_; }
+  Ref<PeerSession> session() { return session_; }
 
   ZNET_EVENT_CLASS_TYPE(ClientConnectedToServer)
   ZNET_EVENT_CLASS_CATEGORY(EventCategoryClient)
  private:
-  Ref<ClientSession> session_;
+  Ref<PeerSession> session_;
 };
 
 class ClientDisconnectedFromServerEvent : public Event {
  public:
-  ClientDisconnectedFromServerEvent(Ref<ClientSession> session)
+  ClientDisconnectedFromServerEvent(Ref<PeerSession> session)
       : session_(session) {}
 
-  Ref<ClientSession> session() { return session_; }
+  Ref<PeerSession> session() { return session_; }
 
   ZNET_EVENT_CLASS_TYPE(ClientDisconnectedFromServer)
   ZNET_EVENT_CLASS_CATEGORY(EventCategoryClient)
  private:
-  Ref<ClientSession> session_;
+  Ref<PeerSession> session_;
 };
 
 }  // namespace znet

@@ -13,14 +13,14 @@
 
 using namespace znet;
 
-void OnDemoPacket(ConnectionSession& session, Ref<DemoPacket> packet) {
+void OnDemoPacket(PeerSession& session, Ref<DemoPacket> packet) {
   ZNET_LOG_INFO("Received demo_packet. Text: {}", packet->text);
   Ref<DemoPacket> pk = CreateRef<DemoPacket>();
   pk->text = "Hello from server!";
   session.SendPacket(pk);
 }
 
-void AddClientHandlers(Ref<ConnectionSession> session) {
+void AddClientHandlers(Ref<PeerSession> session) {
   auto demo_packet_handler =
       CreateRef<PacketHandler<DemoPacket, DemoPacketSerializerV1>>();
   demo_packet_handler->AddReceiveCallback(ZNET_BIND_GLOBAL_FN(OnDemoPacket));
@@ -60,7 +60,10 @@ int main() {
   server.SetEventCallback(ZNET_BIND_GLOBAL_FN(OnEvent));
 
   // Bind and listen
-  server.Bind();
+  if (server.Bind() != Result::Success) {
+    return 1;
+  }
+
   if (server.Listen() != Result::Success) {
     return 1; // failed to listen
   }

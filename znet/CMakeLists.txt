@@ -9,14 +9,14 @@ set(ZNET_SOURCES
         src/scheduler.cc
         src/signal_handler.cc
         src/inet_addr.cc
-        src/server_session.cc
-        src/client_session.cc
         src/server.cc
         src/client.cc
         src/error.cc
         src/logger.cc
         src/packet_handler.cc
         src/encryption.cc
+        src/transport.cc
+        src/peer_session.cc
 )
 
 add_library(znet STATIC

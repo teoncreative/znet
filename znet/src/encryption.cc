@@ -9,7 +9,7 @@
 //
 
 #include "encryption.h"
-#include "connection_session.h"
+#include "peer_session.h"
 
 #include <openssl/evp.h>
 #include <openssl/kdf.h>
@@ -291,7 +291,7 @@ int CalculateCipherTextLength(int plaintext_len) {
   return ciphertext_len;
 }
 
-EncryptionLayer::EncryptionLayer(ConnectionSession& session)
+EncryptionLayer::EncryptionLayer(PeerSession& session)
     : session_(session), handler_layer_(session) {
   pub_key_ = GenerateKey();
   if (!pub_key_) {
@@ -341,21 +341,17 @@ Ref<Buffer> EncryptionLayer::HandleDecrypt(Ref<Buffer> buffer) {
     ZNET_LOG_ERROR("Encryption mode {} is not known/supported!", mode);
     return nullptr;
   }
-  auto* actual = new unsigned char[buffer->size()];
-  int total_size = 0;
-  while (buffer->readable_bytes() > 0) {
-    auto actual_size = buffer->ReadInt<uint64_t>();
-    auto* iv = new unsigned char[16];
-    //memset(iv, 0, 16);
-    buffer->Read(iv, 16);
-    auto cipher_len = buffer->ReadInt<uint64_t>();
-    const char* data_ptr = buffer->data() + buffer->read_cursor();
-    DecryptData(reinterpret_cast<const unsigned char*>(data_ptr), cipher_len,
-                key_, iv, actual);
-    buffer->SkipRead(cipher_len);
-    total_size += actual_size;
-  }
-  return CreateRef<Buffer>(reinterpret_cast<char*>(actual), total_size);
+  auto actual_size = buffer->ReadInt<uint64_t>();
+  auto* actual = new unsigned char[actual_size];
+  auto* iv = new unsigned char[16];
+  //memset(iv, 0, 16);
+  buffer->Read(iv, 16);
+  auto cipher_len = buffer->ReadInt<uint64_t>();
+  const char* data_ptr = buffer->data() + buffer->read_cursor();
+  DecryptData(reinterpret_cast<const unsigned char*>(data_ptr), cipher_len,
+              key_, iv, actual);
+  buffer->SkipRead(cipher_len);
+  return CreateRef<Buffer>(reinterpret_cast<char*>(actual), actual_size);
 }
 
 Ref<Buffer> EncryptionLayer::HandleIn(Ref<znet::Buffer> buffer) {
@@ -382,7 +378,7 @@ Ref<Buffer> EncryptionLayer::HandleOut(Ref<Buffer> buffer) {
     int ciphertext_len =
         EncryptData(reinterpret_cast<const unsigned char*>(buffer->data()),
                     buffer->size(), key_, iv, ciphertext);
-    new_buffer->ReserveExact(ciphertext_len + 2 + 8 + 8);
+    new_buffer->ReserveExact(ciphertext_len + 2 + 8 + 16 + 8);
     new_buffer->WriteInt<uint16_t>(1);  // encryption enabled
     new_buffer->WriteInt<uint64_t>(buffer->size());
     new_buffer->Write(iv, 16);
@@ -399,7 +395,7 @@ Ref<Buffer> EncryptionLayer::HandleOut(Ref<Buffer> buffer) {
   return new_buffer;
 }
 
-void EncryptionLayer::OnHandshakePacket(ConnectionSession&,
+void EncryptionLayer::OnHandshakePacket(PeerSession&,
                                         Ref<HandshakePacket> packet) {
   if (peer_pkey_ || key_filled_) {
     ZNET_LOG_ERROR("Received handshake packet twice, closing the connection!");
@@ -426,8 +422,7 @@ void EncryptionLayer::OnHandshakePacket(ConnectionSession&,
   }
 }
 
-void EncryptionLayer::OnAcknowledgePacket(
-    ConnectionSession&, Ref<ConnectionReadyPacket> packet) {
+void EncryptionLayer::OnAcknowledgePacket(PeerSession&, Ref<ConnectionReadyPacket> packet) {
   if (!peer_pkey_ || !key_filled_) {
     ZNET_LOG_ERROR(
         "Received connection complete packet it wasn't expected, closing the "
@@ -455,7 +450,10 @@ void EncryptionLayer::SendHandshake() {
   packet->owner_ = false;
   auto buffer = handler_layer_.HandleOut(packet);
   if (buffer) {
-    session_.SendRaw(buffer);
+    buffer = HandleOut(buffer);
+  }
+  if (buffer) {
+    session_.transport_layer().Send(buffer);
   }
   sent_handshake_ = true;
 }
@@ -466,7 +464,10 @@ void EncryptionLayer::SendReady() {
   packet->magic_ = "343693b5-2b04-4d56-a3b5-48582ca37c7d";
   auto buffer = handler_layer_.HandleOut(packet);
   if (buffer) {
-    session_.SendRaw(buffer);
+    buffer = HandleOut(buffer);
+  }
+  if (buffer) {
+    session_.transport_layer().Send(buffer);
   }
   sent_ready_ = true;
 }
