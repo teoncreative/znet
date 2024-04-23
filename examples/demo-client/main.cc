@@ -16,6 +16,7 @@ using namespace znet;
 
 void OnDemoPacket(PeerSession& session, Ref<DemoPacket> packet) {
   ZNET_LOG_INFO("Received demo_packet. Text: {}", packet->text);
+  session.Close();
 }
 
 void AddClientHandlers(Ref<PeerSession> session) {

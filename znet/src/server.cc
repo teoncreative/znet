@@ -86,19 +86,21 @@ Result Server::Bind() {
                    GetLastErrorInfo());
     return Result::CannotBind;
   }
+  is_bind_ = true;
   ZNET_LOG_DEBUG("Bind to: {}", bind_address_->readable());
   return Result::Success;
 }
 
 void Server::Wait() {
-  if (thread_) {
-    thread_->join();
-  }
+  task_.Wait();
 }
 
 Result Server::Listen() {
-  if (thread_) {
+  if (task_.IsRunning()) {
     return Result::AlreadyListening;
+  }
+  if (!is_bind_) {
+    return Result::CannotListen;
   }
   if (listen(server_socket_, SOMAXCONN) != 0) {
     ZNET_LOG_DEBUG("Failed to listen connections from: {}, {}",
@@ -109,7 +111,7 @@ Result Server::Listen() {
   is_listening_ = true;
   shutdown_complete_ = false;
 
-  thread_ = CreateScope<std::thread>([this]() {
+  task_.Run([this]() {
     ZNET_LOG_DEBUG("Listening connections from: {}", bind_address_->readable());
     ServerStartupEvent startup_event{*this};
     event_callback()(startup_event);
@@ -148,7 +150,6 @@ Result Server::Listen() {
 
     ZNET_LOG_DEBUG("Server shutdown complete.");
     shutdown_complete_ = true;
-    thread_ = nullptr;
   });
   return Result::Success;
 }
@@ -159,6 +160,7 @@ Result Server::Stop() {
     return Result::AlreadyStopped;
   }
   is_listening_ = false;
+  is_bind_ = false;
   return Result::Success;
 }
 

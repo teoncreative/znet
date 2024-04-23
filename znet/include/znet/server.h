@@ -14,7 +14,7 @@
 #include "peer_session.h"
 #include "logger.h"
 #include "base/scheduler.h"
-#include <thread>
+#include "task.h"
 
 namespace znet {
 
@@ -53,11 +53,12 @@ class Server : public Interface {
   ServerConfig config_;
   Ref<InetAddress> bind_address_;
   bool is_listening_ = false;
+  bool is_bind_ = false;
   SocketType server_socket_ = -1;
   bool shutdown_complete_ = false;
   int tps_ = 120;
   Scheduler scheduler_{tps_};
-  Scope<std::thread> thread_;
+  Task task_;
 
   SessionMap sessions_;
   SessionMap pending_sessions_;
