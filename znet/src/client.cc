@@ -47,7 +47,7 @@ Result Client::Bind() {
 }
 
 Result Client::Connect() {
-  if (thread_) {
+  if (task_.IsRunning()) {
     return Result::AlreadyConnected;
   }
   if (!server_address_ || !server_address_->is_valid()) {
@@ -72,13 +72,12 @@ Result Client::Connect() {
       CreateRef<PeerSession>(nullptr, server_address_, client_socket_, true);
 
   // Connected to the server
-  thread_ = CreateScope<std::thread>([this]() {
+  task_.Run([this]() {
     // setup
     while (!client_session_->IsReady() && client_session_->IsAlive()) {
       client_session_->Process();
     }
     if (!client_session_->IsAlive()) {
-      thread_ = nullptr;
       return;
     }
     ZNET_LOG_DEBUG("Connected to the server.");
@@ -90,15 +89,12 @@ Result Client::Connect() {
     ZNET_LOG_DEBUG("Disconnected from the server.");
     ClientDisconnectedFromServerEvent disconnected_event{client_session_};
     event_callback()(disconnected_event);
-    thread_ = nullptr;
   });
   return Result::Success;
 }
 
 void Client::Wait() {
-  if (thread_) {
-    thread_->join();
-  }
+  task_.Wait();
 }
 
 Result Client::Disconnect() {

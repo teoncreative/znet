@@ -10,9 +10,9 @@
 
 #pragma once
 
-#include "peer_session.h"
 #include "interface.h"
-#include <thread>
+#include "peer_session.h"
+#include "task.h"
 
 namespace znet {
 
@@ -47,7 +47,8 @@ class Client : public Interface {
   SocketType client_socket_ = -1;
 
   Ref<PeerSession> client_session_;
-  Scope<std::thread> thread_;
+  Task task_;
+
 };
 
 }  // namespace znet

@@ -19,3 +19,4 @@
 - [ ] Server Started Listening Event
 - [ ] Error handling in SendPacket and SendRaw
 - [ ] Proxy support
+- [ ] Unix socket support
