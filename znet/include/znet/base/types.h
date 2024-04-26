@@ -27,8 +27,10 @@ enum class endian {
 #endif
 
 namespace znet {
-#ifndef MAX_BUFFER_SIZE
-#define MAX_BUFFER_SIZE 4096
+
+// Max buffer size defines how big send and receive of each data can be.
+#ifndef ZNET_MAX_BUFFER_SIZE
+#define ZNET_MAX_BUFFER_SIZE 4096 //16384
 #endif
 
 template <typename T>

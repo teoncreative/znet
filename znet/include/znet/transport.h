@@ -26,16 +26,18 @@ class TransportLayer {
   ~TransportLayer();
 
   Ref<Buffer> Receive();
-  void Send(Ref<Buffer> buffer);
+  bool Send(Ref<Buffer> buffer);
 
  private:
   Ref<Buffer> ReadBuffer();
 
   PeerSession& session_;
-  char data_[MAX_BUFFER_SIZE]{};
+  char data_[ZNET_MAX_BUFFER_SIZE]{};
+  int read_offset_ = 0;
   ssize_t data_size_ = 0;
   Ref<Buffer> buffer_;
   SocketType socket_;
+  bool has_more_;
 
 };
 

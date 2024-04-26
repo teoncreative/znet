@@ -56,7 +56,7 @@ class Server : public Interface {
   bool is_bind_ = false;
   SocketType server_socket_ = -1;
   bool shutdown_complete_ = false;
-  int tps_ = 120;
+  int tps_ = 1000;
   Scheduler scheduler_{tps_};
   Task task_;
 

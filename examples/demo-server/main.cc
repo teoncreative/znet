@@ -14,9 +14,11 @@
 using namespace znet;
 
 void OnDemoPacket(PeerSession& session, Ref<DemoPacket> packet) {
-  ZNET_LOG_INFO("Received demo_packet. Text: {}", packet->text);
+  ZNET_LOG_INFO("Received demo_packet.");
   Ref<DemoPacket> pk = CreateRef<DemoPacket>();
-  pk->text = "Hello from server!";
+  for (int i = 0; i < 4000; ++i) {
+    pk->text[i] = 'a' + (i % 26);
+  }
   session.SendPacket(pk);
 }
 

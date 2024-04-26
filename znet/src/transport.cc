@@ -29,20 +29,14 @@ Ref<Buffer> TransportLayer::Receive() {
     return new_buffer;
   }
 
-  // Handle the client connection
-  // since recv is in blocking mode here, locking the mutex would cause
-  // it to be locked until the data is received. which means if
-  // client is the one initiating the connection, it will be stuck
-  //mutex_.lock();
-  data_size_ = recv(socket_, data_, sizeof(data_), 0);
-  //mutex_.unlock();
+  data_size_ = recv(socket_, data_ + read_offset_, sizeof(data_) - read_offset_, 0);
 
-  if (data_size_ > MAX_BUFFER_SIZE) {
+  if (data_size_ > ZNET_MAX_BUFFER_SIZE) {
     session_.Close();
     ZNET_LOG_ERROR(
         "Received data bigger than maximum buffer size (rx: {}, max: {}), "
         "closing connection!",
-        data_size_, MAX_BUFFER_SIZE);
+        data_size_, ZNET_MAX_BUFFER_SIZE);
     return nullptr;
   }
 
@@ -50,7 +44,14 @@ Ref<Buffer> TransportLayer::Receive() {
     session_.Close();
     return nullptr;
   } else if (data_size_ > 0) {
-    buffer_ = CreateRef<Buffer>(data_, data_size_);
+    int full_size = data_size_ + read_offset_;
+    if (full_size == ZNET_MAX_BUFFER_SIZE) {
+      has_more_ = true;
+    } else {
+      has_more_ = false;
+    }
+    buffer_ = CreateRef<Buffer>(data_, full_size);
+    read_offset_ = 0;
     return ReadBuffer();
   } else if (data_size_ == -1) {
 #ifdef WIN32
@@ -61,7 +62,7 @@ Ref<Buffer> TransportLayer::Receive() {
     ZNET_LOG_ERROR("Closing connection due to an error: ", GetLastErrorInfo());
     Close();
 #else
-    if (errno == EWOULDBLOCK) {
+    if (errno == EWOULDBLOCK || errno == EAGAIN) {
       return nullptr; // no data received
     }
     ZNET_LOG_ERROR("Closing connection due to an error: ", GetLastErrorInfo());
@@ -73,13 +74,20 @@ Ref<Buffer> TransportLayer::Receive() {
 
 Ref<Buffer> TransportLayer::ReadBuffer() {
   if (buffer_ && buffer_->readable_bytes() > 0) {
-    size_t size = buffer_->ReadInt<size_t>();
+    size_t cursor = buffer_->read_cursor();
+    auto size = buffer_->ReadVarInt<size_t>();
     if (buffer_->readable_bytes() < size) {
-      ZNET_LOG_ERROR("Received malformed frame, closing connection!");
-      session_.Close();
+      if (!has_more_) {
+        ZNET_LOG_ERROR("Received malformed frame, closing connection!");
+        session_.Close();
+        return nullptr;
+      }
+      buffer_->set_read_cursor(cursor);
+      read_offset_ = buffer_->readable_bytes();
+      memcpy(data_, buffer_->data() + cursor, read_offset_);
       return nullptr;
     }
-    char* data_ptr = const_cast<char*>(buffer_->data()) + buffer_->read_cursor();
+    const char* data_ptr = buffer_->data() + buffer_->read_cursor();
     buffer_->SkipRead(size);
     return CreateRef<Buffer>(data_ptr, size);
   }
@@ -87,21 +95,38 @@ Ref<Buffer> TransportLayer::ReadBuffer() {
   return nullptr;
 }
 
-void TransportLayer::Send(Ref<Buffer> buffer) {
+bool TransportLayer::Send(Ref<Buffer> buffer) {
   if (!session_.IsAlive()) {
-    ZNET_LOG_WARN("Tried to send a packet to a dead connection, buffer will be dropped!");
-    return;
+    ZNET_LOG_WARN("Tried to send a packet to a dead connection, dropping packet!");
+    return false;
+  }
+
+  const size_t header = 48; // usually smaller than this
+  const size_t limit = ZNET_MAX_BUFFER_SIZE - header;
+  size_t new_size = buffer->size() + sizeof(size_t);
+  // This intentionally checks for >= limit, not > limit
+  if (new_size >= limit) {
+    // Due to the nature of how we read packets, we cannot receive packets
+    // bigger than a frame (MAX_BUFFER_SIZE - HEADER_SIZE).
+    ZNET_LOG_ERROR("Tried to send buffer size {} but the limit is {}, dropping packet!",
+                   new_size, limit);
+    return false;
   }
 
   auto new_buffer = CreateRef<Buffer>();
-  new_buffer->ReserveExact(buffer->size() + sizeof(size_t));
-  new_buffer->WriteInt<size_t>(buffer->size());
+  new_buffer->ReserveExact(new_size);
+  new_buffer->WriteVarInt<size_t>(buffer->size());
   new_buffer->Write(buffer->data() + buffer->read_cursor(), buffer->size());
 
-  if (send(socket_, new_buffer->data(), new_buffer->size(), 0) < 0) {
-    ZNET_LOG_ERROR("Error sending data to the server: {}", GetLastErrorInfo());
-    return;
+  // todo check
+  while (send(socket_, new_buffer->data(), new_buffer->size(), MSG_DONTWAIT) < 0) {
+    if (errno == EWOULDBLOCK || errno == EAGAIN) {
+      continue;
+    }
+    ZNET_LOG_ERROR("Error sending packet to the server: {}", GetLastErrorInfo());
+    return false;
   }
+  return true;
 }
 
 } // namespace znet
