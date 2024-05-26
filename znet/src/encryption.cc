@@ -333,7 +333,7 @@ EncryptionLayer::~EncryptionLayer() {
 }
 
 Ref<Buffer> EncryptionLayer::HandleDecrypt(Ref<Buffer> buffer) {
-  auto mode = buffer->ReadInt<uint16_t>();
+  auto mode = buffer->ReadInt<uint8_t>();
   if (mode == 0) {
     return buffer;  // no encryption
   }
@@ -341,17 +341,16 @@ Ref<Buffer> EncryptionLayer::HandleDecrypt(Ref<Buffer> buffer) {
     ZNET_LOG_ERROR("Encryption mode {} is not known/supported!", mode);
     return nullptr;
   }
-  auto actual_size = buffer->ReadInt<uint64_t>();
-  auto* actual = new unsigned char[actual_size];
   auto* iv = new unsigned char[16];
   //memset(iv, 0, 16);
   buffer->Read(iv, 16);
-  auto cipher_len = buffer->ReadInt<uint64_t>();
+  int cipher_len = buffer->readable_bytes();
+  auto* actual = new unsigned char[cipher_len];
   const char* data_ptr = buffer->data() + buffer->read_cursor();
-  DecryptData(reinterpret_cast<const unsigned char*>(data_ptr), cipher_len,
+  int actual_len = DecryptData(reinterpret_cast<const unsigned char*>(data_ptr), cipher_len,
               key_, iv, actual);
   buffer->SkipRead(cipher_len);
-  return CreateRef<Buffer>(reinterpret_cast<char*>(actual), actual_size);
+  return CreateRef<Buffer>(reinterpret_cast<char*>(actual), actual_len);
 }
 
 Ref<Buffer> EncryptionLayer::HandleIn(Ref<znet::Buffer> buffer) {
@@ -379,10 +378,8 @@ Ref<Buffer> EncryptionLayer::HandleOut(Ref<Buffer> buffer) {
         EncryptData(reinterpret_cast<const unsigned char*>(buffer->data()),
                     buffer->size(), key_, iv, ciphertext);
     new_buffer->ReserveExact(ciphertext_len + 2 + 8 + 16 + 8);
-    new_buffer->WriteInt<uint16_t>(1);  // encryption enabled
-    new_buffer->WriteInt<uint64_t>(buffer->size());
+    new_buffer->WriteInt<uint8_t>(1);  // encryption enabled
     new_buffer->Write(iv, 16);
-    new_buffer->WriteInt<uint64_t>(ciphertext_len);
     new_buffer->Write(ciphertext, ciphertext_len);
 
     auto* actual = new unsigned char[buffer->size()];
@@ -390,7 +387,7 @@ Ref<Buffer> EncryptionLayer::HandleOut(Ref<Buffer> buffer) {
     return new_buffer;
   }
   new_buffer->ReserveExact(buffer->size() + 2);
-  new_buffer->WriteInt<uint16_t>(0);  // no encryption
+  new_buffer->WriteInt<uint8_t>(0);  // no encryption
   new_buffer->Write(buffer->data(), buffer->size());
   return new_buffer;
 }

@@ -37,7 +37,7 @@ class Buffer {
     data_ = nullptr;
   }
 
-  Buffer(char* data, int data_size,
+  Buffer(const char* data, int data_size,
          Endianness endianness = Endianness::LittleEndian) {
     failed_to_read_ = false;
     endianness_ = endianness;

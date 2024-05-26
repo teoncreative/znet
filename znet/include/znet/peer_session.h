@@ -37,7 +37,7 @@ class PeerSession {
     return remote_address_;
   }
 
-  void SendPacket(Ref<Packet> packet);
+  bool SendPacket(Ref<Packet> packet);
 
   HandlerLayer& handler_layer() { return handler_layer_; }
 

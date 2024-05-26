@@ -16,9 +16,9 @@ using namespace znet;
 
 class DemoPacket : public Packet {
  public:
-  DemoPacket() : Packet(1) { text = "Test"; }
+  DemoPacket() : Packet(1) { }
 
-  std::string text;
+  char text[4000];
 };
 
 class DemoPacketSerializerV1 : public PacketSerializer<DemoPacket> {
@@ -26,13 +26,13 @@ class DemoPacketSerializerV1 : public PacketSerializer<DemoPacket> {
   DemoPacketSerializerV1() : PacketSerializer<DemoPacket>(1) {}
 
   Ref<Buffer> Serialize(Ref<DemoPacket> packet, Ref<Buffer> buffer) override {
-    buffer->WriteString(packet->text);
+    buffer->Write(packet->text, 4000);
     return buffer;
   }
 
   Ref<DemoPacket> Deserialize(Ref<Buffer> buffer) override {
     auto packet = CreateRef<DemoPacket>();
-    packet->text = buffer->ReadString();
+    buffer->Read(packet->text, 4000);
     return packet;
   }
 };

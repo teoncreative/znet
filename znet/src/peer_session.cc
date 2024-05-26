@@ -51,14 +51,16 @@ Result PeerSession::Close() {
   return Result::Success;
 }
 
-void PeerSession::SendPacket(Ref<Packet> packet) {
+bool PeerSession::SendPacket(Ref<Packet> packet) {
   auto buffer = handler_layer_.HandleOut(std::move(packet));
-  if (buffer) {
-    buffer = encryption_layer_.HandleOut(std::move(buffer));
+  if (!buffer) {
+    return false;
   }
-  if (buffer) {
-    transport_layer_.Send(buffer);
+  buffer = encryption_layer_.HandleOut(std::move(buffer));
+  if (!buffer) {
+    return false;
   }
+  return transport_layer_.Send(buffer);
 }
 
 }
