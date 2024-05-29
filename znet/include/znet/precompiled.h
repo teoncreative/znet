@@ -23,6 +23,11 @@
 #include <typeindex>
 #include <unordered_map>
 #include <utility>
+#include <memory>
+#include <cmath>
+#include <mutex>
+#include <condition_variable>
+#include <vector>
 
 #include <fcntl.h>
 
@@ -32,12 +37,20 @@
 #if defined(EMSCRIPTEN)
 #define TARGET_WEB
 #endif
-#if defined(__APPLE__) || defined(EMSCRIPTEN)
+#if defined(__linux__)
+#define TARGET_LINUX
+#endif
+#if defined(TARGET_APPLE) || defined(TARGET_WEB) || defined(TARGET_LINUX)
 #include <arpa/inet.h>
 #include <netdb.h>
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <unistd.h>
+#endif
+#if defined(TARGET_LINUX)
+#include <netinet/in.h>
+#include <cerrno>
+#include <cstring>
 #endif
 #if defined(_WIN32) || defined(__WIN32__) || defined(WIN32)
 #define TARGET_WIN

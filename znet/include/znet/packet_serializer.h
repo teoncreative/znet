@@ -20,7 +20,9 @@ template <typename T,
           std::enable_if_t<std::is_base_of_v<Packet, T>, bool> = true>
 class PacketSerializer {
  public:
-  PacketSerializer() : packet_id_(T::PacketId()) {}
+  PacketSerializer() : packet_id_(T::GetPacketId()) {}
+  virtual ~PacketSerializer() = default;
+
 
   PacketSerializer(PacketId packet_id) : packet_id_(packet_id) {}
 

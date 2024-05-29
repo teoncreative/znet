@@ -12,7 +12,6 @@
 
 #include "encryption.h"
 #include "packet_handler.h"
-#include "peer_session.h"
 #include "transport.h"
 
 namespace znet {

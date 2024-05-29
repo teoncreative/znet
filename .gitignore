@@ -154,3 +154,4 @@ compile_commands.json
 CTestTestfile.cmake
 _deps
 /vcpkg_installed/
+build*/

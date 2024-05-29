@@ -15,7 +15,7 @@
 
 namespace znet {
 
-#if defined(TARGET_APPLE) || defined(TARGET_WEB)
+#if defined(TARGET_APPLE) || defined(TARGET_WEB) || defined(TARGET_LINUX)
 using SocketType = int;
 using PortType = in_port_t;
 using IPv4Type = in_addr;
@@ -137,7 +137,7 @@ class InetAddressIPv6 : public InetAddress {
     addr.sin6_family = AF_INET6;
     addr.sin6_flowinfo = 0;
     addr.sin6_port = htons(port);
-#if !defined(TARGET_WIN) && !defined(TARGET_WEB)
+#if !defined(TARGET_WIN) && !defined(TARGET_WEB) && !defined(TARGET_LINUX)
     addr.sin6_len = sizeof(sockaddr_in6);
 #endif
     char src[INET6_ADDRSTRLEN];
@@ -152,7 +152,7 @@ class InetAddressIPv6 : public InetAddress {
     addr.sin6_flowinfo = 0;
     addr.sin6_port = htons(port);
     addr.sin6_addr = ip;
-#if !defined(TARGET_WIN) && !defined(TARGET_WEB)
+#if !defined(TARGET_WIN) && !defined(TARGET_WEB) && !defined(TARGET_LINUX)
     addr.sin6_len = sizeof(sockaddr_in6);
 #endif
     char src[INET6_ADDRSTRLEN];
@@ -168,7 +168,7 @@ class InetAddressIPv6 : public InetAddress {
       readable_ = "Invalid Address";
       return;
     }
-#if !defined(TARGET_WIN) && !defined(TARGET_WEB)
+#if !defined(TARGET_WIN) && !defined(TARGET_WEB) && !defined(TARGET_LINUX)
     addr.sin6_len = sizeof(sockaddr_in6);
 #endif
     addr.sin6_family = AF_INET6;

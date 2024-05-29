@@ -10,8 +10,6 @@
 
 #pragma once
 
-#include <bit>
-
 #include "base/types.h"
 #include "logger.h"
 #include "znet/base/util.h"
@@ -47,7 +45,12 @@ class Buffer {
 #ifdef ZNET_BUFFER_COUNT_MEMORY_ALLOCATIONS
     mem_allocations_ = 1;
 #endif
-    data_ = new char[allocated_size_];
+    data_ = new (std::nothrow) char[allocated_size_];
+    if (!data_) {
+      failed_to_alloc_ = true;
+      allocated_size_ = 0;
+      return;
+    }
     std::memcpy(data_, data, write_cursor_);
   }
 
@@ -68,7 +71,13 @@ class Buffer {
 #ifdef ZNET_BUFFER_COUNT_MEMORY_ALLOCATIONS
     mem_allocations_ = 0;
 #endif
-    data_ = new char[allocated_size_];
+    // todo safe errors
+    data_ = new (std::nothrow) char[allocated_size_];
+    if (!data_) {
+      failed_to_alloc_ = true;
+      allocated_size_ = 0;
+      return;
+    }
     std::memcpy(data_, buffer.data_, allocated_size_);
   }
 #endif
@@ -81,7 +90,7 @@ class Buffer {
       failed_to_read_ = true;
       return;
     }
-    memcpy(pt, data_ + read_cursor_, calculated_size);
+    std::memcpy(pt, data_ + read_cursor_, calculated_size);
     read_cursor_ += calculated_size;
   }
 
@@ -94,7 +103,12 @@ class Buffer {
   template <Number T>
   T ReadInt() {
     size_t size = sizeof(T);
-    char* data = new char[size];
+    char* data = new (std::nothrow) char[size];
+    if (!data) {
+      failed_to_read_ = true;
+      failed_to_alloc_ = true;
+      return 0;
+    }
     if (!CheckReadableBytes(size)) {
       failed_to_read_ = true;
       return 0;
@@ -117,7 +131,12 @@ class Buffer {
   template <Number T>
   T ReadVarInt() {
     uint8_t size = sizeof(T);
-    char* data = new char[size];
+    char* data = new (std::nothrow) char[size];
+    if (!data) {
+      failed_to_alloc_ = true;
+      failed_to_read_ = true;
+      return 0;
+    }
     std::memset(data, 0, size);
     if (!CheckReadableBytes(1)) {
       failed_to_read_ = true;
@@ -144,12 +163,17 @@ class Buffer {
   }
 
   std::string ReadString() {
-    Number auto size = ReadVarInt<size_t>();
+    size_t size = ReadVarInt<size_t>();
     if (!CheckReadableBytes(size)) {
       failed_to_read_ = true;
       return "";
     }
-    char* data = new char[size];
+    char* data = new (std::nothrow) char[size];
+    if (!data) {
+      failed_to_alloc_ = true;
+      failed_to_read_ = true; 
+      return "";
+    }
     for (size_t i = 0; i < size; i++) {
       data[i] = ReadInt<char>();
     }
@@ -158,7 +182,7 @@ class Buffer {
 
   template <typename Map, typename KeyFunc, typename ValueFunc>
   Map ReadMap(KeyFunc key_func, ValueFunc value_func) {
-    Number auto size = ReadVarInt<size_t>();
+    size_t size = ReadVarInt<size_t>();
     Map map;
     for (int i = 0; i < size; i++) {
       auto key = (this->*key_func)();
@@ -170,7 +194,7 @@ class Buffer {
 
   template <typename T, typename ValueFunc>
   std::vector<T> ReadVector(ValueFunc value_func) {
-    Number auto size = ReadVarInt<size_t>();
+    size_t size = ReadVarInt<size_t>();
     std::vector<T> v;
     v.reserve(size);
     for (int i = 0; i < size; i++) {
@@ -181,8 +205,18 @@ class Buffer {
 
   template <typename T, typename ValueFunc>
   Scope<T[]> ReadArray(ValueFunc value_func) {
-    Number auto size = ReadVarInt<size_t>();
-    Scope<T[]> array = CreateScope<T[]>(size);
+    size_t size = ReadVarInt<size_t>();
+    size_t size_bytes = size * sizeof(T);
+    if (!CheckReadableBytes(size_bytes)) {
+      failed_to_read_ = true;
+      return nullptr;
+    }
+    T* ptr = new T[size];
+    if (!ptr) {
+      failed_to_alloc_ = true;
+      return nullptr;
+    }
+    Scope<T[]> array(ptr);
     for (int i = 0; i < size; i++) {
       array[i] = (this->*value_func)();
     }
@@ -191,10 +225,15 @@ class Buffer {
 
   template <typename T, size_t size, typename ValueFunc>
   std::array<T, size> ReadArray(ValueFunc value_func) {
-    auto size_r = ReadVarInt<size_t>();
+    size_t size_r = ReadVarInt<size_t>();
     if (size_r != size) {
       ZNET_LOG_ERROR("Array size mismatch. Expected: {}, Actual: {}", size,
                      size_r);
+      failed_to_read_ = true;
+      return {};
+    }
+    size_t size_bytes = size * sizeof(T);
+    if (!CheckReadableBytes(size_bytes)) {
       failed_to_read_ = true;
       return {};
     }
@@ -243,7 +282,7 @@ class Buffer {
     auto* pt = reinterpret_cast<const char*>(arr);
     size_t calculated_size = sizeof(T) * size;
     ReserveIncremental(calculated_size);
-    memcpy(data_ + write_cursor_, pt, calculated_size);
+    std::memcpy(data_ + write_cursor_, pt, calculated_size);
     write_cursor_ += calculated_size;
   }
 
@@ -336,7 +375,11 @@ class Buffer {
     if (write_cursor_ == allocated_size_) {
       return;
     }
-    char* new_data = new char[write_cursor_];
+    char* new_data = new (std::nothrow) char[write_cursor_];
+    if (!new_data) {
+      failed_to_alloc_ = true;
+      return;
+    }
     std::memcpy(new_data, data_, write_cursor_);
     delete[] data_;
     data_ = new_data;
@@ -398,6 +441,15 @@ class Buffer {
     return failed_to_read;
   }
 
+  /**
+   * @return true if previous allocation was failed and clears the value
+   */
+  ZNET_NODISCARD bool IsFailedToAlloc() {
+    bool failed_to_alloc = failed_to_alloc_;
+    failed_to_alloc_ = false;
+    return failed_to_alloc;
+  }
+
   void ReserveIncremental(size_t additional_bytes) {
     Reserve(write_cursor_ + additional_bytes);
   }
@@ -406,12 +458,18 @@ class Buffer {
 
   void Reserve(size_t size, bool exact = false) {
     if (!data_) {
+      size_t target_size;
       if (exact) {
-        allocated_size_ = size;
+        target_size = size;
       } else {
-        allocated_size_ = size * 2;
+        target_size = size * 2;
       }
-      data_ = new char[allocated_size_];
+      data_ = new (std::nothrow) char[target_size];
+      if (!data_) {
+        failed_to_alloc_ = true;
+        return;
+      }
+      allocated_size_ = target_size;
 #ifdef ZNET_BUFFER_COUNT_MEMORY_ALLOCATIONS
       mem_allocations_++;
 #endif
@@ -420,8 +478,13 @@ class Buffer {
     if (allocated_size_ >= size) {
       return;
     }
-    allocated_size_ = size * 2;
-    char* tmp_data = new char[allocated_size_];
+    size_t target_size_ = size * 2;
+    char* tmp_data = new (std::nothrow) char[target_size_];
+    if (!tmp_data) {
+      failed_to_alloc_ = true;
+      return;
+    }
+    allocated_size_ = target_size_;
     std::memcpy(tmp_data, data_, write_cursor_);
     delete[] data_;
     data_ = tmp_data;
@@ -444,6 +507,7 @@ class Buffer {
   size_t read_cursor_;
   char* data_;
   bool failed_to_read_;
+  bool failed_to_alloc_;
 #ifdef ZNET_BUFFER_COUNT_MEMORY_ALLOCATIONS
   size_t mem_allocations_;
 #endif
