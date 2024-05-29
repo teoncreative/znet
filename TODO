@@ -20,3 +20,4 @@
 - [ ] Error handling in SendPacket and SendRaw
 - [ ] Proxy support
 - [ ] Unix socket support
+- [ ] Limit array/vector read sizes
