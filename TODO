@@ -8,7 +8,7 @@
 - [ ] Protocol version check
 - [ ] TCP options
 - [x] Windows support
-- [ ] Linux support (Linux should be the same)
+- [x] Linux support (Linux should be the same)
 - [x] Endianness
 - [ ] Saving packet buffer to a file
 - [ ] Async Example
@@ -20,3 +20,4 @@
 - [ ] Error handling in SendPacket and SendRaw
 - [ ] Proxy support
 - [ ] Unix socket support
+- [ ] Limit array/vector read sizes

@@ -11,6 +11,7 @@
 #pragma once
 
 #include "interface.h"
+#include "base/inet_addr.h"
 #include "base/packet.h"
 #include "packet_handler.h"
 #include "packet_serializer.h"
@@ -24,3 +25,4 @@
 #include "server_events.h"
 #include "logger.h"
 #include "server.h"
+#include "peer_session.h"

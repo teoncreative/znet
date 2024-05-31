@@ -26,14 +26,14 @@ EVP_PKEY* DeserializePublicKey(const unsigned char* der, int len);
 
 class HandshakePacket : public Packet {
  public:
-  HandshakePacket() : Packet(PacketId()) { }
+  HandshakePacket() : Packet(GetPacketId()) { }
   ~HandshakePacket() {
     if (owner_) {
       EVP_PKEY_free(pub_key_);
     }
   }
 
-  static PacketId PacketId() { return -1; }
+  static PacketId GetPacketId() { return -1; }
 
   EVP_PKEY* pub_key_;
   bool owner_; // means we have to deallocate the key
@@ -42,6 +42,7 @@ class HandshakePacket : public Packet {
 class HandshakePacketSerializerV1 : public PacketSerializer<HandshakePacket> {
  public:
   HandshakePacketSerializerV1() : PacketSerializer<HandshakePacket>() {}
+  ~HandshakePacketSerializerV1() = default;
 
   Ref<Buffer> Serialize(Ref<HandshakePacket> packet, Ref<Buffer> buffer) override {
     uint32_t len;
@@ -67,11 +68,10 @@ class HandshakePacketSerializerV1 : public PacketSerializer<HandshakePacket> {
 
 class ConnectionReadyPacket : public Packet {
  public:
-  ConnectionReadyPacket() : Packet(PacketId()) { }
-  ~ConnectionReadyPacket() {
-  }
+  ConnectionReadyPacket() : Packet(GetPacketId()) { }
+  ~ConnectionReadyPacket() = default;
 
-  static PacketId PacketId() { return -2; }
+  static PacketId GetPacketId() { return -2; }
 
   std::string magic_;
 };
@@ -80,7 +80,8 @@ class ConnectionReadyPacketSerializerV1
     : public PacketSerializer<ConnectionReadyPacket> {
  public:
   ConnectionReadyPacketSerializerV1() : PacketSerializer<ConnectionReadyPacket>() {}
-
+  ~ConnectionReadyPacketSerializerV1() = default;
+  
   Ref<Buffer> Serialize(Ref<ConnectionReadyPacket> packet, Ref<Buffer> buffer) override {
     buffer->WriteString(packet->magic_);
     return buffer;

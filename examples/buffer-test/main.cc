@@ -23,18 +23,20 @@ void TestBuffer(Ref<Buffer> buffer, int test_no) {
   buffer->WriteInt(asd);
   buffer->WriteInt(f);
   buffer->WriteInt(d);
+  buffer->WriteInt(d);
 
   std::cout << buffer->Dump() << std::endl;
   MATCH_AND_EXIT_A(buffer->ReadString(), "Hello World!")
   MATCH_AND_EXIT_A(buffer->ReadInt<int64_t>(), asd)
   MATCH_AND_EXIT_A(buffer->ReadInt<float>(), f)
   MATCH_AND_EXIT_A(buffer->ReadInt<double>(), d)
+  MATCH_AND_EXIT_A(buffer->ReadInt<double>(), d)
   MATCH_AND_EXIT_A(buffer->mem_allocations(), 1)
-  MATCH_AND_EXIT_A(buffer->size(), 40)
+  MATCH_AND_EXIT_A(buffer->size(), 42)
 
   MATCH_AND_EXIT_A(buffer->capacity(), 80)
   buffer->Trim();
-  MATCH_AND_EXIT_A(buffer->capacity(), 40)
+  MATCH_AND_EXIT_A(buffer->capacity(), 42)
 
   ZNET_LOG_INFO("size: {}", buffer->size());
   ZNET_LOG_INFO("capacity: {}", buffer->capacity());

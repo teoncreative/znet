@@ -18,8 +18,7 @@ namespace znet {
 class Packet {
  public:
   Packet(PacketId id) : id_(id) {}
-
-  virtual ~Packet(){};
+  virtual ~Packet() = default;
 
   PacketId id() const { return id_; }
 
