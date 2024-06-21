@@ -18,34 +18,29 @@ jobs:
         build_type: [Release]
         compiler: [gcc, clang, cl]
         include:
-        - os: windows-latest
-          c_compiler: cl
-          cpp_compiler: cl
-        - os: ubuntu-latest
-          c_compiler: gcc
-          cpp_compiler: g++
-        - os: ubuntu-latest
-          c_compiler: clang
-          cpp_compiler: clang++
-        - os: macos-latest
-          c_compiler: clang
-          cpp_compiler: clang++
+          - os: windows-latest
+            c_compiler: cl
+            cpp_compiler: cl
+          - os: ubuntu-latest
+            c_compiler: gcc
+            cpp_compiler: g++
+          - os: ubuntu-latest
+            c_compiler: clang
+            cpp_compiler: clang++
+          - os: macos-latest
+            c_compiler: clang
+            cpp_compiler: clang++
         exclude:
-        - os: windows-latest
-          c_compiler: gcc
-          cpp_compiler: g++
-        - os: windows-latest
-          c_compiler: clang
-          cpp_compiler: clang++
-        - os: ubuntu-latest
-          c_compiler: cl
-          cpp_compiler: cl
-        - os: macos-latest
-          compiler: gcc
-          cpp_compiler: gcc
-        - os: macos-latest
-          compiler: cl
-          cpp_compiler: cl
+          - os: windows-latest
+            compiler: g++
+          - os: windows-latest
+            compiler: clang
+          - os: ubuntu-latest
+            compiler: cl
+          - os: macos-latest
+            compiler: gcc
+          - os: macos-latest
+            compiler: cl
 
     steps:
     - uses: actions/checkout@v4
