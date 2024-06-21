@@ -13,16 +13,12 @@
 
 using namespace znet;
 
-std::vector<Ref<DemoPacket>> packets;
 
 void OnDemoPacket(PeerSession& session, Ref<DemoPacket> packet) {
   ZNET_LOG_INFO("Received demo_packet.");
   Ref<DemoPacket> pk = CreateRef<DemoPacket>();
-  for (int i = 0; i < 4000; ++i) {
-    pk->text[i] = 'a' + (i % 26);
-  }
+  pk->text = "Got ya! Hello from server!";
   session.SendPacket(pk);
-  packets.push_back(packet);
 }
 
 void AddClientHandlers(Ref<PeerSession> session) {
@@ -38,7 +34,6 @@ bool OnNewSessionEvent(ServerClientConnectedEvent& event) {
 }
 
 bool OnDisconnectSessionEvent(ServerClientDisconnectedEvent& event) {
-  packets.clear();
   return false;
 }
 

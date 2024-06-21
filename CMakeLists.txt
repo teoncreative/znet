@@ -9,4 +9,7 @@ add_subdirectory(znet)
 # examples
 add_subdirectory(examples/demo-server)
 add_subdirectory(examples/demo-client)
-add_subdirectory(examples/buffer-test)
+
+enable_testing()
+
+add_subdirectory(tests)

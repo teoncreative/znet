@@ -18,7 +18,7 @@ class DemoPacket : public Packet {
  public:
   DemoPacket() : Packet(1) { }
 
-  char text[4000];
+  std::string text;
 };
 
 class DemoPacketSerializerV1 : public PacketSerializer<DemoPacket> {
@@ -26,13 +26,13 @@ class DemoPacketSerializerV1 : public PacketSerializer<DemoPacket> {
   DemoPacketSerializerV1() : PacketSerializer<DemoPacket>(1) {}
 
   Ref<Buffer> Serialize(Ref<DemoPacket> packet, Ref<Buffer> buffer) override {
-    buffer->Write(packet->text, 4000);
+    buffer->WriteString(packet->text);
     return buffer;
   }
 
   Ref<DemoPacket> Deserialize(Ref<Buffer> buffer) override {
     auto packet = CreateRef<DemoPacket>();
-    buffer->Read(packet->text, 4000);
+    packet->text = buffer->ReadString();
     return packet;
   }
 };
