@@ -32,7 +32,7 @@ jobs:
             cpp_compiler: clang++
         exclude:
           - os: windows-latest
-            compiler: g++
+            compiler: gcc
           - os: windows-latest
             compiler: clang
           - os: ubuntu-latest
