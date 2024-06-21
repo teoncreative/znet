@@ -15,13 +15,8 @@
 using namespace znet;
 
 void OnDemoPacket(PeerSession& session, Ref<DemoPacket> packet) {
-  ZNET_LOG_INFO("Received demo_packet.");
-  //session.Close();
-  Ref<DemoPacket> pk = CreateRef<DemoPacket>();
-  for (int i = 0; i < 4000; ++i) {
-    pk->text[i] = 'a' + (i % 26);
-  }
-  session.SendPacket(pk);
+  session.Close();
+  ZNET_LOG_INFO("Received demo_packet: {}", packet->text);
 }
 
 void AddClientHandlers(Ref<PeerSession> session) {
@@ -34,9 +29,7 @@ void AddClientHandlers(Ref<PeerSession> session) {
 bool OnConnectEvent(ClientConnectedToServerEvent& event) {
   AddClientHandlers(event.session());
   Ref<DemoPacket> pk = CreateRef<DemoPacket>();
-  for (int i = 0; i < 4000; ++i) {
-    pk->text[i] = 'a' + (i % 26);
-  }
+  pk->text = "Hello from server!";
   event.session()->SendPacket(pk);
   return false;
 }
