@@ -17,8 +17,8 @@ jobs:
         os: [ubuntu-latest, windows-latest, macos-latest]
         compiler: [gcc, clang]
       exclude:
-        - os: macos-latest
-          compiler: gcc
+      - os: macos-latest
+        compiler: gcc
 
     steps:
     - uses: actions/checkout@v4
