@@ -44,7 +44,7 @@ if(WIN32)
 endif()
 
 # FMT
-find_package(fmt CONFIG REQUIRED)
+#find_package(fmt CONFIG REQUIRED)
 target_link_libraries(znet fmt::fmt)
 
 # OpenSSL
