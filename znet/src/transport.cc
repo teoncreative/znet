@@ -119,7 +119,7 @@ bool TransportLayer::Send(Ref<Buffer> buffer) {
   new_buffer->Write(buffer->data() + buffer->read_cursor(), buffer->size());
 
   // todo check
-  while (send(socket_, new_buffer->data(), new_buffer->size(), MSG_DONTWAIT) < 0) {
+  while (send(socket_, new_buffer->data(), new_buffer->size(), 0) < 0) {
     if (errno == EWOULDBLOCK || errno == EAGAIN) {
       continue;
     }
