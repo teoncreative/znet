@@ -14,7 +14,8 @@
 - [ ] Async Example
 - [ ] More events
 - [ ] Better error handling
-- [ ] Unit tests
+- [x] Unit tests
+- [ ] More unit tests 
 - [ ] Documentation
 - [ ] Server Started Listening Event
 - [ ] Error handling in SendPacket and SendRaw
