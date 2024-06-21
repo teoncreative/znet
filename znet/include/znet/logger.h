@@ -113,7 +113,7 @@
 #endif
 
 #if ZNET_LOG_LEVEL <= ZNET_LOG_LEVEL_ERROR
-#define ZNET_LOG_ERROR(msg, ...)                                         \
+#define ZNET_LOG_ERROR(msg, args...)                                         \
   ZNET_PRINTFN("\x1b[41m[error]\x1b[0m \x1b[35m{}: \x1b[31m{}\x1b[0m\n", \
                ZNET_FUNC_SIGN, msg, ##args)
 #else
