@@ -54,7 +54,7 @@ jobs:
       id: ls
       shell: bash
       run: |
-        ls ${{ github.workspace }}
+        ls ${{ github.workspace }}/vendor/fmt
 
     - name: Set reusable strings
       # Turn repeated input strings (such as the build output directory) into step outputs. These step outputs can be used throughout the workflow file.
