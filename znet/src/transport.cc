@@ -60,7 +60,7 @@ Ref<Buffer> TransportLayer::Receive() {
       return nullptr; // no data received
     }
     ZNET_LOG_ERROR("Closing connection due to an error: ", GetLastErrorInfo());
-    Close();
+    session_.Close();
 #else
     if (errno == EWOULDBLOCK || errno == EAGAIN) {
       return nullptr; // no data received
