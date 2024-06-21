@@ -57,7 +57,7 @@ Ref<Buffer> TransportLayer::Receive() {
 #ifdef WIN32
     int err = WSAGetLastError();
     if (err == WSAEWOULDBLOCK) {
-      return; // no data received
+      return nullptr; // no data received
     }
     ZNET_LOG_ERROR("Closing connection due to an error: ", GetLastErrorInfo());
     Close();

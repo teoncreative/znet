@@ -47,39 +47,40 @@
 #define ZNET_LOG_LEVEL ZNET_LOG_LEVEL_DEBUG
 #endif
 
-#define ZNET_PRINTFN(fmsg, func, msg, args...) \
-  fmt::print(fmsg, func, fmt::format(msg, ##args)); std::cout << std::flush
+#define ZNET_PRINTFN(fmsg, func, msg, ...)           \
+  fmt::print(fmsg, func, fmt::format(msg, __VA_ARGS__)); \
+  std::cout << std::flush
 
 #if ZNET_LOG_LEVEL <= ZNET_LOG_LEVEL_DEBUG
-#define ZNET_LOG_DEBUG(msg, args...)                                    \
+#define ZNET_LOG_DEBUG(msg, ...)                                    \
   ZNET_PRINTFN("\x1b[44m[debug]\x1b[0m \x1b[35m{}: \x1b[0m{}\x1b[0m\n", \
-               ZNET_FUNC_SIGN, msg, ##args)
+               ZNET_FUNC_SIGN, msg, __VA_ARGS__)
 #else
-#define ZNET_LOG_DEBUG(msg, args...)
+#define ZNET_LOG_DEBUG(msg, ...)
 #endif
 
 #if ZNET_LOG_LEVEL <= ZNET_LOG_LEVEL_INFO
-#define ZNET_LOG_INFO(msg, args...)                                     \
+#define ZNET_LOG_INFO(msg, ...)                                     \
   ZNET_PRINTFN("\x1b[42m[info ]\x1b[0m \x1b[35m{}: \x1b[0m{}\x1b[0m\n", \
-               ZNET_FUNC_SIGN, msg, ##args)
+               ZNET_FUNC_SIGN, msg, __VA_ARGS__)
 #else
-#define ZNET_LOG_INFO(msg, args...)
+#define ZNET_LOG_INFO(msg, ...)
 #endif
 
 #if ZNET_LOG_LEVEL <= ZNET_LOG_LEVEL_WARN
-#define ZNET_LOG_WARN(msg, args...)                                      \
+#define ZNET_LOG_WARN(msg, ...)                                      \
   ZNET_PRINTFN("\x1b[41m[warn ]\x1b[0m \x1b[35m{}: \x1b[31m{}\x1b[0m\n", \
-               ZNET_FUNC_SIGN, msg, ##args)
+               ZNET_FUNC_SIGN, msg, __VA_ARGS__)
 #else
 #define ZNET_LOG_WARN(msg, args...)
 #endif
 
 #if ZNET_LOG_LEVEL <= ZNET_LOG_LEVEL_ERROR
-#define ZNET_LOG_ERROR(msg, args...)                                     \
+#define ZNET_LOG_ERROR(msg, ...)                                     \
   ZNET_PRINTFN("\x1b[41m[error]\x1b[0m \x1b[35m{}: \x1b[31m{}\x1b[0m\n", \
-               ZNET_FUNC_SIGN, msg, ##args)
+               ZNET_FUNC_SIGN, msg, __VA_ARGS__)
 #else
-#define ZNET_LOG_ERROR(msg, args...)
+#define ZNET_LOG_ERROR(msg, ...)
 #endif
 
 
