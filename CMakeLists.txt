@@ -4,7 +4,7 @@ project(znet-parent)
 set(CMAKE_CXX_STANDARD 20)
 
 add_subdirectory(vendor/fmt)
-set(fmt_DIR vendor/fmt)
+set(fmt_DIR "${CMAKE_SOURCE_DIR}/vendor/fmt")
 add_subdirectory(znet)
 
 # examples
