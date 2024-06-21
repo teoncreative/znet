@@ -4,15 +4,14 @@ project(znet)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wvla -Werror=vla -fpermissive -Wno-deprecated")
+if(NOT MSVC)
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fpermissive -Werror=vla -Wno-deprecated")
+endif()
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -pthread")
 endif()
 if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -static-libstdc++ -fconcepts")
-endif()
-if (CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -stdlib=libc++")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fconcepts")
 endif()
 
 set(ZNET_SOURCES
@@ -44,7 +43,7 @@ if(WIN32)
 endif()
 
 # FMT
-find_package(fmt CONFIG REQUIRED)
+#find_package(fmt CONFIG REQUIRED)
 target_link_libraries(znet fmt::fmt)
 
 # OpenSSL
@@ -54,4 +53,8 @@ target_link_libraries(znet OpenSSL::SSL OpenSSL::Crypto)
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
 find_package(Threads REQUIRED)
 target_link_libraries(znet Threads::Threads)
+endif()
+
+if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+    target_link_libraries(znet stdc++)
 endif()
