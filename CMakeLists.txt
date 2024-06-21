@@ -3,6 +3,8 @@ project(znet-parent)
 
 set(CMAKE_CXX_STANDARD 20)
 
+message("Hello world!")
+
 add_subdirectory(vendor/fmt)
 add_subdirectory(znet)
 
