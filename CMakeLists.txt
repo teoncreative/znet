@@ -10,6 +10,6 @@ add_subdirectory(znet)
 add_subdirectory(examples/demo-server)
 add_subdirectory(examples/demo-client)
 
+# tests
 enable_testing()
-
 add_subdirectory(tests)
