@@ -11,18 +11,19 @@
 
 #pragma once
 
-#include "peer_session.h"
 #include "event/event.h"
+#include "peer_session.h"
 
 namespace znet {
 
 class ServerClientConnectedEvent : public Event {
  public:
-  ServerClientConnectedEvent(Ref<PeerSession> session) : session_(session) {}
+  explicit ServerClientConnectedEvent(Ref<PeerSession> session)
+      : session_(session) {}
 
   Ref<PeerSession> session() { return session_; }
 
-  ZNET_EVENT_CLASS_TYPE(ServerClientConnected)
+  ZNET_EVENT_CLASS_TYPE(ServerClientConnectedEvent)
   ZNET_EVENT_CLASS_CATEGORY(EventCategoryServer)
  private:
   Ref<PeerSession> session_;
@@ -30,12 +31,12 @@ class ServerClientConnectedEvent : public Event {
 
 class ServerClientDisconnectedEvent : public Event {
  public:
-  ServerClientDisconnectedEvent(Ref<PeerSession> session)
+  explicit ServerClientDisconnectedEvent(Ref<PeerSession> session)
       : session_(session) {}
 
   Ref<PeerSession> session() { return session_; }
 
-  ZNET_EVENT_CLASS_TYPE(ServerClientDisconnected)
+  ZNET_EVENT_CLASS_TYPE(ServerClientDisconnectedEvent)
   ZNET_EVENT_CLASS_CATEGORY(EventCategoryServer)
  private:
   Ref<PeerSession> session_;
@@ -49,7 +50,7 @@ class ServerStartupEvent : public Event {
 
   Server& server() { return server_; }
 
-  ZNET_EVENT_CLASS_TYPE(ServerStartup)
+  ZNET_EVENT_CLASS_TYPE(ServerStartupEvent)
   ZNET_EVENT_CLASS_CATEGORY(EventCategoryServer)
  private:
   Server& server_;
@@ -61,7 +62,7 @@ class ServerShutdownEvent : public Event {
 
   Server& server() { return server_; }
 
-  ZNET_EVENT_CLASS_TYPE(ServerShutdown)
+  ZNET_EVENT_CLASS_TYPE(ServerShutdownEvent)
   ZNET_EVENT_CLASS_CATEGORY(EventCategoryServer)
  private:
   Server& server_;

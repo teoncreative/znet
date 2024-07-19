@@ -44,17 +44,18 @@ endif()
 
 # FMT
 #find_package(fmt CONFIG REQUIRED)
-target_link_libraries(znet fmt::fmt)
+target_link_libraries(znet PUBLIC fmt::fmt)
 
 # OpenSSL
 find_package(OpenSSL REQUIRED)
-target_link_libraries(znet OpenSSL::SSL OpenSSL::Crypto)
+target_link_libraries(znet PUBLIC ${OPENSSL_SSL_LIBRARIES} ${OPENSSL_CRYPTO_LIBRARIES})
+target_include_directories(znet PUBLIC ${OPENSSL_INCLUDE_DIR})
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
 find_package(Threads REQUIRED)
-target_link_libraries(znet Threads::Threads)
+target_link_libraries(znet PRIVATE Threads::Threads)
 endif()
 
 if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
-    target_link_libraries(znet stdc++)
+    target_link_libraries(znet PRIVATE stdc++)
 endif()
