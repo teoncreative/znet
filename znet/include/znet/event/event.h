@@ -12,19 +12,6 @@
 
 namespace znet {
 
-enum EventType {
-  ServerClientConnected,     // new client connected to server
-  ServerClientDisconnected,  // new client disconnected to server
-  ClientConnectedToServer,   // connected to server
-  ClientDisconnectedFromServer,   // disconnected from server
-  ServerStartup,   // disconnected from server
-  ServerShutdown,   // disconnected from server
-#ifdef USER_EVENTS
-  USER_EVENTS(),
-#endif
-  EventTypeLast
-};
-
 #define BIT(x) (1 << x)
 
 enum EventCategory {
@@ -42,7 +29,7 @@ class Event {
   bool handled_ = false;
 
   virtual const char* GetEventName() const = 0;
-  virtual EventType GetEventType() const = 0;
+  virtual size_t GetEventType() const = 0;
   virtual int GetCategoryFlags() const = 0;
 
   bool IsInCategory(EventCategory category) {
@@ -71,10 +58,10 @@ class EventDispatcher {
 };
 
 #define ZNET_EVENT_CLASS_TYPE(type)                   \
-  static EventType GetStaticType() {                  \
-    return EventType::type;                           \
+  static size_t GetStaticType() {                     \
+    return typeid(type).hash_code();                  \
   }                                                   \
-  virtual EventType GetEventType() const override {   \
+  virtual size_t GetEventType() const override {      \
     return GetStaticType();                           \
   }                                                   \
   virtual const char* GetEventName() const override { \

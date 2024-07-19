@@ -18,12 +18,12 @@ namespace znet {
 
 class ClientConnectedToServerEvent : public Event {
  public:
-  ClientConnectedToServerEvent(Ref<PeerSession> session)
+  explicit ClientConnectedToServerEvent(Ref<PeerSession> session)
       : session_(session) {}
 
   Ref<PeerSession> session() { return session_; }
 
-  ZNET_EVENT_CLASS_TYPE(ClientConnectedToServer)
+  ZNET_EVENT_CLASS_TYPE(ClientConnectedToServerEvent)
   ZNET_EVENT_CLASS_CATEGORY(EventCategoryClient)
  private:
   Ref<PeerSession> session_;
@@ -31,12 +31,12 @@ class ClientConnectedToServerEvent : public Event {
 
 class ClientDisconnectedFromServerEvent : public Event {
  public:
-  ClientDisconnectedFromServerEvent(Ref<PeerSession> session)
+  explicit ClientDisconnectedFromServerEvent(Ref<PeerSession> session)
       : session_(session) {}
 
   Ref<PeerSession> session() { return session_; }
 
-  ZNET_EVENT_CLASS_TYPE(ClientDisconnectedFromServer)
+  ZNET_EVENT_CLASS_TYPE(ClientDisconnectedFromServerEvent)
   ZNET_EVENT_CLASS_CATEGORY(EventCategoryClient)
  private:
   Ref<PeerSession> session_;

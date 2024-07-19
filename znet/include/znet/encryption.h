@@ -16,7 +16,6 @@
 
 #include <openssl/dh.h>
 #include <openssl/engine.h>
-#include <openssl/bn.h>
 
 namespace znet {
 
