@@ -39,7 +39,7 @@ target_include_directories(znet PRIVATE include/znet)
 ## Dependencies
 
 if(WIN32)
-    target_link_libraries(znet winmm ws2_32)
+    target_link_libraries(znet PUBLIC winmm ws2_32)
 endif()
 
 # FMT
