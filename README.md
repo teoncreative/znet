@@ -1,18 +1,58 @@
-# Welcome to znet
+# znet
 
-znet is a modern C++20 networking library designed to provide seamless packet serialization support and platform independence, making it easy to develop robust and efficient networking applications. With a focus on simplicity and friendly code, this library empowers developers to create networking solutions with ease.
+znet is a modern C++20 networking library that provides seamless packet serialization, TLS encryption, and cross-platform support. It's designed to be simpler and more approachable than low-level libraries like asio or libuv.
+
+## Features
+
+- ✅ **Simple API** – Clean, event-driven design.
+- 🔒 **TLS Encryption** – Secure communication out of the box.
+- ⚡ **Async Connect** – Non-blocking connections.
+- 📦 **Built-in Packet Serialization** – Define your own packets easily.
+- 🛠 **Cross-Platform** – Windows, Linux, macOS.
 
 ## Installation
 
 TODO
 
-## Getting Started
+## Quick Example
 
-TODO
+Below is a minimal overview of how to use znet.
 
-## Example
+**Server:**
+```cpp
+ServerConfig config{"127.0.0.1", 25000};
+Server server{config};
+server.SetEventCallback(...);
+server.Bind();
+server.Listen();
+server.Wait(); // Blocks main thread
+````
 
-See [examples](examples) folder
+**Client:**
+
+```cpp
+ClientConfig config{"127.0.0.1", 25000};
+Client client{config};
+client.SetEventCallback(...);
+client.Bind();
+client.Connect(); // Async connect
+client.Wait();
+```
+
+**Packets:**
+Implement `Packet` and `PacketSerializer` to define your messages.
+
+See the [examples](examples) folder for full working code.
+
+## Documentation
+
+More details:
+
+* **Usage guides**
+* **TLS configuration**
+* **Serialization**
+
+👉 [Read the Wiki](https://github.com/irrld/znet/wiki)
 
 ## Contributions
 
@@ -20,4 +60,4 @@ We welcome and encourage community contributions to improve znet. If you find an
 
 ## License
 
-This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENSE) file for details.
+Apache License 2.0 – see [LICENSE](LICENSE) for details.
