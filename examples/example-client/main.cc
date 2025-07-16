@@ -23,7 +23,7 @@ void AddClientHandlers(Ref<PeerSession> session) {
   auto demo_packet_handler =
       CreateRef<PacketHandler<DemoPacket, DemoPacketSerializerV1>>();
   demo_packet_handler->AddReceiveCallback(ZNET_BIND_GLOBAL_FN(OnDemoPacket));
-  session->handler_layer().AddPacketHandler(demo_packet_handler);
+  session->AddPacketHandler(demo_packet_handler);
 }
 
 bool OnConnectEvent(ClientConnectedToServerEvent& event) {

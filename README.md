@@ -1,6 +1,6 @@
 # znet
 
-znet is a modern C++20 networking library that provides seamless packet serialization, TLS encryption, and cross-platform support. It's designed to be simpler and more approachable than low-level libraries like asio or libuv.
+znet is a modern C++14 networking library that provides seamless packet serialization, TLS encryption, and cross-platform support. It's designed to be simpler and more approachable than low-level libraries like asio or libuv.
 
 ## Features
 

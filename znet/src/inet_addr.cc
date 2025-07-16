@@ -14,13 +14,13 @@
 
 namespace znet {
 
-IPv4Type ParseIPv4(const std::string& ip_str) {
+IPv4Address ParseIPv4(const std::string& ip_str) {
   in_addr addr{};
   inet_pton(AF_INET, ip_str.c_str(), &addr);
   return addr;
 }
 
-IPv6Type ParseIPv6(const std::string& ip_str) {
+IPv6Address ParseIPv6(const std::string& ip_str) {
   in6_addr addr{};
   inet_pton(AF_INET6, ip_str.c_str(), &addr);
   return addr;
@@ -61,7 +61,7 @@ bool IsValidIPv6(const std::string& ip) {
   return inet_pton(AF_INET6, ip.c_str(), &addr) == 1;
 }
 
-Scope<InetAddress> InetAddress::from(const std::string& ip_str, PortType port) {
+Scope<InetAddress> InetAddress::from(const std::string& ip_str, PortNumber port) {
   if (ip_str.empty() || ip_str == "localhost") {
 #ifdef ZNET_DEFAULT_IPV6
     return CreateScope<InetAddressIPv6>(port);

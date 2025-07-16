@@ -8,7 +8,6 @@
 //        http://www.apache.org/licenses/LICENSE-2.0
 //
 
-#include <utility>
 #include "types.h"
 
 #pragma once
@@ -16,21 +15,21 @@
 namespace znet {
 
 #if defined(TARGET_APPLE) || defined(TARGET_WEB) || defined(TARGET_LINUX)
-using SocketType = int;
-using PortType = in_port_t;
-using IPv4Type = in_addr;
-using IPv6Type = in6_addr;
+using SocketHandle = int;
+using PortNumber = in_port_t;
+using IPv4Address = in_addr;
+using IPv6Address = in6_addr;
 #elif defined(TARGET_WIN)
-using SocketType = SOCKET;
-using PortType = USHORT;
-using IPv4Type = IN_ADDR;
-using IPv6Type = IN6_ADDR;
+using SocketHandle = SOCKET;
+using PortNumber = USHORT;
+using IPv4Address = IN_ADDR;
+using IPv6Address = IN6_ADDR;
 #endif
 
 enum class InetProtocolVersion { IPv4, IPv6 };
 
-IPv4Type ParseIPv4(const std::string& ip_str);
-IPv6Type ParseIPv6(const std::string& ip_str);
+IPv4Address ParseIPv4(const std::string& ip_str);
+IPv6Address ParseIPv6(const std::string& ip_str);
 
 int GetDomainByInetProtocolVersion(InetProtocolVersion version);
 
@@ -59,7 +58,7 @@ class InetAddress {
 
   ZNET_NODISCARD virtual sockaddr* handle_ptr() const { return nullptr; }
 
-  static Scope<InetAddress> from(const std::string& ip_str, PortType port);
+  static Scope<InetAddress> from(const std::string& ip_str, PortNumber port);
   static Scope<InetAddress> from(sockaddr* addr);
 
  protected:
@@ -69,7 +68,7 @@ class InetAddress {
 
 class InetAddressIPv4 : public InetAddress {
  public:
-  explicit InetAddressIPv4(PortType port)
+  explicit InetAddressIPv4(PortNumber port)
       : InetAddress(InetProtocolVersion::IPv4, "") {
     addr.sin_family = AF_INET;
     addr.sin_port = htons(port);
@@ -82,7 +81,7 @@ class InetAddressIPv4 : public InetAddress {
     is_valid_ = true;
   }
 
-  InetAddressIPv4(IPv4Type ip, PortType port)
+  InetAddressIPv4(IPv4Address ip, PortNumber port)
       : InetAddress(InetProtocolVersion::IPv4, "") {
     addr.sin_family = AF_INET;
     addr.sin_port = htons(port);
@@ -97,7 +96,7 @@ class InetAddressIPv4 : public InetAddress {
     is_valid_ = true;
   }
 
-  InetAddressIPv4(const std::string& str, PortType port)
+  InetAddressIPv4(const std::string& str, PortNumber port)
       : InetAddress(InetProtocolVersion::IPv4, "") {
     if (!IsValidIPv4(str)) {
       is_valid_ = false;
@@ -132,7 +131,7 @@ class InetAddressIPv4 : public InetAddress {
 
 class InetAddressIPv6 : public InetAddress {
  public:
-  explicit InetAddressIPv6(PortType port)
+  explicit InetAddressIPv6(PortNumber port)
       : InetAddress(InetProtocolVersion::IPv6, "") {
     addr.sin6_family = AF_INET6;
     addr.sin6_flowinfo = 0;
@@ -146,7 +145,7 @@ class InetAddressIPv6 : public InetAddress {
     is_valid_ = true;
   }
 
-  InetAddressIPv6(IPv6Type ip, PortType port)
+  InetAddressIPv6(IPv6Address ip, PortNumber port)
       : InetAddress(InetProtocolVersion::IPv6, "") {
     addr.sin6_family = AF_INET6;
     addr.sin6_flowinfo = 0;
@@ -161,7 +160,7 @@ class InetAddressIPv6 : public InetAddress {
     is_valid_ = true;
   }
 
-  InetAddressIPv6(const std::string& str, PortType port)
+  InetAddressIPv6(const std::string& str, PortNumber port)
       : InetAddress(InetProtocolVersion::IPv6, "") {
     if (!IsValidIPv6(str)) {
       is_valid_ = false;

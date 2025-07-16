@@ -16,6 +16,7 @@
 #include <iostream>
 #include <strstream>
 #include <iomanip>
+#include <type_traits>
 
 #define ZNET_BIND_FN(fn)                                    \
   [this](auto&&... args) -> decltype(auto) {                \

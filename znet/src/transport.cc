@@ -14,7 +14,7 @@
 
 namespace znet {
 
-TransportLayer::TransportLayer(znet::PeerSession& session, znet::SocketType socket) :
+TransportLayer::TransportLayer(znet::PeerSession& session, znet::SocketHandle socket) :
   session_(session), socket_(socket) {
 
 }

@@ -19,18 +19,16 @@ namespace znet {
 class PeerSession;
 
 template <typename PacketType,
-          std::enable_if_t<std::is_base_of_v<Packet, PacketType>, bool> = true>
+          std::enable_if_t<std::is_base_of<Packet, PacketType>::value, bool> = true>
 using PacketHandlerFn =
     std::function<void(PeerSession&, Ref<PacketType>)>;
 
 class PacketHandlerBase {
  public:
-  virtual void Handle(PeerSession& session, Ref<Buffer> buffer) {}
+  virtual void Handle(PeerSession& session, Ref<Buffer> buffer) = 0;
 
   virtual Ref<Buffer> Serialize(PeerSession& session,
-                                Ref<Packet> packet) {
-    return nullptr;
-  }
+                                Ref<Packet> packet) = 0;
 
   virtual PacketId packet_id() { return 0; };
 
@@ -38,9 +36,7 @@ class PacketHandlerBase {
 };
 
 template <typename PacketType, typename PacketSerializerType,
-          std::enable_if_t<std::is_base_of_v<PacketSerializer<PacketType>,
-                                             PacketSerializerType>,
-                           bool> = true>
+          std::enable_if_t<std::is_base_of<PacketSerializer<PacketType>, PacketSerializerType>::value, bool> = true>
 class PacketHandler : public PacketHandlerBase {
  public:
   // Default constructor
@@ -70,7 +66,7 @@ class PacketHandler : public PacketHandlerBase {
     auto ptr = buffer.get();
     buffer = serializer_->Serialize(
         std::static_pointer_cast<PacketType>(packet), buffer);
-    // Serializer can change the buffer, so we need to check if it changed.
+    // Serializer can change the buffer, so we need to check if it is changed.
     if (ptr == buffer.get()) {
       size_t write_cursor_end = buffer->write_cursor();
       size_t size = write_cursor_end - write_cursor;
@@ -98,9 +94,11 @@ class HandlerLayer {
   Ref<Buffer> HandleOut(Ref<Packet> packet);
 
   void AddPacketHandler(Ref<PacketHandlerBase> handler);
+  void ClearPacketHandlers();
 
  private:
   PeerSession& session_;
   std::unordered_map<PacketId, Ref<PacketHandlerBase>> handlers_;
 };
+
 }  // namespace znet

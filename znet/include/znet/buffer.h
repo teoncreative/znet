@@ -12,14 +12,9 @@
 
 #include "base/types.h"
 #include "logger.h"
-#include "znet/base/util.h"
+#include "base/util.h"
 
 namespace znet {
-
-// For numbers, sizeof(T) is guarantied to be less than 8 bytes, but we
-// still do the check.
-template <typename T>
-concept Number = std::is_arithmetic_v<T> && sizeof(T) <= 8;
 
 class Buffer {
  public:
@@ -82,7 +77,7 @@ class Buffer {
   }
 #endif
 
-  template<Number T>
+  template<typename T, typename std::enable_if<std::is_arithmetic<T>::value && (sizeof(T) <= 8), int>::type = 0>
   void Read(T* arr, size_t size) {
     char* pt = reinterpret_cast<char*>(arr);
     size_t calculated_size = sizeof(T) * size;
@@ -100,7 +95,7 @@ class Buffer {
 
   bool ReadBool() { return ReadInt<bool>(); }
 
-  template <Number T>
+  template<typename T, typename std::enable_if<std::is_arithmetic<T>::value && (sizeof(T) <= 8), int>::type = 0>
   T ReadInt() {
     size_t size = sizeof(T);
     char* data = new (std::nothrow) char[size];
@@ -128,7 +123,7 @@ class Buffer {
     return l;
   }
 
-  template <Number T>
+  template<typename T, typename std::enable_if<std::is_arithmetic<T>::value && (sizeof(T) <= 8), int>::type = 0>
   T ReadVarInt() {
     uint8_t size = sizeof(T);
     char* data = new (std::nothrow) char[size];
@@ -260,7 +255,7 @@ class Buffer {
 
   void WriteBool(bool b) { WriteInt(b); }
 
-  template <Number T>
+  template<typename T, typename std::enable_if<std::is_arithmetic<T>::value && (sizeof(T) <= 8), int>::type = 0>
   void WriteInt(T c) {
     char* pt = reinterpret_cast<char*>(&c);
     size_t size = sizeof(c);
@@ -277,7 +272,7 @@ class Buffer {
     write_cursor_ += size;
   }
 
-  template<Number T>
+  template<typename T, typename std::enable_if<std::is_arithmetic<T>::value && (sizeof(T) <= 8), int>::type = 0>
   void Write(T* arr, size_t size) {
     auto* pt = reinterpret_cast<const char*>(arr);
     size_t calculated_size = sizeof(T) * size;
@@ -286,7 +281,7 @@ class Buffer {
     write_cursor_ += calculated_size;
   }
 
-  template <Number T>
+  template<typename T, typename std::enable_if<std::is_arithmetic<T>::value && (sizeof(T) <= 8), int>::type = 0>
   void WriteVarInt(T c) {
     char* pt = reinterpret_cast<char*>(&c);
     uint8_t size = sizeof(c);  // assume 1 byte for the size

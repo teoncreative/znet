@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.16.3)
 project(znet)
 
-set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD 14)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 if(NOT MSVC)
@@ -9,9 +9,6 @@ if(NOT MSVC)
 endif()
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -pthread")
-endif()
-if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fconcepts")
 endif()
 
 set(ZNET_SOURCES
