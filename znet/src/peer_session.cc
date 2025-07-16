@@ -15,7 +15,7 @@ namespace znet {
 
 PeerSession::PeerSession(Ref<InetAddress> local_address,
                          Ref<InetAddress> remote_address,
-                         SocketType socket, bool is_initiator)
+                         SocketHandle socket, bool is_initiator)
     : local_address_(local_address), remote_address_(remote_address),
       socket_(socket), is_initiator_(is_initiator),
       is_alive_(true), is_ready_(false),

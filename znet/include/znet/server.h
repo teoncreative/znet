@@ -19,13 +19,15 @@
 namespace znet {
 
 struct ServerConfig {
-  std::string bind_ip_;
-  int bind_port_;
+  std::string bind_ip;
+  int bind_port;
+  ConnectionType connection_type;
 };
 
 class Server : public Interface {
  public:
   using SessionMap = std::unordered_map<Ref<InetAddress>, Ref<PeerSession>>;
+
   Server();
   Server(const ServerConfig& config);
   Server(const Server&) = delete;
@@ -54,7 +56,7 @@ class Server : public Interface {
   Ref<InetAddress> bind_address_;
   bool is_listening_ = false;
   bool is_bind_ = false;
-  SocketType server_socket_ = -1;
+  SocketHandle server_socket_ = -1;
   bool shutdown_complete_ = false;
   int tps_ = 1000;
   Scheduler scheduler_{tps_};

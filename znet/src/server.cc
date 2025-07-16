@@ -26,7 +26,7 @@ Server::~Server() {
 }
 
 Result Server::Bind() {
-  bind_address_ = InetAddress::from(config_.bind_ip_, config_.bind_port_);
+  bind_address_ = InetAddress::from(config_.bind_ip, config_.bind_port);
   if (!bind_address_ || !bind_address_->is_valid()) {
     return Result::InvalidAddress;
   }
@@ -117,7 +117,7 @@ Result Server::Listen() {
     event_callback()(startup_event);
 
     while (is_listening_) {
-      std::scoped_lock lock(mutex_);
+      std::lock_guard<std::mutex> lock(mutex_);
       scheduler_.Start();
       CheckNetwork();
       ProcessSessions();
@@ -155,7 +155,7 @@ Result Server::Listen() {
 }
 
 Result Server::Stop() {
-  std::scoped_lock lock(mutex_);
+  std::lock_guard<std::mutex> lock(mutex_);
   if (!is_listening_) {
     return Result::AlreadyStopped;
   }
@@ -165,7 +165,7 @@ Result Server::Stop() {
 }
 
 void Server::SetTicksPerSecond(int tps) {
-  std::scoped_lock lock(mutex_);
+  std::lock_guard<std::mutex> lock(mutex_);
   tps = std::max(tps, 1);
   tps_ = tps;
   scheduler_.SetTicksPerSecond(tps);
@@ -174,7 +174,7 @@ void Server::SetTicksPerSecond(int tps) {
 void Server::CheckNetwork() {
   sockaddr client_address{};
   socklen_t addr_len = sizeof(client_address);
-  SocketType client_socket = accept(server_socket_, &client_address, &addr_len);
+  SocketHandle client_socket = accept(server_socket_, &client_address, &addr_len);
 #ifdef TARGET_WIN
   if (client_socket == INVALID_SOCKET) {
     return;

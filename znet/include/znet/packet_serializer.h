@@ -10,14 +10,13 @@
 
 #pragma once
 
-#include <any>
 #include "buffer.h"
 #include "base/packet.h"
 
 namespace znet {
 
 template <typename T,
-          std::enable_if_t<std::is_base_of_v<Packet, T>, bool> = true>
+          std::enable_if_t<std::is_base_of<Packet, T>::value, bool> = true>
 class PacketSerializer {
  public:
   PacketSerializer() : packet_id_(T::GetPacketId()) {}

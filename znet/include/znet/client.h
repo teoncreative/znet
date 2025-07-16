@@ -17,8 +17,9 @@
 namespace znet {
 
 struct ClientConfig {
-  std::string server_ip_;
-  int server_port_;
+  std::string server_ip;
+  int server_port;
+  ConnectionType connection_type;
 };
 
 class Client : public Interface {
@@ -44,7 +45,7 @@ class Client : public Interface {
  private:
   ClientConfig config_;
   Ref<InetAddress> server_address_;
-  SocketType client_socket_ = -1;
+  SocketHandle client_socket_ = -1;
 
   Ref<PeerSession> client_session_;
   Task task_;

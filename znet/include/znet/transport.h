@@ -22,7 +22,7 @@ class PeerSession;
 
 class TransportLayer {
   public:
-  TransportLayer(PeerSession& session, SocketType socket);
+  TransportLayer(PeerSession& session, SocketHandle socket);
   ~TransportLayer();
 
   Ref<Buffer> Receive();
@@ -36,7 +36,7 @@ class TransportLayer {
   int read_offset_ = 0;
   ssize_t data_size_ = 0;
   Ref<Buffer> buffer_;
-  SocketType socket_;
+  SocketHandle socket_;
   bool has_more_;
 
 };

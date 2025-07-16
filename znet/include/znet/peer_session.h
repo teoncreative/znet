@@ -18,7 +18,8 @@ namespace znet {
 class PeerSession {
  public:
   PeerSession(Ref<InetAddress> local_address, Ref<InetAddress> remote_address,
-                    SocketType socket, bool is_initiator = false);
+                    SocketHandle socket,
+                     bool is_initiator = false);
 
   void Process();
 
@@ -36,13 +37,15 @@ class PeerSession {
     return remote_address_;
   }
 
+  ZNET_NODISCARD HandlerLayer& handler_layer() { return handler_layer_; }
+
+  ZNET_NODISCARD TransportLayer& transport_layer() { return transport_layer_; }
+
+  void AddPacketHandler(Ref<PacketHandlerBase> handler) {
+    handler_layer_.AddPacketHandler(handler);
+  }
+
   bool SendPacket(Ref<Packet> packet);
-
-  HandlerLayer& handler_layer() { return handler_layer_; }
-
-  EncryptionLayer& encryption_layer() { return encryption_layer_; }
-
-  TransportLayer& transport_layer() { return transport_layer_; }
 
  protected:
   friend class EncryptionLayer;
@@ -50,12 +53,13 @@ class PeerSession {
     is_ready_ = true;
   }
 
-  SocketType socket_;
+  SocketHandle socket_;
+  Ref<InetAddress> local_address_;
+  Ref<InetAddress> remote_address_;
+
   TransportLayer transport_layer_;
   EncryptionLayer encryption_layer_;
   HandlerLayer handler_layer_;
-  Ref<InetAddress> local_address_;
-  Ref<InetAddress> remote_address_;
   bool is_initiator_;
   bool is_ready_ = false;
   bool is_alive_ = false;

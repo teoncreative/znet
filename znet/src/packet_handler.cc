@@ -60,4 +60,8 @@ void HandlerLayer::AddPacketHandler(Ref<PacketHandlerBase> handler) {
   handlers_[handler->packet_id()] = handler;
 }
 
+void HandlerLayer::ClearPacketHandlers() {
+  handlers_.clear();
+}
+
 }  // namespace znet

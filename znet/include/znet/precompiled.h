@@ -12,8 +12,6 @@
 
 //#define ZNET_PREFER_STD_SLEEP
 
-#include <any>
-#include <bit>
 #include <cassert>
 #include <csignal>
 #include <functional>
@@ -65,7 +63,7 @@
 #include <tpipv6.h>
 #endif
 #ifdef _MSC_VER
-#include <BaseTsd.h>
+#include <basetsd.h>
 typedef SSIZE_T ssize_t;
 #else
 #include <sys/types.h>
@@ -74,4 +72,8 @@ typedef SSIZE_T ssize_t;
 #pragma comment(lib, "Ws2_32.lib")
 #endif
 
+#if __cplusplus >= 201703L
 #define ZNET_NODISCARD [[nodiscard]]
+#else
+#define ZNET_NODISCARD
+#endif

@@ -10,22 +10,6 @@
 
 #pragma once
 
-#ifndef __cpp_lib_endian
-namespace std {
-enum class endian {
-  little = 0xDEAD,
-  big = 0xFACE,
-#if defined(_LIBCPP_LITTLE_ENDIAN)
-  native = little
-#elif defined(_LIBCPP_BIG_ENDIAN)
-  native = big
-#else
-  native = 0xCAFE
-#endif
-};
-}  // namespace std
-#endif
-
 namespace znet {
 
 // Max buffer size defines how big send and receive of each data can be.
@@ -56,13 +40,25 @@ using PacketId = uint64_t;
 
 enum class Endianness { LittleEndian, BigEndian };
 
+#if defined(__cpp_lib_endian) && (__cpp_lib_endian >= 201907L)
+#include <bit>
+
 constexpr Endianness GetSystemEndianness() {
   if constexpr (std::endian::native == std::endian::big) {
     return Endianness::BigEndian;
-  } else if constexpr (std::endian::native == std::endian::little) {
+  } else {
     return Endianness::LittleEndian;
   }
 }
+#else
+inline Endianness GetSystemEndianness() {
+  union {
+    uint32_t i;
+    uint8_t c[4];
+  } u = {0x01020304};
+  return (u.c[0] == 0x01) ? Endianness::BigEndian : Endianness::LittleEndian;
+}
+#endif
 
 enum class Result {
   Success,
@@ -79,5 +75,12 @@ enum class Result {
   AlreadyListening
 };
 
+enum class ConnectionType {
+  TCP,
+  //UDPUnreliable,
+  //RakNet,
+  //ENet,
+  //WebSocket,
+};
 
 }  // namespace znet
