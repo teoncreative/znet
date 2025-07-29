@@ -36,3 +36,16 @@ std::string ToHex(const T& numValue, int width) {
          << std::hex << +numValue;
   return stream.str();
 }
+
+template <typename F, typename... Args>
+struct is_invocable {
+ private:
+  template <typename U>
+  static auto test(U*) -> decltype(std::declval<U>()(std::declval<Args>()...), std::true_type{});
+
+  template <typename>
+  static std::false_type test(...);
+
+ public:
+  static constexpr bool value = decltype(test<F>(nullptr))::value;
+};

@@ -23,8 +23,8 @@ TransportLayer::~TransportLayer() {
 
 }
 
-Ref<Buffer> TransportLayer::Receive() {
-  Ref<Buffer> new_buffer;
+std::shared_ptr<Buffer> TransportLayer::Receive() {
+  std::shared_ptr<Buffer> new_buffer;
   if ((new_buffer = ReadBuffer())) {
     return new_buffer;
   }
@@ -50,7 +50,7 @@ Ref<Buffer> TransportLayer::Receive() {
     } else {
       has_more_ = false;
     }
-    buffer_ = CreateRef<Buffer>(data_, full_size);
+    buffer_ = std::make_shared<Buffer>(data_, full_size);
     read_offset_ = 0;
     return ReadBuffer();
   } else if (data_size_ == -1) {
@@ -72,7 +72,7 @@ Ref<Buffer> TransportLayer::Receive() {
   return nullptr;
 }
 
-Ref<Buffer> TransportLayer::ReadBuffer() {
+std::shared_ptr<Buffer> TransportLayer::ReadBuffer() {
   if (buffer_ && buffer_->readable_bytes() > 0) {
     size_t cursor = buffer_->read_cursor();
     auto size = buffer_->ReadVarInt<size_t>();
@@ -89,13 +89,13 @@ Ref<Buffer> TransportLayer::ReadBuffer() {
     }
     const char* data_ptr = buffer_->data() + buffer_->read_cursor();
     buffer_->SkipRead(size);
-    return CreateRef<Buffer>(data_ptr, size);
+    return std::make_shared<Buffer>(data_ptr, size);
   }
   buffer_ = nullptr;
   return nullptr;
 }
 
-bool TransportLayer::Send(Ref<Buffer> buffer) {
+bool TransportLayer::Send(std::shared_ptr<Buffer> buffer) {
   if (!session_.IsAlive()) {
     ZNET_LOG_WARN("Tried to send a packet to a dead connection, dropping packet!");
     return false;
@@ -113,7 +113,7 @@ bool TransportLayer::Send(Ref<Buffer> buffer) {
     return false;
   }
 
-  auto new_buffer = CreateRef<Buffer>();
+  auto new_buffer = std::make_shared<Buffer>();
   new_buffer->ReserveExact(new_size);
   new_buffer->WriteVarInt<size_t>(buffer->size());
   new_buffer->Write(buffer->data() + buffer->read_cursor(), buffer->size());

@@ -18,8 +18,8 @@ using namespace znet;
 class BufferTest : public ::testing::Test {
  protected:
   BufferTest() {
-    buffer_le_ = CreateRef<Buffer>(Endianness::LittleEndian);
-    buffer_be_ = CreateRef<Buffer>(Endianness::BigEndian);
+    buffer_le_ = std::make_shared<Buffer>(Endianness::LittleEndian);
+    buffer_be_ = std::make_shared<Buffer>(Endianness::BigEndian);
   }
 
   virtual ~BufferTest() {
@@ -33,12 +33,12 @@ class BufferTest : public ::testing::Test {
   virtual void TearDown() {
   }
 
-  Ref<Buffer> buffer_le_;
-  Ref<Buffer> buffer_be_;
+  std::shared_ptr<Buffer> buffer_le_;
+  std::shared_ptr<Buffer> buffer_be_;
 };
 
 // todo split these to more individuaş
-void TestBuffer(Ref<Buffer> buffer) {
+void TestBuffer(std::shared_ptr<Buffer> buffer) {
     int64_t asd = INT64_MAX;
     float f = 0.9245f;
     double d = 0.224529726;
@@ -68,7 +68,7 @@ void TestBuffer(Ref<Buffer> buffer) {
   }
 
 
-void TestVarInt(Ref<Buffer> buffer) {
+void TestVarInt(std::shared_ptr<Buffer> buffer) {
   int64_t n1 = INT64_MAX;
   int64_t n2 = 124;
   int64_t n3 = 258;

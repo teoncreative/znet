@@ -18,28 +18,28 @@ namespace znet {
 
 class ClientConnectedToServerEvent : public Event {
  public:
-  explicit ClientConnectedToServerEvent(Ref<PeerSession> session)
+  explicit ClientConnectedToServerEvent(std::shared_ptr<PeerSession> session)
       : session_(session) {}
 
-  Ref<PeerSession> session() { return session_; }
+  std::shared_ptr<PeerSession> session() { return session_; }
 
   ZNET_EVENT_CLASS_TYPE(ClientConnectedToServerEvent)
   ZNET_EVENT_CLASS_CATEGORY(EventCategoryClient)
  private:
-  Ref<PeerSession> session_;
+  std::shared_ptr<PeerSession> session_;
 };
 
 class ClientDisconnectedFromServerEvent : public Event {
  public:
-  explicit ClientDisconnectedFromServerEvent(Ref<PeerSession> session)
+  explicit ClientDisconnectedFromServerEvent(std::shared_ptr<PeerSession> session)
       : session_(session) {}
 
-  Ref<PeerSession> session() { return session_; }
+  std::shared_ptr<PeerSession> session() { return session_; }
 
   ZNET_EVENT_CLASS_TYPE(ClientDisconnectedFromServerEvent)
   ZNET_EVENT_CLASS_CATEGORY(EventCategoryClient)
  private:
-  Ref<PeerSession> session_;
+  std::shared_ptr<PeerSession> session_;
 };
 
 }  // namespace znet

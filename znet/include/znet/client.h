@@ -34,20 +34,20 @@ class Client : public Interface {
   Result Connect();
   Result Disconnect();
 
-  ZNET_NODISCARD Ref<PeerSession> client_session() const {
+  ZNET_NODISCARD std::shared_ptr<PeerSession> client_session() const {
     return client_session_;
   }
 
-  ZNET_NODISCARD Ref<InetAddress> server_address() const {
+  ZNET_NODISCARD std::shared_ptr<InetAddress> server_address() const {
     return server_address_;
   }
 
  private:
   ClientConfig config_;
-  Ref<InetAddress> server_address_;
+  std::shared_ptr<InetAddress> server_address_;
   SocketHandle client_socket_ = -1;
 
-  Ref<PeerSession> client_session_;
+  std::shared_ptr<PeerSession> client_session_;
   Task task_;
 
 };

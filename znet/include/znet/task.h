@@ -35,7 +35,7 @@ class Task {
   }
 
   void Run(std::function<void()> run) {
-    thread_ = CreateScope<std::thread>([this, run = std::move(run)]() {
+    thread_ = std::make_unique<std::thread>([this, run = std::move(run)]() {
       run();
       SignalThreadFinished();
     });
@@ -52,7 +52,7 @@ class Task {
   }
 
  private:
-  Scope<std::thread> thread_;
+  std::unique_ptr<std::thread> thread_;
 
   std::mutex mtx_;  // Mutex for synchronization
   std::condition_variable cv_;  // Condition variable for signaling

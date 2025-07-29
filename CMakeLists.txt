@@ -8,8 +8,8 @@ add_subdirectory(vendor/fmt)
 add_subdirectory(znet)
 
 # examples
-add_subdirectory(examples/example-server)
-add_subdirectory(examples/example-client)
+add_subdirectory(examples/basic/server)
+add_subdirectory(examples/basic/client)
 
 # tests
 enable_testing()

@@ -43,7 +43,7 @@ class HandshakePacketSerializerV1 : public PacketSerializer<HandshakePacket> {
   HandshakePacketSerializerV1() : PacketSerializer<HandshakePacket>() {}
   ~HandshakePacketSerializerV1() = default;
 
-  Ref<Buffer> Serialize(Ref<HandshakePacket> packet, Ref<Buffer> buffer) override {
+  std::shared_ptr<Buffer> SerializeTyped(std::shared_ptr<HandshakePacket> packet, std::shared_ptr<Buffer> buffer) override {
     uint32_t len;
     auto* data = SerializePublicKey(packet->pub_key_, &len);
     buffer->WriteInt(len);
@@ -52,8 +52,8 @@ class HandshakePacketSerializerV1 : public PacketSerializer<HandshakePacket> {
     return buffer;
   }
 
-  Ref<HandshakePacket> Deserialize(Ref<Buffer> buffer) override {
-    auto packet = CreateRef<HandshakePacket>();
+  std::shared_ptr<HandshakePacket> DeserializeTyped(std::shared_ptr<Buffer> buffer) override {
+    auto packet = std::make_shared<HandshakePacket>();
     auto len = buffer->ReadInt<uint32_t>();
     auto* data = new unsigned char[len];
     buffer->Read(data, len);
@@ -81,13 +81,13 @@ class ConnectionReadyPacketSerializerV1
   ConnectionReadyPacketSerializerV1() : PacketSerializer<ConnectionReadyPacket>() {}
   ~ConnectionReadyPacketSerializerV1() = default;
   
-  Ref<Buffer> Serialize(Ref<ConnectionReadyPacket> packet, Ref<Buffer> buffer) override {
+  std::shared_ptr<Buffer> SerializeTyped(std::shared_ptr<ConnectionReadyPacket> packet, std::shared_ptr<Buffer> buffer) override {
     buffer->WriteString(packet->magic_);
     return buffer;
   }
 
-  Ref<ConnectionReadyPacket> Deserialize(Ref<Buffer> buffer) override {
-    auto packet = CreateRef<ConnectionReadyPacket>();
+  std::shared_ptr<ConnectionReadyPacket> DeserializeTyped(std::shared_ptr<Buffer> buffer) override {
+    auto packet = std::make_shared<ConnectionReadyPacket>();
     packet->magic_ = buffer->ReadString();
     return packet;
   }
@@ -102,22 +102,20 @@ class EncryptionLayer {
 
   void Initialize(bool send);
 
-  Ref<Buffer> HandleIn(Ref<Buffer> buffer);
-  Ref<Buffer> HandleOut(Ref<Buffer> buffer);
+  std::shared_ptr<Buffer> HandleIn(std::shared_ptr<Buffer> buffer);
+  std::shared_ptr<Buffer> HandleOut(std::shared_ptr<Buffer> buffer);
 
-  void OnHandshakePacket(PeerSession& session, Ref<HandshakePacket> packet);
-  void OnAcknowledgePacket(PeerSession& session, Ref<ConnectionReadyPacket> packet);
+  void OnHandshakePacket(std::shared_ptr<HandshakePacket> packet);
+  void OnAcknowledgePacket(std::shared_ptr<ConnectionReadyPacket> packet);
 
  private:
   PeerSession& session_;
-  HandlerLayer handler_layer_;
 
   EVP_PKEY* pub_key_ = nullptr;
   EVP_PKEY* peer_pkey_ = nullptr;
   bool sent_handshake_ = false;
   bool sent_ready_ = false;
   bool enable_encryption_ = false;
-  bool handoff_ = false;
   unsigned char* shared_secret_ = nullptr;
   size_t shared_secret_len_ = 0;
   bool key_filled_ = false;
@@ -125,7 +123,12 @@ class EncryptionLayer {
   size_t key_len_ = 0;
 
  private:
-  Ref<Buffer> HandleDecrypt(Ref<Buffer> buffer);
+  std::shared_ptr<Buffer> HandleDecrypt(std::shared_ptr<Buffer> buffer);
+  // This sends a packet that does not have any encryption nor a header that
+  // gives information about its encryption, at this point we trust the
+  // other side to handle it accordingly. If there is a state mismatch then
+  // the packet will be handled as encrypted and fail.
+  bool SendPacket(std::shared_ptr<Packet> pk);
 
   void SendHandshake();
   void SendReady();

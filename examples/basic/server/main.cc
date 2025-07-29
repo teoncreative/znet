@@ -13,23 +13,43 @@
 
 using namespace znet;
 
+class MyPacketHandler : public PacketHandler<MyPacketHandler, DemoPacket> {
+ public:
+  MyPacketHandler(std::shared_ptr<PeerSession> session) : session_(session) { }
 
-void OnDemoPacket(PeerSession& session, Ref<DemoPacket> packet) {
-  ZNET_LOG_INFO("Received demo_packet.");
-  Ref<DemoPacket> pk = CreateRef<DemoPacket>();
-  pk->text = "Got ya! Hello from server!";
-  session.SendPacket(pk);
-}
+  void OnPacket(std::shared_ptr<DemoPacket> p) {
+    ZNET_LOG_INFO("Received demo_packet.");
+    std::shared_ptr<DemoPacket> pk = std::make_shared<DemoPacket>();
+    pk->text = "Got ya! Hello from server!";
+    session_->SendPacket(pk);
+  }
 
-void AddClientHandlers(Ref<PeerSession> session) {
-  auto demo_packet_handler =
-      CreateRef<PacketHandler<DemoPacket, DemoPacketSerializerV1>>();
-  demo_packet_handler->AddReceiveCallback(ZNET_BIND_GLOBAL_FN(OnDemoPacket));
-  session->AddPacketHandler(demo_packet_handler);
-}
+  void OnUnknown(std::shared_ptr<Packet> p) {
+    // fallback for unknown types
+  }
+
+ private:
+  std::shared_ptr<PeerSession> session_;
+};
 
 bool OnNewSessionEvent(ServerClientConnectedEvent& event) {
-  AddClientHandlers(event.session());
+  PeerSession& session = *event.session();
+
+  // Codecs are what serializes and deserializes the packets,
+  // You can set an initial codec, then get the protocol version from the client
+  // then set a different codec for different versions. This provides much more flexibility
+  // Codecs can be swapped mid-session
+
+  // Additionally, it is wiser to have this created once and shared between clients
+  // For this example it is created on the spot like this
+  std::shared_ptr<Codec> codec = std::make_shared<Codec>();
+  codec->Add(PACKET_DEMO, std::make_unique<DemoSerializer>());
+  session.SetCodec(codec);
+
+  // Handlers are what handles the packets, like codecs this can be swapped mid-session
+  // For example during the login phase, you can give a different handler to only
+  // handle those are sent during the login, then change the codec.
+  session.SetHandler(std::make_shared<MyPacketHandler>(event.session()));
   return false;
 }
 

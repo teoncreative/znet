@@ -199,7 +199,7 @@ class Buffer {
   }
 
   template <typename T, typename ValueFunc>
-  Scope<T[]> ReadArray(ValueFunc value_func) {
+  std::unique_ptr<T[]> ReadArray(ValueFunc value_func) {
     size_t size = ReadVarInt<size_t>();
     size_t size_bytes = size * sizeof(T);
     if (!CheckReadableBytes(size_bytes)) {
@@ -211,7 +211,7 @@ class Buffer {
       failed_to_alloc_ = true;
       return nullptr;
     }
-    Scope<T[]> array(ptr);
+    std::unique_ptr<T[]> array(ptr);
     for (int i = 0; i < size; i++) {
       array[i] = (this->*value_func)();
     }
@@ -343,7 +343,7 @@ class Buffer {
   }
 
   template <typename ValueFunc, typename T>
-  void WriteArray(Ref<T[]>& v, size_t size, ValueFunc value_func) {
+  void WriteArray(std::shared_ptr<T[]>& v, size_t size, ValueFunc value_func) {
     WriteInt(size);
     for (int i = 0; i < size; i++) {
       auto& value = v[i];

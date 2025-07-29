@@ -69,7 +69,7 @@ Result Client::Connect() {
 #endif
   // todo local address
   client_session_ =
-      CreateRef<PeerSession>(nullptr, server_address_, client_socket_, true);
+      std::make_shared<PeerSession>(nullptr, server_address_, client_socket_, true);
 
   // Connected to the server
   task_.Run([this]() {

@@ -26,7 +26,7 @@ struct ServerConfig {
 
 class Server : public Interface {
  public:
-  using SessionMap = std::unordered_map<Ref<InetAddress>, Ref<PeerSession>>;
+  using SessionMap = std::unordered_map<std::shared_ptr<InetAddress>, std::shared_ptr<PeerSession>>;
 
   Server();
   Server(const ServerConfig& config);
@@ -53,7 +53,7 @@ class Server : public Interface {
  private:
   std::mutex mutex_;
   ServerConfig config_;
-  Ref<InetAddress> bind_address_;
+  std::shared_ptr<InetAddress> bind_address_;
   bool is_listening_ = false;
   bool is_bind_ = false;
   SocketHandle server_socket_ = -1;

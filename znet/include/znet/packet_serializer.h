@@ -15,26 +15,30 @@
 
 namespace znet {
 
-template <typename T,
-          std::enable_if_t<std::is_base_of<Packet, T>::value, bool> = true>
-class PacketSerializer {
+class PacketSerializerBase {
  public:
-  PacketSerializer() : packet_id_(T::GetPacketId()) {}
-  virtual ~PacketSerializer() = default;
+  virtual ~PacketSerializerBase() = default;
 
+  virtual std::shared_ptr<Buffer> Serialize(std::shared_ptr<Packet> packet, std::shared_ptr<Buffer> buffer) = 0;
+  virtual std::shared_ptr<Packet> Deserialize(std::shared_ptr<Buffer> buffer) = 0;
+};
 
-  PacketSerializer(PacketId packet_id) : packet_id_(packet_id) {}
+template <typename T>
+class PacketSerializer : public PacketSerializerBase {
+  static_assert(std::is_base_of<Packet, T>::value, "T must derive from Packet");
 
-  virtual Ref<Buffer> Serialize(Ref<T> packet, Ref<Buffer> buffer) {
-    return CreateRef<Buffer>();
+ public:
+  virtual std::shared_ptr<Buffer> SerializeTyped(std::shared_ptr<T> packet, std::shared_ptr<Buffer> buffer) = 0;
+  virtual std::shared_ptr<T> DeserializeTyped(std::shared_ptr<Buffer> buffer) = 0;
+
+  // override base class
+  std::shared_ptr<Buffer> Serialize(std::shared_ptr<Packet> packet, std::shared_ptr<Buffer> buffer) override {
+    return SerializeTyped(std::static_pointer_cast<T>(packet), buffer);
   }
 
-  virtual Ref<T> Deserialize(Ref<Buffer> buffer) { return CreateRef<T>(); }
-
-  PacketId packet_id() const { return packet_id_; }
-
- private:
-  PacketId packet_id_;
+  std::shared_ptr<Packet> Deserialize(std::shared_ptr<Buffer> buffer) override {
+    return DeserializeTyped(buffer);
+  }
 };
 
 }  // namespace znet

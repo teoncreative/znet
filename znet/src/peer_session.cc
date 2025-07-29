@@ -9,18 +9,21 @@
 //
 
 #include "peer_session.h"
+#include <server_events.h>
 #include "error.h"
 
 namespace znet {
 
-PeerSession::PeerSession(Ref<InetAddress> local_address,
-                         Ref<InetAddress> remote_address,
+PeerSession::PeerSession(std::shared_ptr<InetAddress> local_address,
+                         std::shared_ptr<InetAddress> remote_address,
                          SocketHandle socket, bool is_initiator)
     : local_address_(local_address), remote_address_(remote_address),
       socket_(socket), is_initiator_(is_initiator),
       is_alive_(true), is_ready_(false),
       transport_layer_(*this, socket),
-      encryption_layer_(*this), handler_layer_(*this) {
+      encryption_layer_(*this) {
+  static SessionId sIdCount = 0;
+  session_id_ = sIdCount++;
   encryption_layer_.Initialize(is_initiator);
 }
 
@@ -28,11 +31,11 @@ void PeerSession::Process() {
   if (!is_alive_) {
     return;
   }
-  Ref<Buffer> buffer;
+  std::shared_ptr<Buffer> buffer;
   if ((buffer = transport_layer_.Receive())) {
     buffer = encryption_layer_.HandleIn(buffer);
-    if (buffer) {
-      handler_layer_.HandleIn(buffer);
+    if (buffer && handler_) {
+      codec_->Deserialize(buffer, *handler_);
     }
   }
 }
@@ -51,8 +54,8 @@ Result PeerSession::Close() {
   return Result::Success;
 }
 
-bool PeerSession::SendPacket(Ref<Packet> packet) {
-  auto buffer = handler_layer_.HandleOut(std::move(packet));
+bool PeerSession::SendPacket(std::shared_ptr<Packet> packet) {
+  auto buffer = codec_->Serialize(std::move(packet));
   if (!buffer) {
     return false;
   }

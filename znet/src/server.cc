@@ -199,17 +199,17 @@ void Server::CheckNetwork() {
     return;
   }
 #endif
-  Ref<InetAddress> remote_address = InetAddress::from(&client_address);
+  std::shared_ptr<InetAddress> remote_address = InetAddress::from(&client_address);
   if (remote_address == nullptr) {
     return;
   }
   auto session =
-      CreateRef<PeerSession>(bind_address_, remote_address, client_socket);
+      std::make_shared<PeerSession>(bind_address_, remote_address, client_socket);
   pending_sessions_[remote_address] = session;
 }
 
 void Server::CleanupAndProcessSessions(SessionMap& map) {
-  std::vector<Ref<InetAddress>> remove;
+  std::vector<std::shared_ptr<InetAddress>> remove;
   // cleanup dead sessions
   for (auto&& item : map) {
     if (item.second->IsAlive()) {
