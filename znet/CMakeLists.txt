@@ -35,7 +35,6 @@ set_target_properties(znet PROPERTIES
 )
 target_precompile_headers(znet PRIVATE include/znet/precompiled.h)
 target_include_directories(znet PUBLIC include)
-target_include_directories(znet PRIVATE include/znet)
 
 ## Dependencies
 

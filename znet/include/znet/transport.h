@@ -11,8 +11,8 @@
 
 #pragma once
 
-#include "precompiled.h"
-#include "base/packet.h"
+#include "znet/precompiled.h"
+#include "znet/base/packet.h"
 #include "logger.h"
 #include "buffer.h"
 

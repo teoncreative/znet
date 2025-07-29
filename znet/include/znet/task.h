@@ -14,8 +14,8 @@
 #include <thread>
 #include <utility>
 
-#include "precompiled.h"
-#include "base/types.h"
+#include "znet/precompiled.h"
+#include "znet/base/types.h"
 
 namespace znet {
 class Task {

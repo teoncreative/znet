@@ -10,9 +10,9 @@
 
 #pragma once
 
-#include "precompiled.h"
-#include "inet_addr.h"
-#include "types.h"
+#include "znet/precompiled.h"
+#include "znet/base/inet_addr.h"
+#include "znet/base/types.h"
 
 namespace znet {
 

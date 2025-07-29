@@ -10,8 +10,8 @@
 
 #pragma once
 
-#include "precompiled.h"
-#include "types.h"
+#include "znet/precompiled.h"
+#include "znet/base/types.h"
 
 namespace znet {
 

@@ -10,12 +10,12 @@
 
 #pragma once
 
-#include "precompiled.h"
-#include "interface.h"
-#include "peer_session.h"
-#include "logger.h"
-#include "base/scheduler.h"
-#include "task.h"
+#include "znet/precompiled.h"
+#include "znet/interface.h"
+#include "znet/peer_session.h"
+#include "znet/logger.h"
+#include "znet/base/scheduler.h"
+#include "znet/task.h"
 
 namespace znet {
 

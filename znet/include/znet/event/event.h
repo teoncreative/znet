@@ -10,7 +10,7 @@
 
 #pragma once
 
-#include "precompiled.h"
+#include "znet/precompiled.h"
 
 namespace znet {
 

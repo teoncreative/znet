@@ -10,10 +10,10 @@
 
 #pragma once
 
-#include "precompiled.h"
-#include "base/packet.h"
-#include "packet_serializer.h"
-#include "logger.h"
+#include "znet/precompiled.h"
+#include "znet/base/packet.h"
+#include "znet/packet_serializer.h"
+#include "znet/logger.h"
 
 namespace znet {
 

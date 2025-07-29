@@ -12,9 +12,9 @@
 
 #include <utility>
 
-#include "precompiled.h"
-#include "event/event.h"
-#include "packet_handler.h"
+#include "znet/precompiled.h"
+#include "znet/event/event.h"
+#include "znet/packet_handler.h"
 
 namespace znet {
 
