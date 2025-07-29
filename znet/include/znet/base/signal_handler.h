@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include "precompiled.h"
 #include <functional>
 
 namespace znet {

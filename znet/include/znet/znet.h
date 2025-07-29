@@ -10,6 +10,7 @@
 
 #pragma once
 
+#include "precompiled.h"
 #include "interface.h"
 #include "base/inet_addr.h"
 #include "base/packet.h"

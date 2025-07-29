@@ -12,6 +12,7 @@
 
 #include <utility>
 
+#include "precompiled.h"
 #include "event/event.h"
 #include "packet_handler.h"
 

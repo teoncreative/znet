@@ -10,6 +10,7 @@
 
 #pragma once
 
+#include "precompiled.h"
 #include "base/types.h"
 #include "logger.h"
 #include "base/util.h"

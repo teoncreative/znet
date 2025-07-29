@@ -10,4 +10,6 @@
 
 #pragma once
 
+#include "precompiled.h"
+
 std::string GetLastErrorInfo();

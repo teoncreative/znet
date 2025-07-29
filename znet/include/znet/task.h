@@ -14,6 +14,7 @@
 #include <thread>
 #include <utility>
 
+#include "precompiled.h"
 #include "base/types.h"
 
 namespace znet {

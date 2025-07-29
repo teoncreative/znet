@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include "precompiled.h"
 #include <fmt/core.h>
 
 // https://github.com/TheCherno/Hazel/blob/e4b0493999206bd2c3ff9d30fa333bcf81f313c8/Hazel/src/Hazel/Debug/Instrumentor.h#L207

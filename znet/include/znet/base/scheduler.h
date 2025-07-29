@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include "precompiled.h"
 #include <chrono>
 #include <thread>
 

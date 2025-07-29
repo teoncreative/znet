@@ -10,6 +10,7 @@
 
 #pragma once
 
+#include "precompiled.h"
 #include "encryption.h"
 #include "packet_handler.h"
 #include "transport.h"

@@ -11,7 +11,7 @@
 #ifndef ZNET_PARENT_CODEC_H
 #define ZNET_PARENT_CODEC_H
 
-
+#include "precompiled.h"
 #include "base/packet.h"
 #include "buffer.h"
 

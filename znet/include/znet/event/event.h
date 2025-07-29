@@ -10,6 +10,8 @@
 
 #pragma once
 
+#include "precompiled.h"
+
 namespace znet {
 
 #define BIT(x) (1 << x)

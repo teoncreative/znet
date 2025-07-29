@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include "precompiled.h"
 #include "event/event.h"
 #include "peer_session.h"
 

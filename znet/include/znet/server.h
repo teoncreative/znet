@@ -10,6 +10,7 @@
 
 #pragma once
 
+#include "precompiled.h"
 #include "interface.h"
 #include "peer_session.h"
 #include "logger.h"

@@ -10,6 +10,7 @@
 
 #pragma once
 
+#include "precompiled.h"
 #include "buffer.h"
 #include "base/packet.h"
 

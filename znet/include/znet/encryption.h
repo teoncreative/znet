@@ -10,6 +10,7 @@
 
 #pragma once
 
+#include "precompiled.h"
 #include "base/packet.h"
 #include "logger.h"
 #include "packet_handler.h"
