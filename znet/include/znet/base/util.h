@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include "znet/precompiled.h"
 #include <ostream>
 #include <sstream>
 #include <iostream>

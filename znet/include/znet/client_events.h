@@ -11,8 +11,9 @@
 
 #pragma once
 
-#include "peer_session.h"
-#include "event/event.h"
+#include "znet/precompiled.h"
+#include "znet/peer_session.h"
+#include "znet/event/event.h"
 
 namespace znet {
 

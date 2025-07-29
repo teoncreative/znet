@@ -10,6 +10,8 @@
 
 #pragma once
 
+#include "znet/precompiled.h"
+
 namespace znet {
 
 // Max buffer size defines how big send and receive of each data can be.

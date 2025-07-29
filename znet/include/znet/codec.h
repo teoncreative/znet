@@ -11,9 +11,9 @@
 #ifndef ZNET_PARENT_CODEC_H
 #define ZNET_PARENT_CODEC_H
 
-
-#include "base/packet.h"
-#include "buffer.h"
+#include "znet/precompiled.h"
+#include "znet/base/packet.h"
+#include "znet/buffer.h"
 
 namespace znet {
 

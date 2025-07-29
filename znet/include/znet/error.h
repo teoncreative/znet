@@ -10,4 +10,6 @@
 
 #pragma once
 
+#include "znet/precompiled.h"
+
 std::string GetLastErrorInfo();

@@ -10,10 +10,11 @@
 
 #pragma once
 
-#include "encryption.h"
-#include "packet_handler.h"
-#include "transport.h"
-#include "codec.h"
+#include "znet/precompiled.h"
+#include "znet/encryption.h"
+#include "znet/packet_handler.h"
+#include "znet/transport.h"
+#include "znet/codec.h"
 
 namespace znet {
 

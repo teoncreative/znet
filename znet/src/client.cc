@@ -8,11 +8,11 @@
 //        http://www.apache.org/licenses/LICENSE-2.0
 //
 
-#include "client.h"
+#include "znet/client.h"
 
-#include "client_events.h"
-#include "error.h"
-#include "logger.h"
+#include "znet/client_events.h"
+#include "znet/error.h"
+#include "znet/logger.h"
 
 namespace znet {
 Client::Client(const ClientConfig& config) : config_(config) {

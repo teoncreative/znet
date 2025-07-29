@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include "znet/precompiled.h"
 #include <chrono>
 #include <thread>
 

@@ -8,9 +8,10 @@
 //        http://www.apache.org/licenses/LICENSE-2.0
 //
 
-#include "types.h"
-
 #pragma once
+
+#include "znet/precompiled.h"
+#include "znet/base/types.h"
 
 namespace znet {
 
