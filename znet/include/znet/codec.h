@@ -34,7 +34,7 @@ class Codec {
       // Todo limit max read buffer
       size_t read_cursor = buffer->read_cursor();
       auto it = serializers_.find(packet_id);
-      if (it != serializers_.end()) {
+      if (it == serializers_.end()) {
         ZNET_LOG_WARN("Serializer for packet {} does not exist!", packet_id);
         buffer->SkipRead(size);
         continue;
@@ -58,7 +58,8 @@ class Codec {
 
   std::shared_ptr<Buffer> Serialize(std::shared_ptr<Packet> packet) {
     auto it = serializers_.find(packet->id());
-    if (it != serializers_.end()) {
+    if (it == serializers_.end()) {
+      ZNET_LOG_WARN("Failed to find a serializer for packet {}!", packet->id());
       return nullptr;
     }
     PacketSerializerBase& serializer = *it->second;

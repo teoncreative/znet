@@ -8,14 +8,5 @@
 //        http://www.apache.org/licenses/LICENSE-2.0
 //
 
-#ifndef RELAY_SERVER_H
-#define RELAY_SERVER_H
+#include "znet/relay/relay_server.h"
 
-class RelayServer {
-public:
-  RelayServer();
-  ~RelayServer();
-
-};
-
-#endif //RELAY_SERVER_H

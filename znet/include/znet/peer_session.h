@@ -23,6 +23,8 @@ class PeerSession {
   PeerSession(std::shared_ptr<InetAddress> local_address, std::shared_ptr<InetAddress> remote_address,
                     SocketHandle socket,
                      bool is_initiator = false);
+  PeerSession(const PeerSession&) = delete;
+  PeerSession(PeerSession&&) = delete;
 
   void Process();
 
@@ -53,11 +55,11 @@ class PeerSession {
   }
 
   void SetCodec(std::shared_ptr<Codec> codec) {
-    codec_ = codec;
+    codec_ = std::move(codec);
   }
 
   void SetHandler(std::shared_ptr<PacketHandlerBase> handler) {
-    handler_ = handler;
+    handler_ = std::move(handler);
   }
 
   template<typename T>
@@ -95,13 +97,13 @@ class PeerSession {
   std::shared_ptr<InetAddress> local_address_;
   std::shared_ptr<InetAddress> remote_address_;
 
-  TransportLayer transport_layer_;
-  EncryptionLayer encryption_layer_;
   std::shared_ptr<Codec> codec_;
   std::shared_ptr<PacketHandlerBase> handler_;
+  TransportLayer transport_layer_;
+  EncryptionLayer encryption_layer_;
   bool is_initiator_;
   bool is_ready_ = false;
-  bool is_alive_ = false;
+  bool is_alive_ = true;
   std::weak_ptr<void> user_ptr_;
 };
 }  // namespace znet
