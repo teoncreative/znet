@@ -12,7 +12,47 @@ znet is a modern C++14 networking library that provides seamless packet serializ
 
 ## Installation
 
-TODO
+### Using as a Git Submodule
+
+1. **Add znet to your project:**
+
+```bash
+git submodule add https://github.com/irrld/znet.git external/znet
+git submodule update --init --recursive
+```
+
+2. **Link znet in your `CMakeLists.txt`:**
+
+Example using the submodule fmt inside znet
+```cmake
+# Example using the bundled fmt inside znet
+add_subdirectory(external/znet/vendor/fmt)
+add_subdirectory(external/znet/znet)
+target_link_libraries(your_target PRIVATE znet)
+```
+
+Example using the submodule fmt inside your project
+```cmake
+# Example using your own fmt submodule
+add_subdirectory(external/fmt)
+add_subdirectory(external/znet/znet)
+target_link_libraries(your_target PRIVATE znet)
+```
+
+Additionally, if you have fmt installed via your package manager, you can define ZNET_USE_EXTERNAL_FMT to use it.
+```cmake
+# Example using system-installed fmt (e.g. vcpkg, brew, etc.)
+set(ZNET_USE_EXTERNAL_FMT ON)
+add_subdirectory(external/znet/znet)
+target_link_libraries(your_target PRIVATE znet)
+```
+
+3. **Requirements:**
+
+* **C++14 or higher**
+* **OpenSSL** (required)
+  * Install via package manager (e.g. `libssl-dev` on Linux, `vcpkg` on Windows, `brew` on macOS)
+  * znet will automatically detect and link OpenSSL if it's installed
 
 ## Quick Example
 

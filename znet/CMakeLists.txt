@@ -4,6 +4,8 @@ project(znet)
 set(CMAKE_CXX_STANDARD 14)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+option(ZNET_USE_EXTERNAL_FMT "Looks for FMT via find_package" OFF)
+
 if(NOT MSVC)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fpermissive -Werror=vla -Wno-deprecated")
 endif()
@@ -40,7 +42,9 @@ if(WIN32)
 endif()
 
 # FMT
-#find_package(fmt CONFIG REQUIRED)
+if(ZNET_USE_EXTERNAL_FMT)
+    find_package(fmt CONFIG REQUIRED)
+endif()
 target_link_libraries(znet PUBLIC fmt::fmt)
 
 # OpenSSL

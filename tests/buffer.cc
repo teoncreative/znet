@@ -37,7 +37,7 @@ class BufferTest : public ::testing::Test {
   std::shared_ptr<Buffer> buffer_be_;
 };
 
-// todo split these to more individuaş
+// todo split these to individual tests
 void TestBuffer(std::shared_ptr<Buffer> buffer) {
     int64_t asd = INT64_MAX;
     float f = 0.9245f;
