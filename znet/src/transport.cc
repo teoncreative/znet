@@ -43,7 +43,9 @@ std::shared_ptr<Buffer> TransportLayer::Receive() {
   if (data_size_ == 0) {
     session_.Close();
     return nullptr;
-  } else if (data_size_ > 0) {
+  }
+
+  if (data_size_ > 0) {
     int full_size = data_size_ + read_offset_;
     if (full_size == ZNET_MAX_BUFFER_SIZE) {
       has_more_ = true;
@@ -53,7 +55,9 @@ std::shared_ptr<Buffer> TransportLayer::Receive() {
     buffer_ = std::make_shared<Buffer>(data_, full_size);
     read_offset_ = 0;
     return ReadBuffer();
-  } else if (data_size_ == -1) {
+  }
+
+  if (data_size_ == -1) {
 #ifdef WIN32
     int err = WSAGetLastError();
     if (err == WSAEWOULDBLOCK) {

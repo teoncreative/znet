@@ -307,10 +307,12 @@ EncryptionLayer::EncryptionLayer(PeerSession& session)
   auto handler = std::make_shared<CallbackPacketHandler>();
   handler->AddShared<HandshakePacket>(ZNET_BIND_FN(OnHandshakePacket));
   handler->AddShared<ConnectionReadyPacket>(ZNET_BIND_FN(OnAcknowledgePacket));
+  session_.SetHandler(std::move(handler));
 
   auto codec = std::make_shared<Codec>();
   codec->Add(HandshakePacket::GetPacketId(), std::make_unique<HandshakePacketSerializerV1>());
   codec->Add(ConnectionReadyPacket::GetPacketId(), std::make_unique<ConnectionReadyPacketSerializerV1>());
+  session_.SetCodec(std::move(codec));
 }
 
 void EncryptionLayer::Initialize(bool send) {
@@ -351,7 +353,7 @@ std::shared_ptr<Buffer> EncryptionLayer::HandleDecrypt(std::shared_ptr<Buffer> b
   return std::make_shared<Buffer>(reinterpret_cast<char*>(actual), actual_len);
 }
 
-std::shared_ptr<Buffer> EncryptionLayer::HandleIn(std::shared_ptr<znet::Buffer> buffer) {
+std::shared_ptr<Buffer> EncryptionLayer::HandleIn(std::shared_ptr<Buffer> buffer) {
   return HandleDecrypt(buffer);
 }
 
@@ -443,18 +445,18 @@ void EncryptionLayer::OnAcknowledgePacket(std::shared_ptr<ConnectionReadyPacket>
 }
 
 void EncryptionLayer::SendHandshake() {
-  auto packet = std::shared_ptr<HandshakePacket>();
+  auto packet = std::make_shared<HandshakePacket>();
   packet->pub_key_ = pub_key_;
   packet->owner_ = false;
-  SendPacket(packet);
+  session_.SendPacket(packet);
   sent_handshake_ = true;
 }
 
 void EncryptionLayer::SendReady() {
   enable_encryption_ = true;
-  auto packet = std::shared_ptr<ConnectionReadyPacket>();
+  auto packet = std::make_shared<ConnectionReadyPacket>();
   packet->magic_ = "343693b5-2b04-4d56-a3b5-48582ca37c7d";
-  SendPacket(packet);
+  session_.SendPacket(packet);
   sent_ready_ = true;
 }
 

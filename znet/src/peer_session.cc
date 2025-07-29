@@ -19,7 +19,6 @@ PeerSession::PeerSession(std::shared_ptr<InetAddress> local_address,
                          SocketHandle socket, bool is_initiator)
     : local_address_(local_address), remote_address_(remote_address),
       socket_(socket), is_initiator_(is_initiator),
-      is_alive_(true), is_ready_(false),
       transport_layer_(*this, socket),
       encryption_layer_(*this) {
   static SessionId sIdCount = 0;

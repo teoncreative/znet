@@ -33,7 +33,7 @@ class Server : public Interface {
   Server(const ServerConfig& config);
   Server(const Server&) = delete;
 
-  ~Server();
+  ~Server() override;
 
   Result Bind() override;
   void Wait() override;
