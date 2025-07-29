@@ -26,8 +26,8 @@ git submodule update --init --recursive
 Example using the submodule fmt inside znet
 ```cmake
 # Example using the bundled fmt inside znet
-add_subdirectory(external/znet/vendor/fmt)
-add_subdirectory(external/znet/znet)
+add_subdirectory(external/znet/vendor/fmt ${CMAKE_CURRENT_BINARY_DIR}/fmt)
+add_subdirectory(external/znet/znet ${CMAKE_CURRENT_BINARY_DIR}/znet)
 target_link_libraries(your_target PRIVATE znet)
 ```
 

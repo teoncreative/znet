@@ -1,9 +1,6 @@
 cmake_minimum_required(VERSION 3.16.3)
 project(znet)
 
-set(CMAKE_CXX_STANDARD 14)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
-
 option(ZNET_USE_EXTERNAL_FMT "Looks for FMT via find_package" OFF)
 
 if(NOT MSVC)
@@ -32,7 +29,11 @@ add_library(znet STATIC
         ${ZNET_SOURCES}
 )
 
-target_precompile_headers(znet PUBLIC include/znet/precompiled.h)
+set_target_properties(znet PROPERTIES
+        CXX_STANDARD 14
+        CXX_STANDARD_REQUIRED ON
+)
+target_precompile_headers(znet PRIVATE include/znet/precompiled.h)
 target_include_directories(znet PUBLIC include)
 target_include_directories(znet PRIVATE include/znet)
 
@@ -53,9 +54,9 @@ find_package(OpenSSL REQUIRED)
 target_link_libraries(znet PUBLIC ${OPENSSL_SSL_LIBRARIES} ${OPENSSL_CRYPTO_LIBRARIES})
 target_include_directories(znet PUBLIC ${OPENSSL_INCLUDE_DIR})
 
-if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
-find_package(Threads REQUIRED)
-target_link_libraries(znet PRIVATE Threads::Threads)
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux" OR CMAKE_SYSTEM_NAME STREQUAL "Apple")
+    find_package(Threads REQUIRED)
+    target_link_libraries(znet PRIVATE Threads::Threads)
 endif()
 
 if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")

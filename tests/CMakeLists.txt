@@ -1,9 +1,6 @@
 cmake_minimum_required(VERSION 3.16.3)
 project(znet-tests)
 
-set(CMAKE_CXX_STANDARD 14)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
-
 include(FetchContent)
 
 if(POLICY CMP0135)
@@ -20,6 +17,10 @@ set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(googletest)
 
 add_executable(znet-tests-buffer buffer.cc)
+set_target_properties(znet-tests-buffer PROPERTIES
+        CXX_STANDARD 14
+        CXX_STANDARD_REQUIRED ON
+)
 target_link_libraries(znet-tests-buffer gtest_main znet)
 
 add_test(NAME buffer-tests COMMAND znet-tests-buffer)
