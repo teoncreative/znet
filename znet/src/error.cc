@@ -8,6 +8,8 @@
 //        http://www.apache.org/licenses/LICENSE-2.0
 //
 
+#include "znet/error.h"
+
 std::string GetLastErrorInfo() {
 #ifdef TARGET_WIN
   char buf[256];

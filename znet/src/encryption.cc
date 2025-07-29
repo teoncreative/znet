@@ -8,8 +8,8 @@
 //        http://www.apache.org/licenses/LICENSE-2.0
 //
 
-#include "encryption.h"
-#include "peer_session.h"
+#include "znet/encryption.h"
+#include "znet/peer_session.h"
 
 #include <openssl/evp.h>
 #include <openssl/kdf.h>
