@@ -25,6 +25,7 @@ set(ZNET_SOURCES
         src/encryption.cc
         src/transport.cc
         src/peer_session.cc
+        src/pch.cc
 )
 
 add_library(znet STATIC
