@@ -292,7 +292,7 @@ int CalculateCipherTextLength(int plaintext_len) {
 }
 
 EncryptionLayer::EncryptionLayer(PeerSession& session)
-    : session_(session), handler_layer_(session) {
+    : session_(session) {
   pub_key_ = GenerateKey();
   if (!pub_key_) {
     ZNET_LOG_ERROR(
@@ -304,15 +304,13 @@ EncryptionLayer::EncryptionLayer(PeerSession& session)
   key_len_ = 32;
   key_ = new unsigned char[key_len_];
 
-  auto handshake_packet_handler =
-      CreateRef<PacketHandler<HandshakePacket, HandshakePacketSerializerV1>>();
-  handshake_packet_handler->AddReceiveCallback(ZNET_BIND_FN(OnHandshakePacket));
-  handler_layer_.AddPacketHandler(handshake_packet_handler);
-  auto ack_packet_handler =
-      CreateRef<PacketHandler<ConnectionReadyPacket,
-                              ConnectionReadyPacketSerializerV1>>();
-  ack_packet_handler->AddReceiveCallback(ZNET_BIND_FN(OnAcknowledgePacket));
-  handler_layer_.AddPacketHandler(ack_packet_handler);
+  auto handler = std::make_shared<CallbackPacketHandler>();
+  handler->AddShared<HandshakePacket>(ZNET_BIND_FN(OnHandshakePacket));
+  handler->AddShared<ConnectionReadyPacket>(ZNET_BIND_FN(OnAcknowledgePacket));
+
+  auto codec = std::make_shared<Codec>();
+  codec->Add(HandshakePacket::GetPacketId(), std::make_unique<HandshakePacketSerializerV1>());
+  codec->Add(ConnectionReadyPacket::GetPacketId(), std::make_unique<ConnectionReadyPacketSerializerV1>());
 }
 
 void EncryptionLayer::Initialize(bool send) {
@@ -332,7 +330,7 @@ EncryptionLayer::~EncryptionLayer() {
   }
 }
 
-Ref<Buffer> EncryptionLayer::HandleDecrypt(Ref<Buffer> buffer) {
+std::shared_ptr<Buffer> EncryptionLayer::HandleDecrypt(std::shared_ptr<Buffer> buffer) {
   auto mode = buffer->ReadInt<uint8_t>();
   if (mode == 0) {
     return buffer;  // no encryption
@@ -350,20 +348,23 @@ Ref<Buffer> EncryptionLayer::HandleDecrypt(Ref<Buffer> buffer) {
   int actual_len = DecryptData(reinterpret_cast<const unsigned char*>(data_ptr), cipher_len,
               key_, iv, actual);
   buffer->SkipRead(cipher_len);
-  return CreateRef<Buffer>(reinterpret_cast<char*>(actual), actual_len);
+  return std::make_shared<Buffer>(reinterpret_cast<char*>(actual), actual_len);
 }
 
-Ref<Buffer> EncryptionLayer::HandleIn(Ref<znet::Buffer> buffer) {
-  buffer = HandleDecrypt(buffer);
-  if (!handoff_ && buffer) {
-    handler_layer_.HandleIn(buffer);
-    return nullptr;
+std::shared_ptr<Buffer> EncryptionLayer::HandleIn(std::shared_ptr<znet::Buffer> buffer) {
+  return HandleDecrypt(buffer);
+}
+
+bool EncryptionLayer::SendPacket(std::shared_ptr<Packet> packet) {
+  auto buffer = session_.codec_->Serialize(std::move(packet));
+  if (!buffer) {
+    return false;
   }
-  return buffer;
+  return session_.transport_layer_.Send(buffer);
 }
 
-Ref<Buffer> EncryptionLayer::HandleOut(Ref<Buffer> buffer) {
-  Ref<Buffer> new_buffer = CreateRef<Buffer>();
+std::shared_ptr<Buffer> EncryptionLayer::HandleOut(std::shared_ptr<Buffer> buffer) {
+  std::shared_ptr<Buffer> new_buffer = std::make_shared<Buffer>();
   if (enable_encryption_) {
     auto* ciphertext =
         new unsigned char[CalculateCipherTextLength(buffer->size())];
@@ -392,8 +393,7 @@ Ref<Buffer> EncryptionLayer::HandleOut(Ref<Buffer> buffer) {
   return new_buffer;
 }
 
-void EncryptionLayer::OnHandshakePacket(PeerSession&,
-                                        Ref<HandshakePacket> packet) {
+void EncryptionLayer::OnHandshakePacket(std::shared_ptr<HandshakePacket> packet) {
   if (peer_pkey_ || key_filled_) {
     ZNET_LOG_ERROR("Received handshake packet twice, closing the connection!");
     session_.Close();
@@ -419,7 +419,7 @@ void EncryptionLayer::OnHandshakePacket(PeerSession&,
   }
 }
 
-void EncryptionLayer::OnAcknowledgePacket(PeerSession&, Ref<ConnectionReadyPacket> packet) {
+void EncryptionLayer::OnAcknowledgePacket(std::shared_ptr<ConnectionReadyPacket> packet) {
   if (!peer_pkey_ || !key_filled_) {
     ZNET_LOG_ERROR(
         "Received connection complete packet it wasn't expected, closing the "
@@ -437,35 +437,24 @@ void EncryptionLayer::OnAcknowledgePacket(PeerSession&, Ref<ConnectionReadyPacke
   if (!sent_ready_) {
     SendReady();
   }
-  handoff_ = true;
+  session_.SetHandler(nullptr);
+  session_.SetCodec(nullptr);
   session_.Ready();
 }
 
 void EncryptionLayer::SendHandshake() {
-  auto packet = CreateRef<HandshakePacket>();
+  auto packet = std::shared_ptr<HandshakePacket>();
   packet->pub_key_ = pub_key_;
   packet->owner_ = false;
-  auto buffer = handler_layer_.HandleOut(packet);
-  if (buffer) {
-    buffer = HandleOut(buffer);
-  }
-  if (buffer) {
-    session_.transport_layer().Send(buffer);
-  }
+  SendPacket(packet);
   sent_handshake_ = true;
 }
 
 void EncryptionLayer::SendReady() {
   enable_encryption_ = true;
-  auto packet = CreateRef<ConnectionReadyPacket>();
+  auto packet = std::shared_ptr<ConnectionReadyPacket>();
   packet->magic_ = "343693b5-2b04-4d56-a3b5-48582ca37c7d";
-  auto buffer = handler_layer_.HandleOut(packet);
-  if (buffer) {
-    buffer = HandleOut(buffer);
-  }
-  if (buffer) {
-    session_.transport_layer().Send(buffer);
-  }
+  SendPacket(packet);
   sent_ready_ = true;
 }
 

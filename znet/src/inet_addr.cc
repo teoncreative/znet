@@ -61,29 +61,29 @@ bool IsValidIPv6(const std::string& ip) {
   return inet_pton(AF_INET6, ip.c_str(), &addr) == 1;
 }
 
-Scope<InetAddress> InetAddress::from(const std::string& ip_str, PortNumber port) {
+std::unique_ptr<InetAddress> InetAddress::from(const std::string& ip_str, PortNumber port) {
   if (ip_str.empty() || ip_str == "localhost") {
 #ifdef ZNET_DEFAULT_IPV6
-    return CreateScope<InetAddressIPv6>(port);
+    return std::make_unique<InetAddressIPv6>(port);
 #else
-    return CreateScope<InetAddressIPv4>(port);
+    return std::make_unique<InetAddressIPv4>(port);
 #endif
   }
   if (IsIPv4(ip_str)) {
-    return CreateScope<InetAddressIPv4>(ip_str, port);
+    return std::make_unique<InetAddressIPv4>(ip_str, port);
   } else if (IsIPv6(ip_str)) {
-    return CreateScope<InetAddressIPv6>(ip_str, port);
+    return std::make_unique<InetAddressIPv6>(ip_str, port);
   }
   return nullptr;
 }
 
-Scope<InetAddress> InetAddress::from(sockaddr* sock_addr) {
+std::unique_ptr<InetAddress> InetAddress::from(sockaddr* sock_addr) {
   if (sock_addr->sa_family == AF_INET) {
     auto* addr = (sockaddr_in*)sock_addr;
-    return CreateScope<InetAddressIPv4>(addr->sin_addr, addr->sin_port);
+    return std::make_unique<InetAddressIPv4>(addr->sin_addr, addr->sin_port);
   } else if (sock_addr->sa_family == AF_INET6) {
     auto* addr = (sockaddr_in6*)sock_addr;
-    return CreateScope<InetAddressIPv6>(addr->sin6_addr, addr->sin6_port);
+    return std::make_unique<InetAddressIPv6>(addr->sin6_addr, addr->sin6_port);
   }
 
 #if defined(DEBUG) && !defined(DISABLE_ASSERT_INVALID_ADDRESS_FAMILY)

@@ -14,24 +14,28 @@
 
 using namespace znet;
 
+enum PacketType {
+  PACKET_DEMO
+};
+
 class DemoPacket : public Packet {
  public:
-  DemoPacket() : Packet(1) { }
+  DemoPacket() : Packet(PACKET_DEMO) { }
 
   std::string text;
 };
 
-class DemoPacketSerializerV1 : public PacketSerializer<DemoPacket> {
+class DemoSerializer : public PacketSerializer<DemoPacket> {
  public:
-  DemoPacketSerializerV1() : PacketSerializer<DemoPacket>(1) {}
+  DemoSerializer() : PacketSerializer<DemoPacket>() {}
 
-  Ref<Buffer> Serialize(Ref<DemoPacket> packet, Ref<Buffer> buffer) override {
+  std::shared_ptr<Buffer> SerializeTyped(std::shared_ptr<DemoPacket> packet, std::shared_ptr<Buffer> buffer) override {
     buffer->WriteString(packet->text);
     return buffer;
   }
 
-  Ref<DemoPacket> Deserialize(Ref<Buffer> buffer) override {
-    auto packet = CreateRef<DemoPacket>();
+  std::shared_ptr<DemoPacket> DeserializeTyped(std::shared_ptr<Buffer> buffer) override {
+    auto packet = std::make_shared<DemoPacket>();
     packet->text = buffer->ReadString();
     return packet;
   }

@@ -25,17 +25,17 @@ class TransportLayer {
   TransportLayer(PeerSession& session, SocketHandle socket);
   ~TransportLayer();
 
-  Ref<Buffer> Receive();
-  bool Send(Ref<Buffer> buffer);
+  std::shared_ptr<Buffer> Receive();
+  bool Send(std::shared_ptr<Buffer> buffer);
 
  private:
-  Ref<Buffer> ReadBuffer();
+  std::shared_ptr<Buffer> ReadBuffer();
 
   PeerSession& session_;
   char data_[ZNET_MAX_BUFFER_SIZE]{};
   int read_offset_ = 0;
   ssize_t data_size_ = 0;
-  Ref<Buffer> buffer_;
+  std::shared_ptr<Buffer> buffer_;
   SocketHandle socket_;
   bool has_more_;
 
