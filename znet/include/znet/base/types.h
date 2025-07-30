@@ -21,7 +21,6 @@ namespace znet {
 
 using PacketId = uint64_t;
 using SessionId = uint64_t;
-using TimePoint = std::chrono::time_point<std::chrono::system_clock>;
 
 enum class Endianness { LittleEndian, BigEndian };
 
