@@ -22,6 +22,8 @@ set(ZNET_SOURCES
         src/encryption.cc
         src/transport.cc
         src/peer_session.cc
+        src/dialer.cc
+        src/util.cc
         src/pch.cc
 )
 

@@ -44,6 +44,7 @@ class InetAddress {
  public:
   InetAddress(InetProtocolVersion ipv, std::string readable)
       : ipv_(ipv), readable_(std::move(readable)) {}
+  virtual ~InetAddress() = default;
 
   operator bool() const { return is_valid(); }
 
@@ -55,9 +56,11 @@ class InetAddress {
 
   ZNET_NODISCARD InetProtocolVersion ipv() const { return ipv_; }
 
-  ZNET_NODISCARD virtual socklen_t addr_size() const { return 0; }
+  ZNET_NODISCARD virtual socklen_t addr_size() const = 0;
 
-  ZNET_NODISCARD virtual sockaddr* handle_ptr() const { return nullptr; }
+  ZNET_NODISCARD virtual sockaddr* handle_ptr() const = 0;
+
+  ZNET_NODISCARD virtual PortNumber port() const = 0;
 
   static std::unique_ptr<InetAddress> from(const std::string& ip_str, PortNumber port);
   static std::unique_ptr<InetAddress> from(sockaddr* addr);
@@ -84,6 +87,7 @@ class InetAddressIPv4 : public InetAddress {
 
   InetAddressIPv4(IPv4Address ip, PortNumber port)
       : InetAddress(InetProtocolVersion::IPv4, "") {
+
     addr.sin_family = AF_INET;
     addr.sin_port = htons(port);
     addr.sin_addr = ip;
@@ -123,6 +127,10 @@ class InetAddressIPv4 : public InetAddress {
 
   ZNET_NODISCARD sockaddr* handle_ptr() const override {
     return (sockaddr*)&addr;
+  }
+
+  ZNET_NODISCARD PortNumber port() const override {
+    return addr.sin_port;
   }
 
  private:
@@ -187,6 +195,10 @@ class InetAddressIPv6 : public InetAddress {
 
   ZNET_NODISCARD sockaddr* handle_ptr() const override {
     return (sockaddr*)&addr;
+  }
+
+  ZNET_NODISCARD PortNumber port() const override {
+    return addr.sin6_port;
   }
 
  private:

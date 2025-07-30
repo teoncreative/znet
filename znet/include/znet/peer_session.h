@@ -20,9 +20,9 @@ namespace znet {
 
 class PeerSession {
  public:
-  PeerSession(std::shared_ptr<InetAddress> local_address, std::shared_ptr<InetAddress> remote_address,
-                    SocketHandle socket,
-                     bool is_initiator = false);
+  PeerSession(std::shared_ptr<InetAddress> local_address,
+              std::shared_ptr<InetAddress> remote_address,
+              SocketHandle socket, bool is_initiator = false);
   PeerSession(const PeerSession&) = delete;
   PeerSession(PeerSession&&) = delete;
 
@@ -50,10 +50,6 @@ class PeerSession {
 
   bool SendPacket(std::shared_ptr<Packet> packet);
 
-  void SetUserPointer(std::weak_ptr<void> ptr) {
-    user_ptr_ = ptr;
-  }
-
   void SetCodec(std::shared_ptr<Codec> codec) {
     codec_ = std::move(codec);
   }
@@ -64,25 +60,33 @@ class PeerSession {
 
   template<typename T>
   void SetUserPointer(std::shared_ptr<T> ptr) {
-    user_ptr_ = std::weak_ptr<void>(ptr);
-  }
-
-  ZNET_NODISCARD std::weak_ptr<void> user_ptr() const {
-    return user_ptr_;
+    user_ptr_ = std::move(ptr);
   }
 
   template<typename T>
   ZNET_NODISCARD std::shared_ptr<T> user_ptr_typed() const {
-    // Lock the weak_ptr<void> to get a shared_ptr<void>
-    std::shared_ptr<void> locked_ptr = user_ptr_.lock();
+    // Attempt to static_pointer_cast to the desired type T
+    // This assumes the user knows the correct type.
+    return std::static_pointer_cast<T>(user_ptr_);
+  }
 
-    if (locked_ptr) {
-      // Attempt to static_pointer_cast to the desired type T
-      // This assumes the user knows the correct type.
-      return std::static_pointer_cast<T>(locked_ptr);
-    }
-    // If the weak_ptr is expired, or no object was set, return nullptr
-    return nullptr;
+  template<typename Rep, typename Period>
+  void SetExpiry(std::chrono::duration<Rep,Period> ttl) {
+    expire_at_ = std::chrono::steady_clock::now() +
+                std::chrono::duration_cast<std::chrono::steady_clock::duration>(ttl);
+  }
+
+  ZNET_NODISCARD std::chrono::steady_clock::time_point connect_time() {
+    return connect_time_;
+  }
+
+  ZNET_NODISCARD std::chrono::steady_clock::duration time_since_connect() const noexcept {
+    return std::chrono::steady_clock::now() - connect_time_;
+  }
+
+  ZNET_NODISCARD long seconds_since_connect() const noexcept {
+    return std::chrono::duration_cast<std::chrono::seconds>(
+               time_since_connect()).count();
   }
 
  protected:
@@ -90,12 +94,22 @@ class PeerSession {
 
   virtual void Ready() {
     is_ready_ = true;
+    connect_time_ = std::chrono::steady_clock::now();
+  }
+
+  bool IsExpired() const {
+    if (!has_expiry_) {
+      return false;
+    }
+    return std::chrono::steady_clock::now() > expire_at_;
   }
 
   SessionId session_id_;
   SocketHandle socket_;
   std::shared_ptr<InetAddress> local_address_;
+  PortNumber local_port_;
   std::shared_ptr<InetAddress> remote_address_;
+  PortNumber remote_port_;
 
   std::shared_ptr<Codec> codec_;
   std::shared_ptr<PacketHandlerBase> handler_;
@@ -104,6 +118,9 @@ class PeerSession {
   bool is_initiator_;
   bool is_ready_ = false;
   bool is_alive_ = true;
-  std::weak_ptr<void> user_ptr_;
+  std::chrono::steady_clock::time_point connect_time_;
+  std::chrono::steady_clock::time_point expire_at_;
+  bool has_expiry_;
+  std::shared_ptr<void> user_ptr_;
 };
 }  // namespace znet

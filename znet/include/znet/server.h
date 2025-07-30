@@ -30,7 +30,7 @@ class Server : public Interface {
   using SessionMap = std::unordered_map<std::shared_ptr<InetAddress>, std::shared_ptr<PeerSession>>;
 
   Server();
-  Server(const ServerConfig& config);
+  explicit Server(const ServerConfig& config);
   Server(const Server&) = delete;
 
   ~Server() override;

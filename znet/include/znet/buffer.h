@@ -124,6 +124,50 @@ class Buffer {
     return l;
   }
 
+  std::unique_ptr<InetAddress> ReadInetAddress() {
+    auto ver = ReadInt<uint8_t>();
+    if (ver == 4) {
+      uint32_t raw_ip{};
+      uint16_t raw_port{};
+      Read(&raw_ip, 1);
+      Read(&raw_port, 1);
+      in_addr ip{};
+      ip.s_addr = raw_ip;
+      auto port = ntohs(raw_port);
+      return std::make_unique<InetAddressIPv4>(ip, port);
+    }
+    if (ver == 6) {
+      in6_addr ip6{};
+      Read(ip6.s6_addr, 16);
+      uint16_t raw_port{};
+      Read(&raw_port, 1);
+      auto port = ntohs(raw_port);
+      return std::make_unique<InetAddressIPv6>(ip6, port);
+    }
+    ZNET_LOG_WARN("Invalid internet protocol version {}!", ver);
+    // unknown version
+    failed_to_read_ = true;
+    return nullptr;
+  }
+
+  template<size_t N>
+  std::bitset<N> ReadBitset() {
+    constexpr size_t BYTES = (N + 7) / 8;
+    uint8_t data[BYTES];
+    Read(data, BYTES);
+
+    std::bitset<N> bs;
+    for (size_t i = 0; i < N; ++i) {
+      bool bit = (data[i/8] >> (i % 8)) & 1;
+      bs.set(i, bit);
+    }
+    return bs;
+  }
+
+  PortNumber ReadPort() {
+    return ReadInt<PortNumber>();
+  }
+
   template<typename T, typename std::enable_if<std::is_arithmetic<T>::value && (sizeof(T) <= 8), int>::type = 0>
   T ReadVarInt() {
     uint8_t size = sizeof(T);
@@ -273,6 +317,40 @@ class Buffer {
     write_cursor_ += size;
   }
 
+  void WriteInetAddress(InetAddress& address) {
+    if (address.ipv() == InetProtocolVersion::IPv4) {
+      WriteInt<uint8_t>(4);
+      // raw IPv4 (network‐order) + port (network‐order)
+      auto* addr = reinterpret_cast<sockaddr_in*>(address.handle_ptr());
+      Write(reinterpret_cast<const uint32_t*>(&addr->sin_addr.s_addr), 1);
+      Write(reinterpret_cast<const uint16_t*>(&addr->sin_port), 1);
+    } else if (address.ipv() == InetProtocolVersion::IPv6) {
+      WriteInt<uint8_t>(6);
+      auto* addr = reinterpret_cast<sockaddr_in6*>(address.handle_ptr());
+      // raw IPv6 (16 bytes) + port
+      Write(addr->sin6_addr.s6_addr, 16);
+      Write(reinterpret_cast<const uint16_t*>(&addr->sin6_port), 1);
+    }
+  }
+
+  void WritePort(PortNumber port) {
+    // Pretty funny but this should be enough
+    WriteInt(port);
+  }
+
+  // write a std::bitset<N> (little‑endian bit order)
+  template<size_t N>
+  void WriteBitset(const std::bitset<N>& bs) {
+    constexpr size_t BYTES = (N + 7) / 8;
+    uint8_t data[BYTES] = {};
+    for (size_t i = 0; i < N; ++i) {
+      if (bs[i]) {
+        data[i/8] |= uint8_t(1u << (i % 8));
+      }
+    }
+    Write(data, BYTES);
+  }
+
   template<typename T, typename std::enable_if<std::is_arithmetic<T>::value && (sizeof(T) <= 8), int>::type = 0>
   void Write(T* arr, size_t size) {
     auto* pt = reinterpret_cast<const char*>(arr);
@@ -308,11 +386,10 @@ class Buffer {
 
   template <typename KeyFunc, typename ValueFunc, typename Map>
   void WriteMap(Map& map, KeyFunc key_func, ValueFunc value_func) {
-    size_t size = map.size();
-    WriteInt(size);
-    for (auto& [key, value] : map) {
-      (this->*key_func)(key);
-      (this->*value_func)(value);
+    WriteInt(map.size());
+    for (auto& kv : map) {
+      (this->*key_func)(kv.first);
+      (this->*value_func)(kv.second);
     }
   }
 
