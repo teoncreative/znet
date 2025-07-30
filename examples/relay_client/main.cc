@@ -11,7 +11,7 @@
 #include <utility>
 
 #include "znet/znet.h"
-#include "znet/relay/relay.h"
+#include "znet/p2p/relay.h"
 #include "cxxopts.h"
 
 const std::string kPeerName = GeneratePeerName();
