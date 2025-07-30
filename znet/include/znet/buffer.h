@@ -14,6 +14,7 @@
 #include "znet/base/types.h"
 #include "znet/logger.h"
 #include "znet/base/util.h"
+#include <bitset>
 
 namespace znet {
 
