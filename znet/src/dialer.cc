@@ -14,14 +14,8 @@ namespace znet {
 namespace holepunch {
 
 Dialer::Dialer(const DialerConfig& config) {
-  client_ = std::make_unique<Client>(ClientConfig{
-      .server_ip = config.peer_ext_ip,
-      .server_port = config.local_port
-  });
-  server_ = std::make_unique<Server>(ServerConfig{
-      .bind_ip = config.local_ip,
-      .bind_port = config.local_port
-  });
+  client_ = std::make_unique<Client>(ClientConfig{config.peer_ext_ip, config.local_port});
+  server_ = std::make_unique<Server>(ServerConfig{config.local_ip, config.local_port});
 }
 
 Dialer::~Dialer() {
