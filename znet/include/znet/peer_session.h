@@ -120,7 +120,7 @@ class PeerSession {
   bool is_alive_ = true;
   std::chrono::steady_clock::time_point connect_time_;
   std::chrono::steady_clock::time_point expire_at_;
-  bool has_expiry_;
+  bool has_expiry_ = false;
   std::shared_ptr<void> user_ptr_;
 };
 }  // namespace znet
