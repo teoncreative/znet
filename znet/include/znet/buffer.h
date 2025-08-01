@@ -81,6 +81,10 @@ class Buffer {
 
   template<typename T, typename std::enable_if<std::is_arithmetic<T>::value && (sizeof(T) <= 8), int>::type = 0>
   void Read(T* arr, size_t size) {
+    if (size > std::numeric_limits<size_t>::max() / sizeof(T)) {
+      failed_to_read_ = true;
+      return;
+    }
     char* pt = reinterpret_cast<char*>(arr);
     size_t calculated_size = sizeof(T) * size;
     if (!CheckReadableBytes(size)) {
