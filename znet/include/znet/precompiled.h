@@ -77,3 +77,9 @@ typedef SSIZE_T ssize_t;
 #else
 #define ZNET_NODISCARD
 #endif
+
+#if defined(__clang__) || (defined(__GNUC__) && __GNUC__ >= 9) || (_MSC_VER >= 1928 && _MSVC_LANG >= 202002L)
+#define DEPRECATED_TYPE_ALIAS(old, new, msg) [[deprecated(msg)]] using old = new;
+#else
+#define DEPRECATED_TYPE_ALIAS(old, new, msg) typedef new old;
+#endif

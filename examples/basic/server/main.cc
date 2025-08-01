@@ -13,10 +13,15 @@
 
 using namespace znet;
 
+// MyPacketHandler manages network communication, handling incoming messages
+// from connected clients and sending appropriate responses
 class MyPacketHandler : public PacketHandler<MyPacketHandler, DemoPacket> {
  public:
+  // Creates a new handler for a specific client session
   MyPacketHandler(std::shared_ptr<PeerSession> session) : session_(session) { }
 
+  // Processes incoming demo packets from clients
+  // Responds with a greeting message to demonstrate two-way communication
   void OnPacket(std::shared_ptr<DemoPacket> p) {
     ZNET_LOG_INFO("Received demo_packet.");
     std::shared_ptr<DemoPacket> pk = std::make_shared<DemoPacket>();
@@ -24,56 +29,67 @@ class MyPacketHandler : public PacketHandler<MyPacketHandler, DemoPacket> {
     session_->SendPacket(pk);
   }
 
+  // Fallback handler for any unrecognized packet types
+  // Currently ignores them, but you could add logging or error handling here
   void OnUnknown(std::shared_ptr<Packet> p) {
     // fallback for unknown types
   }
 
  private:
+  // The client session this handler is responsible for
   std::shared_ptr<PeerSession> session_;
 };
 
-bool OnNewSessionEvent(ServerClientConnectedEvent& event) {
+// Called whenever a new client connects to the server
+// Sets up the communication channel with proper encoding and handling
+bool OnNewSessionEvent(IncomingClientConnectedEvent& event) {
   PeerSession& session = *event.session();
 
-  // Codecs are what serializes and deserializes the packets,
-  // You can set an initial codec, then get the protocol version from the client
-  // then set a different codec for different versions. This provides much more flexibility
-  // Codecs can be swapped mid-session
-
-  // Additionally, it is wiser to have this created once and shared between clients
-  // For this example it is created on the spot like this
+  // Create and set up the packet codec (encoder/decoder)
+  // In production, you'd typically share one codec instance among all clients
+  // rather than creating a new one for each connection
   std::shared_ptr<Codec> codec = std::make_shared<Codec>();
   codec->Add(PACKET_DEMO, std::make_unique<DemoSerializer>());
   session.SetCodec(codec);
 
-  // Handlers are what handles the packets, like codecs this can be swapped mid-session
-  // For example during the login phase, you can give a different handler to only
-  // handle those are sent during the login, then change the codec.
+  // Set up the packet handler for this client
+  // Different handlers can be used for different connection states
+  // (e.g., one for login, another for gameplay)
   session.SetHandler(std::make_shared<MyPacketHandler>(event.session()));
   return false;
 }
 
+// Called when a client disconnects from the server
+// You can add cleanup code here if needed
 bool OnDisconnectSessionEvent(ServerClientDisconnectedEvent& event) {
   return false;
 }
 
+// Central event dispatcher that routes all server events
+// to their appropriate handler functions
 void OnEvent(Event& event) {
   EventDispatcher dispatcher{event};
-  // Bind desired events
-  dispatcher.Dispatch<ServerClientConnectedEvent>(
+  // Route for different types of events
+  dispatcher.Dispatch<IncomingClientConnectedEvent>(
       ZNET_BIND_GLOBAL_FN(OnNewSessionEvent));
   dispatcher.Dispatch<ServerClientDisconnectedEvent>(
       ZNET_BIND_GLOBAL_FN(OnDisconnectSessionEvent));
 }
 
 int main() {
-  // Create config
+  // Create the server configuration
+  // We're listening on localhost (127.0.0.1) port 25000
+  // In a real application, you'd typically get these values from
+  // command line arguments or a config file or from ui
   ServerConfig config{"127.0.0.1", 25000};
 
-  // Create server with the config
+  // Initialize the server with our configuration
+  // This sets up the internal server state but doesn't start listening yet
   Server server{config};
 
-  // Register signal handlers (optional)
+  // Set up signal handling for graceful shutdown
+  // This ensures the server closes cleanly when interrupted (Ctrl+C)
+  // This part is optional
   RegisterSignalHandler([&server](Signal sig) -> bool {
     if (sig == znet::kSignalInterrupt) {
       // stop the server when SIGINT is received
@@ -83,17 +99,28 @@ int main() {
     return false;
   });
 
-  // Set event callback
+  // Register our event handler to process server events
+  // OnEvent will be called for client connections, disconnections,
+  // and other server events
   server.SetEventCallback(ZNET_BIND_GLOBAL_FN(OnEvent));
 
-  // Bind and listen
+  // Try to bind the server to the configured network interface
+  // This reserves the port for our use
   if (server.Bind() != Result::Success) {
-    return 1;
+    return 1; // Exit if binding fails (e.g., port already in use)
   }
 
+  // Start listening for incoming client connections
+  // This begins accepting clients but doesn't block the main thread (async)
   if (server.Listen() != Result::Success) {
-    return 1; // failed to listen
+    return 1; // Exit if we can't start listening
   }
+
+  // Wait for the server to stop
+  // Note: In a real application, you typically wouldn't block here
+  // Instead, you'd continue your program and do other stuff
   server.Wait();
-  return 0; // successfully completed
+
+  // Server has shut down cleanly
+  return 0;
 }

@@ -17,6 +17,15 @@
 
 namespace znet {
 
+/**
+ * @class ClientConnectedToServerEvent
+ * @brief Represents an event triggered when a client successfully connects to the server.
+ *
+ * @details
+ * This event is where you would setup the peer, set the codec, handlers and
+ * the user pointer if needed.
+ *
+ */
 class ClientConnectedToServerEvent : public Event {
  public:
   explicit ClientConnectedToServerEvent(std::shared_ptr<PeerSession> session)
@@ -30,6 +39,12 @@ class ClientConnectedToServerEvent : public Event {
   std::shared_ptr<PeerSession> session_;
 };
 
+/**
+ * @class ClientDisconnectedFromServerEvent
+ * @brief Represents an event triggered when a client disconnects from the server.
+ *
+ * This event encapsulates the session details of the disconnected client.
+ */
 class ClientDisconnectedFromServerEvent : public Event {
  public:
   explicit ClientDisconnectedFromServerEvent(std::shared_ptr<PeerSession> session)

@@ -18,6 +18,17 @@
 
 namespace znet {
 
+/**
+ * @class PeerSession
+ * @brief Represents a network session between a local and remote peer.
+ *
+ * PeerSession handles communication between two network peers, managing the
+ * transport layer, encryption, and packet handling. It also supports session
+ * expiration and user-defined data attachment.
+ *
+ * The class does not allow copy or move semantics to ensure each session
+ * instance is unique.
+ */
 class PeerSession {
  public:
   PeerSession(std::shared_ptr<InetAddress> local_address,

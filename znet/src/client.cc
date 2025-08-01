@@ -20,6 +20,8 @@ Client::Client(const ClientConfig& config) : config_(config) {
 }
 
 Client::~Client() {
+  ZNET_LOG_DEBUG("Destructor of the client is called.");
+  Disconnect();
 #ifdef TARGET_WIN
   WSACleanup();
 #endif

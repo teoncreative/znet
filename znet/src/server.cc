@@ -20,6 +20,8 @@ Server::Server() : Interface() {}
 Server::Server(const ServerConfig& config) : Interface(), config_(config) {}
 
 Server::~Server() {
+  ZNET_LOG_DEBUG("Destructor of the server is called.");
+  Stop();
 #ifdef TARGET_WIN
   WSACleanup();
 #endif
@@ -253,7 +255,7 @@ void Server::ProcessSessions() {
     auto session = pending_sessions_[address];
     // promote to connected
     sessions_[address] = session;
-    ServerClientConnectedEvent event{session};
+    IncomingClientConnectedEvent event{session};
     event_callback()(event);
     ZNET_LOG_DEBUG("New connection is ready. {}", address->readable());
     // erase pending

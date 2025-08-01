@@ -23,6 +23,11 @@ struct ClientConfig {
   ConnectionType connection_type;
 };
 
+/**
+ * @brief Network client for managing connections and communication to a server.
+ *
+ * Handles client lifecycle, connecting, disconnecting, and network operations within an event-driven framework.
+ */
 class Client : public Interface {
  public:
   Client(const ClientConfig& config);
@@ -30,10 +35,46 @@ class Client : public Interface {
 
   ~Client();
 
+  /**
+   * @brief Binds client to configured IP address and port. This function is not thread-safe.
+   *
+   * @return Result::Success if binding is successful
+   * @return Result::InvalidAddress if IP address is invalid
+   * @return Result::CannotCreateSocket if socket creation fails
+   * @return Result::CannotBind if binding to address:port fails
+   * @return Result::Failure if setup process fails
+   */
   Result Bind() override;
-  void Wait() override;
+
+  /**
+   * @brief Establishes connection to the specified server address. This function is not thread-safe.
+   *
+   * @return Result::Success if the connection is successfully established.
+   * @return Result::AlreadyConnected if a connection is already active.
+   * @return Result::InvalidRemoteAddress if the server address is invalid.
+   * @return Result::Failure if the connection attempt fails.
+   */
   Result Connect();
+
+  /**
+   * @brief Terminates the connection. This function is not thread-safe.
+   *
+   * @return Result::Success if the disconnection is successful.
+   * @return Result::Failure if no active session exists or disconnection fails.
+   */
   Result Disconnect();
+
+  /**
+   * @brief Waits for the completion of the client's thread. This function is thread-safe.
+   *
+   * This method blocks the calling thread until the client's internal thread,
+   * which handles network operations and session management, has completed (disconnected).
+   *
+   * Typically used during client shutdown or when there is a need to
+   * synchronize the caller with the client's task execution.
+   *
+   */
+  void Wait() override;
 
   ZNET_NODISCARD std::shared_ptr<PeerSession> client_session() const {
     return client_session_;

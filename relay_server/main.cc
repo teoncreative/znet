@@ -68,7 +68,7 @@ private:
   std::shared_ptr<znet::PeerSession> session_;
 };
 
-bool OnConnectEvent(znet::ServerClientConnectedEvent& event) {
+bool OnConnectEvent(znet::IncomingClientConnectedEvent& event) {
   znet::PeerSession& session = *event.session();
   session.SetCodec(znet::holepunch::BuildCodec());
   session.SetHandler(std::make_shared<DefaultPacketHandler>(event.session()));
@@ -78,7 +78,7 @@ bool OnConnectEvent(znet::ServerClientConnectedEvent& event) {
 
 void OnEvent(znet::Event& event) {
   znet::EventDispatcher dispatcher{event};
-  dispatcher.Dispatch<znet::ServerClientConnectedEvent>(
+  dispatcher.Dispatch<znet::IncomingClientConnectedEvent>(
       ZNET_BIND_GLOBAL_FN(OnConnectEvent));
 }
 

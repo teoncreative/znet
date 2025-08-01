@@ -488,7 +488,7 @@ class Buffer {
   ZNET_NODISCARD size_t capacity() const { return allocated_size_; }
 
   ZNET_NODISCARD ssize_t readable_bytes() const {
-    return write_cursor_ - read_cursor_;
+    return std::min(write_cursor_, read_limit_) - read_cursor_;
   }
 
   ZNET_NODISCARD size_t writable_bytes() const {
@@ -500,6 +500,14 @@ class Buffer {
 #endif
 
   void SkipRead(size_t size) { read_cursor_ += size; }
+
+  void SetReadLimit(size_t limit) {
+    if (limit == 0) {
+      read_limit_ = std::numeric_limits<size_t>::max();
+    } else {
+      read_limit_ = limit;
+    }
+  }
 
   void SkipWrite(size_t size) {
     ReserveIncremental(size);
@@ -570,15 +578,16 @@ class Buffer {
  private:
   ZNET_NODISCARD bool CheckReadableBytes(size_t required) const {
 #if defined(DEBUG) && !defined(DISABLE_ASSERT_READABLE_BYTES)
-    assert(write_cursor_ >= read_cursor_ + required);
+    assert(std::min(write_cursor_, read_limit_) >= read_cursor_ + required);
 #endif
-    return write_cursor_ >= read_cursor_ + required;
+    return std::min(write_cursor_, read_limit_) >= read_cursor_ + required;
   }
 
   Endianness endianness_;
   size_t allocated_size_;
   size_t write_cursor_;
   size_t read_cursor_;
+  size_t read_limit_ = std::numeric_limits<size_t>::max();
   char* data_;
   bool failed_to_read_;
   bool failed_to_alloc_;

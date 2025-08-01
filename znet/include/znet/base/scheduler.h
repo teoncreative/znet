@@ -16,8 +16,8 @@
 #include <thread>
 
 /*
- * By default, this class will use precise sleep, this could result in more
- * cpu usage but much more precise timing. To disable precise sleep, define
+ * By default, this class will use precise sleep; this could result in more
+ * CPU usage but much more precise timing. To disable precise sleep, enable
  * ZNET_PREFER_STD_SLEEP.
  */
 class Scheduler {

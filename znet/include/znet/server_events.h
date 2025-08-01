@@ -17,19 +17,31 @@
 
 namespace znet {
 
-class ServerClientConnectedEvent : public Event {
+/**
+ * @brief Event triggered when a client connects to this server.
+ *
+ * This event is where you would setup the peer, set the codec, handlers and
+ * the user pointer if needed.
+ */
+class IncomingClientConnectedEvent : public Event {
  public:
-  explicit ServerClientConnectedEvent(std::shared_ptr<PeerSession> session)
+  explicit IncomingClientConnectedEvent(std::shared_ptr<PeerSession> session)
       : session_(session) {}
 
   std::shared_ptr<PeerSession> session() { return session_; }
 
-  ZNET_EVENT_CLASS_TYPE(ServerClientConnectedEvent)
+  ZNET_EVENT_CLASS_TYPE(IncomingClientConnectedEvent)
   ZNET_EVENT_CLASS_CATEGORY(EventCategoryServer)
  private:
   std::shared_ptr<PeerSession> session_;
 };
 
+DEPRECATED_TYPE_ALIAS(ServerClientConnectedEvent,
+                      IncomingClientConnectedEvent, "Use IncomingClientConnectedEvent instead")
+
+/**
+ * @brief Event triggered when a client disconnects from the server.
+ */
 class ServerClientDisconnectedEvent : public Event {
  public:
   explicit ServerClientDisconnectedEvent(std::shared_ptr<PeerSession> session)
@@ -45,6 +57,9 @@ class ServerClientDisconnectedEvent : public Event {
 
 class Server;
 
+/**
+ * @brief Event triggered when the server starts up.
+ */
 class ServerStartupEvent : public Event {
  public:
   ServerStartupEvent(Server& server) : server_(server) {}
@@ -57,6 +72,9 @@ class ServerStartupEvent : public Event {
   Server& server_;
 };
 
+/**
+ * @brief Event triggered when the server shuts down.
+ */
 class ServerShutdownEvent : public Event {
  public:
   ServerShutdownEvent(Server& server) : server_(server) {}
