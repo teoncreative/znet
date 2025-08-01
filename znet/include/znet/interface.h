@@ -28,13 +28,13 @@ class Interface {
 
   virtual void Wait() = 0;
 
-  void SetEventCallback(EventCallbackFn fn) { event_callback_ = std::move(fn); }
+  virtual void SetEventCallback(EventCallbackFn fn) { event_callback_ = std::move(fn); }
 
   ZNET_NODISCARD EventCallbackFn event_callback() const {
     return event_callback_;
   }
 
- private:
+ protected:
   EventCallbackFn event_callback_;
 };
 

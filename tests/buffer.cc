@@ -39,36 +39,40 @@ class BufferTest : public ::testing::Test {
 
 // todo split these to individual tests
 void TestBuffer(std::shared_ptr<Buffer> buffer) {
-    int64_t asd = INT64_MAX;
-    float f = 0.9245f;
-    double d = 0.224529726;
-    buffer->ReserveExact(80);
-    buffer->WriteString("Hello World!");
-    buffer->WriteInt(asd);
-    buffer->WriteInt(f);
-    buffer->WriteInt(d);
-    buffer->WriteInt(d);
+  EXPECT_EQ(buffer->size(), 0);
 
-    std::cout << buffer->Dump() << std::endl;
-    EXPECT_EQ(buffer->ReadString(), "Hello World!");
-    EXPECT_EQ(buffer->ReadInt<int64_t>(), asd);
-    EXPECT_EQ(buffer->ReadInt<float>(), f);
-    EXPECT_EQ(buffer->ReadInt<double>(), d);
-    EXPECT_EQ(buffer->ReadInt<double>(), d);
-    EXPECT_EQ(buffer->mem_allocations(), 1);
-    EXPECT_EQ(buffer->size(), 42);
+  int64_t asd = INT64_MAX;
+  float f = 0.9245f;
+  double d = 0.224529726;
+  buffer->ReserveExact(80);
+  buffer->WriteString("Hello World!");
+  buffer->WriteInt(asd);
+  buffer->WriteInt(f);
+  buffer->WriteInt(d);
+  buffer->WriteInt(d);
 
-    EXPECT_EQ(buffer->capacity(), 80);
-    buffer->Trim();
-    EXPECT_EQ(buffer->capacity(), 42);
+  std::cout << buffer->Dump() << std::endl;
+  EXPECT_EQ(buffer->ReadString(), "Hello World!");
+  EXPECT_EQ(buffer->ReadInt<int64_t>(), asd);
+  EXPECT_EQ(buffer->ReadInt<float>(), f);
+  EXPECT_EQ(buffer->ReadInt<double>(), d);
+  EXPECT_EQ(buffer->ReadInt<double>(), d);
+  EXPECT_EQ(buffer->mem_allocations(), 1);
+  EXPECT_EQ(buffer->size(), 42);
 
-    EXPECT_EQ(buffer->size(), 42);
-    EXPECT_EQ(buffer->capacity(), 42);
-    EXPECT_EQ(buffer->mem_allocations(), 1);
-  }
+  EXPECT_EQ(buffer->capacity(), 80);
+  buffer->Trim();
+  EXPECT_EQ(buffer->capacity(), 42);
+
+  EXPECT_EQ(buffer->size(), 42);
+  EXPECT_EQ(buffer->capacity(), 42);
+  EXPECT_EQ(buffer->mem_allocations(), 1);
+}
 
 
 void TestVarInt(std::shared_ptr<Buffer> buffer) {
+  EXPECT_EQ(buffer->size(), 0);
+
   int64_t n1 = INT64_MAX;
   int64_t n2 = 124;
   int64_t n3 = 258;
@@ -84,6 +88,22 @@ void TestVarInt(std::shared_ptr<Buffer> buffer) {
   EXPECT_EQ(buffer->size(), 14);
 }
 
+void TestInetAddress(std::shared_ptr<Buffer> buffer) {
+  EXPECT_EQ(buffer->size(), 0);
+
+  auto addr1 = InetAddress::from("localhost", 2001);
+  buffer->WriteInetAddress(*addr1);
+
+  auto addr2 = InetAddress::from("2001:db8:3333:4444:5555:6666:7777:8888", 2001);
+  buffer->WriteInetAddress(*addr2);
+
+  std::cout << buffer->Dump() << std::endl;
+  EXPECT_EQ(*buffer->ReadInetAddress(), *addr1);
+  EXPECT_EQ(*buffer->ReadInetAddress(), *addr2);
+
+  EXPECT_EQ(buffer->size(), 26);
+}
+
 TEST_F(BufferTest, TestBuffers) {
   TestBuffer(buffer_le_);
   TestBuffer(buffer_be_);
@@ -92,4 +112,9 @@ TEST_F(BufferTest, TestBuffers) {
 TEST_F(BufferTest, TestVarInts) {
   TestVarInt(buffer_le_);
   TestVarInt(buffer_be_);
+}
+
+TEST_F(BufferTest, TestInetAddress) {
+  TestInetAddress(buffer_le_);
+  TestInetAddress(buffer_be_);
 }

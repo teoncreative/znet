@@ -50,3 +50,5 @@ struct is_invocable {
  public:
   static constexpr bool value = decltype(test<F>(nullptr))::value;
 };
+
+std::string GeneratePeerName();

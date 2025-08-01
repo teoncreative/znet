@@ -44,6 +44,7 @@ class InetAddress {
  public:
   InetAddress(InetProtocolVersion ipv, std::string readable)
       : ipv_(ipv), readable_(std::move(readable)) {}
+  virtual ~InetAddress() = default;
 
   operator bool() const { return is_valid(); }
 
@@ -55,9 +56,11 @@ class InetAddress {
 
   ZNET_NODISCARD InetProtocolVersion ipv() const { return ipv_; }
 
-  ZNET_NODISCARD virtual socklen_t addr_size() const { return 0; }
+  ZNET_NODISCARD virtual socklen_t addr_size() const = 0;
 
-  ZNET_NODISCARD virtual sockaddr* handle_ptr() const { return nullptr; }
+  ZNET_NODISCARD virtual sockaddr* handle_ptr() const = 0;
+
+  ZNET_NODISCARD virtual PortNumber port() const = 0;
 
   static std::unique_ptr<InetAddress> from(const std::string& ip_str, PortNumber port);
   static std::unique_ptr<InetAddress> from(sockaddr* addr);
@@ -69,53 +72,11 @@ class InetAddress {
 
 class InetAddressIPv4 : public InetAddress {
  public:
-  explicit InetAddressIPv4(PortNumber port)
-      : InetAddress(InetProtocolVersion::IPv4, "") {
-    addr.sin_family = AF_INET;
-    addr.sin_port = htons(port);
-#ifdef TARGET_APPLE
-    addr.sin_len = sizeof(sockaddr_in);
-#endif
-    char src[INET_ADDRSTRLEN];
-    inet_ntop(AF_INET, &addr.sin_addr, src, INET_ADDRSTRLEN);
-    readable_ = std::string(src) + ":" + std::to_string(ntohs(addr.sin_port));
-    is_valid_ = true;
-  }
+  explicit InetAddressIPv4(PortNumber port);
 
-  InetAddressIPv4(IPv4Address ip, PortNumber port)
-      : InetAddress(InetProtocolVersion::IPv4, "") {
-    addr.sin_family = AF_INET;
-    addr.sin_port = htons(port);
-    addr.sin_addr = ip;
-#ifdef TARGET_APPLE
-    addr.sin_len = sizeof(sockaddr_in);
-#endif
+  InetAddressIPv4(IPv4Address ip, PortNumber port);
 
-    char src[INET_ADDRSTRLEN];
-    inet_ntop(AF_INET, &addr.sin_addr, src, INET_ADDRSTRLEN);
-    readable_ = std::string(src) + ":" + std::to_string(ntohs(addr.sin_port));
-    is_valid_ = true;
-  }
-
-  InetAddressIPv4(const std::string& str, PortNumber port)
-      : InetAddress(InetProtocolVersion::IPv4, "") {
-    if (!IsValidIPv4(str)) {
-      is_valid_ = false;
-      readable_ = "Invalid Address";
-      return;
-    }
-
-    addr.sin_family = AF_INET;
-    addr.sin_port = htons(port);
-    addr.sin_addr = ParseIPv4(str);
-#ifdef TARGET_APPLE
-    addr.sin_len = sizeof(sockaddr_in);
-#endif
-    char src[INET_ADDRSTRLEN];
-    inet_ntop(AF_INET, &addr.sin_addr, src, INET_ADDRSTRLEN);
-    readable_ = std::string(src) + ":" + std::to_string(ntohs(addr.sin_port));
-    is_valid_ = true;
-  }
+  InetAddressIPv4(const std::string& str, PortNumber port);
 
   ZNET_NODISCARD bool is_valid() const override { return is_valid_; }
 
@@ -123,6 +84,10 @@ class InetAddressIPv4 : public InetAddress {
 
   ZNET_NODISCARD sockaddr* handle_ptr() const override {
     return (sockaddr*)&addr;
+  }
+
+  ZNET_NODISCARD PortNumber port() const override {
+    return addr.sin_port;
   }
 
  private:
@@ -132,54 +97,11 @@ class InetAddressIPv4 : public InetAddress {
 
 class InetAddressIPv6 : public InetAddress {
  public:
-  explicit InetAddressIPv6(PortNumber port)
-      : InetAddress(InetProtocolVersion::IPv6, "") {
-    addr.sin6_family = AF_INET6;
-    addr.sin6_flowinfo = 0;
-    addr.sin6_port = htons(port);
-#if !defined(TARGET_WIN) && !defined(TARGET_WEB) && !defined(TARGET_LINUX)
-    addr.sin6_len = sizeof(sockaddr_in6);
-#endif
-    char src[INET6_ADDRSTRLEN];
-    inet_ntop(AF_INET6, &addr.sin6_addr, src, sizeof(src));
-    readable_ = std::string(src) + ":" + std::to_string(ntohs(addr.sin6_port));
-    is_valid_ = true;
-  }
+  explicit InetAddressIPv6(PortNumber port);
 
-  InetAddressIPv6(IPv6Address ip, PortNumber port)
-      : InetAddress(InetProtocolVersion::IPv6, "") {
-    addr.sin6_family = AF_INET6;
-    addr.sin6_flowinfo = 0;
-    addr.sin6_port = htons(port);
-    addr.sin6_addr = ip;
-#if !defined(TARGET_WIN) && !defined(TARGET_WEB) && !defined(TARGET_LINUX)
-    addr.sin6_len = sizeof(sockaddr_in6);
-#endif
-    char src[INET6_ADDRSTRLEN];
-    inet_ntop(AF_INET6, &addr.sin6_addr, src, sizeof(src));
-    readable_ = std::string(src) + ":" + std::to_string(ntohs(addr.sin6_port));
-    is_valid_ = true;
-  }
+  InetAddressIPv6(IPv6Address ip, PortNumber port);
 
-  InetAddressIPv6(const std::string& str, PortNumber port)
-      : InetAddress(InetProtocolVersion::IPv6, "") {
-    if (!IsValidIPv6(str)) {
-      is_valid_ = false;
-      readable_ = "Invalid Address";
-      return;
-    }
-#if !defined(TARGET_WIN) && !defined(TARGET_WEB) && !defined(TARGET_LINUX)
-    addr.sin6_len = sizeof(sockaddr_in6);
-#endif
-    addr.sin6_family = AF_INET6;
-    addr.sin6_flowinfo = 0;
-    addr.sin6_port = htons(port);
-    addr.sin6_addr = ParseIPv6(str);
-    char src[INET6_ADDRSTRLEN];
-    inet_ntop(AF_INET6, &addr.sin6_addr, src, sizeof(src));
-    readable_ = std::string(src) + ":" + std::to_string(ntohs(addr.sin6_port));
-    is_valid_ = true;
-  }
+  InetAddressIPv6(const std::string& str, PortNumber port);
 
   ZNET_NODISCARD bool is_valid() const override { return is_valid_; }
 
@@ -187,6 +109,10 @@ class InetAddressIPv6 : public InetAddress {
 
   ZNET_NODISCARD sockaddr* handle_ptr() const override {
     return (sockaddr*)&addr;
+  }
+
+  ZNET_NODISCARD PortNumber port() const override {
+    return addr.sin6_port;
   }
 
  private:

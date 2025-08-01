@@ -2,6 +2,7 @@ cmake_minimum_required(VERSION 3.16.3)
 project(znet)
 
 option(ZNET_USE_EXTERNAL_FMT "Looks for FMT via find_package" OFF)
+option(ZNET_PREFER_STD_SLEEP "Prefers thread sleep to wait between ticks, this results in less precision of the timings but reduces CPU usage." OFF)
 
 if(NOT MSVC)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fpermissive -Werror=vla -Wno-deprecated")
@@ -18,10 +19,12 @@ set(ZNET_SOURCES
         src/client.cc
         src/error.cc
         src/logger.cc
-        src/packet_handler.cc
         src/encryption.cc
         src/transport.cc
         src/peer_session.cc
+        src/dialer.cc
+        src/codec.cc
+        src/util.cc
         src/pch.cc
 )
 
@@ -35,9 +38,12 @@ set_target_properties(znet PROPERTIES
 )
 target_precompile_headers(znet PRIVATE include/znet/precompiled.h)
 target_include_directories(znet PUBLIC include)
+## Defines
+if(ZNET_PREFER_STD_SLEEP)
+    target_compile_definitions(znet PUBLIC ZNET_PREFER_STD_SLEEP)
+endif()
 
 ## Dependencies
-
 if(WIN32)
     target_link_libraries(znet PUBLIC winmm ws2_32)
 endif()

@@ -20,23 +20,27 @@
 
 namespace znet {
 
+struct PKeyDeleter {
+  void operator()(EVP_PKEY* p) const noexcept {
+    EVP_PKEY_free(p);
+  }
+};
+using UniquePKey = std::unique_ptr<EVP_PKEY, PKeyDeleter>;
+
 unsigned char* SerializePublicKey(EVP_PKEY* pkey, uint32_t* len);
 
-EVP_PKEY* DeserializePublicKey(const unsigned char* der, int len);
+UniquePKey DeserializePublicKey(const unsigned char* der, int len);
+
+UniquePKey CloneKey(const UniquePKey& k);
 
 class HandshakePacket : public Packet {
  public:
   HandshakePacket() : Packet(GetPacketId()) { }
-  ~HandshakePacket() {
-    if (owner_) {
-      EVP_PKEY_free(pub_key_);
-    }
-  }
+  ~HandshakePacket() { }
 
   static PacketId GetPacketId() { return -1; }
 
-  EVP_PKEY* pub_key_;
-  bool owner_; // means we have to deallocate the key
+  UniquePKey pub_key_ = nullptr;
 };
 
 class HandshakePacketSerializerV1 : public PacketSerializer<HandshakePacket> {
@@ -46,21 +50,26 @@ class HandshakePacketSerializerV1 : public PacketSerializer<HandshakePacket> {
 
   std::shared_ptr<Buffer> SerializeTyped(std::shared_ptr<HandshakePacket> packet, std::shared_ptr<Buffer> buffer) override {
     uint32_t len;
-    auto* data = SerializePublicKey(packet->pub_key_, &len);
-    buffer->WriteInt(len);
-    buffer->Write(data, len);
-    OPENSSL_free(data);
+    auto* data = SerializePublicKey(packet->pub_key_.get(), &len);
+
+    buffer->WriteInt<uint32_t>(len);
+    if (len > 0) {
+      buffer->Write(data, len);
+      OPENSSL_free(data);
+    }
     return buffer;
   }
 
   std::shared_ptr<HandshakePacket> DeserializeTyped(std::shared_ptr<Buffer> buffer) override {
     auto packet = std::make_shared<HandshakePacket>();
-    auto len = buffer->ReadInt<uint32_t>();
-    auto* data = new unsigned char[len];
-    buffer->Read(data, len);
-    packet->pub_key_ = DeserializePublicKey(data, len);
-    packet->owner_ = true;
-    delete[] data;
+    uint32_t len = buffer->ReadInt<uint32_t>();
+    if (len) {
+      // stack‑allocate a temp vector, read into it
+      std::vector<unsigned char> tmp(len);
+      buffer->Read(tmp.data(), len);
+      // hand off to your unique_ptr factory
+      packet->pub_key_ = DeserializePublicKey(tmp.data(), len);
+    }
     return packet;
   }
 };
@@ -112,8 +121,8 @@ class EncryptionLayer {
  private:
   PeerSession& session_;
 
-  EVP_PKEY* pub_key_ = nullptr;
-  EVP_PKEY* peer_pkey_ = nullptr;
+  UniquePKey pub_key_ = nullptr;
+  UniquePKey peer_pkey_ = nullptr;
   bool sent_handshake_ = false;
   bool sent_ready_ = false;
   bool enable_encryption_ = false;

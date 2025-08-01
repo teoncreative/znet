@@ -48,21 +48,34 @@ unsigned char* SerializePublicKey(EVP_PKEY* pkey, uint32_t* len) {
   return der;  // The caller must free this memory using OPENSSL_free
 }
 
-EVP_PKEY* DeserializePublicKey(const unsigned char* der, int len) {
+UniquePKey DeserializePublicKey(const unsigned char* der, int len) {
   if (!der || len <= 0) {
     return nullptr;
   }
+
   const unsigned char* p = der;
-  EVP_PKEY* pkey = d2i_PUBKEY(nullptr, &p, len);  // Deserialize the DER data
-  if (!pkey) {
+  EVP_PKEY* raw = d2i_PUBKEY(nullptr, &p, len);
+  if (!raw) {
     fprintf(stderr, "Failed to deserialize public key\n");
     return nullptr;
   }
 
-  return pkey;
+  return UniquePKey(raw);
 }
 
-EVP_PKEY* GenerateKey() {
+UniquePKey CloneKey(const UniquePKey& k) {
+  if (!k) {
+    return {};
+  }
+  // up‐ref so packet owns its own reference
+  if (EVP_PKEY_up_ref(k.get()) <= 0) {
+    ZNET_LOG_ERROR("Failed to up_ref pub_key");
+    return {};
+  }
+  return UniquePKey(k.get());
+}
+
+UniquePKey GenerateKey() {
   /* Create the context for generating the parameters */
   EVP_PKEY_CTX* pctx = EVP_PKEY_CTX_new_id(EVP_PKEY_DH, nullptr);
   if (!pctx) {
@@ -119,7 +132,7 @@ EVP_PKEY* GenerateKey() {
   EVP_PKEY_free(params);
 
   //print_key(dhkey);
-  return dhkey;
+  return UniquePKey(dhkey);
 }
 
 bool GenerateIV(unsigned char* iv, int iv_length) {
@@ -322,14 +335,6 @@ void EncryptionLayer::Initialize(bool send) {
 }
 
 EncryptionLayer::~EncryptionLayer() {
-  if (peer_pkey_) {
-    EVP_PKEY_free(peer_pkey_);
-    peer_pkey_ = nullptr;
-  }
-  if (pub_key_) {
-    EVP_PKEY_free(pub_key_);
-    pub_key_ = nullptr;
-  }
 }
 
 std::shared_ptr<Buffer> EncryptionLayer::HandleDecrypt(std::shared_ptr<Buffer> buffer) {
@@ -401,10 +406,9 @@ void EncryptionLayer::OnHandshakePacket(std::shared_ptr<HandshakePacket> packet)
     session_.Close();
     return;
   }
-  peer_pkey_ = packet->pub_key_;
-  packet->owner_ = false;  // we own the key now
+  peer_pkey_ = std::move(packet->pub_key_);
   shared_secret_ =
-      ComputeSharedSecret(pub_key_, peer_pkey_, &shared_secret_len_);
+      ComputeSharedSecret(pub_key_.get(), peer_pkey_.get(), &shared_secret_len_);
   if (!DeriveKeyFromSharedSecret(shared_secret_, shared_secret_len_, key_,
                                  key_len_)) {
     ZNET_LOG_ERROR(
@@ -446,8 +450,9 @@ void EncryptionLayer::OnAcknowledgePacket(std::shared_ptr<ConnectionReadyPacket>
 
 void EncryptionLayer::SendHandshake() {
   auto packet = std::make_shared<HandshakePacket>();
-  packet->pub_key_ = pub_key_;
-  packet->owner_ = false;
+  if (pub_key_) {
+    packet->pub_key_ = CloneKey(pub_key_);
+  }
   session_.SendPacket(packet);
   sent_handshake_ = true;
 }

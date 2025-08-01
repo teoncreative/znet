@@ -66,6 +66,14 @@ enum Signal {
 
 typedef std::function<bool(Signal)>(SignalHandlerFn);
 
+/**
+ * Registers a function to handle signals. The provided handler is invoked
+ * whenever the specified signal is caught by the program.
+ *
+ * @param fn A function of type SignalHandlerFn that takes a Signal and returns
+ *           a boolean. The function is executed when a signal is caught.
+ *           Returning true from the handler indicates the program should exit.
+ */
 void RegisterSignalHandler(SignalHandlerFn fn);
 
 }  // namespace znet

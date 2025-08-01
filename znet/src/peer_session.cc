@@ -8,6 +8,8 @@
 //        http://www.apache.org/licenses/LICENSE-2.0
 //
 
+#include <utility>
+
 #include "znet/peer_session.h"
 #include "znet/server_events.h"
 #include "znet/error.h"
@@ -17,10 +19,12 @@ namespace znet {
 PeerSession::PeerSession(std::shared_ptr<InetAddress> local_address,
                          std::shared_ptr<InetAddress> remote_address,
                          SocketHandle socket, bool is_initiator)
-    : local_address_(local_address), remote_address_(remote_address),
+    : local_address_(std::move(local_address)),
+      remote_address_(std::move(remote_address)),
       socket_(socket), is_initiator_(is_initiator),
       transport_layer_(*this, socket),
-      encryption_layer_(*this) {
+      encryption_layer_(*this),
+      connect_time_(std::chrono::steady_clock::now()) {
   static SessionId sIdCount = 0;
   session_id_ = sIdCount++;
   encryption_layer_.Initialize(is_initiator);
@@ -30,10 +34,15 @@ void PeerSession::Process() {
   if (!is_alive_) {
     return;
   }
+  if (IsExpired()) {
+    ZNET_LOG_INFO("Session {} was expired!", session_id_);
+    Close();
+    return;
+  }
   std::shared_ptr<Buffer> buffer;
   if ((buffer = transport_layer_.Receive())) {
     buffer = encryption_layer_.HandleIn(buffer);
-    if (buffer && handler_) {
+    if (buffer && handler_ && codec_) {
       codec_->Deserialize(buffer, *handler_);
     }
   }

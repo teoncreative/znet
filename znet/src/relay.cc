@@ -8,5 +8,5 @@
 //        http://www.apache.org/licenses/LICENSE-2.0
 //
 
-#include "znet/relay/relay_server.h"
+#include "znet/p2p/relay_server.h"
 
