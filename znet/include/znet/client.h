@@ -19,7 +19,7 @@ namespace znet {
 
 struct ClientConfig {
   std::string server_ip;
-  int server_port;
+  PortNumber server_port;
   ConnectionType connection_type;
 };
 
@@ -45,6 +45,8 @@ class Client : public Interface {
    * @return Result::Failure if setup process fails
    */
   Result Bind() override;
+
+  Result Bind(const std::string& ip, PortNumber port);
 
   /**
    * @brief Establishes connection to the specified server address. This function is not thread-safe.

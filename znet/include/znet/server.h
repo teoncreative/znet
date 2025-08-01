@@ -21,7 +21,7 @@ namespace znet {
 
 struct ServerConfig {
   std::string bind_ip;
-  int bind_port;
+  PortNumber bind_port;
   ConnectionType connection_type;
 };
 
