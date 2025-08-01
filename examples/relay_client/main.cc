@@ -12,9 +12,13 @@
 
 #include "znet/znet.h"
 #include "znet/p2p/relay.h"
+#include "znet/p2p/dialer.h"
 #include "cxxopts.h"
 
-const std::string kPeerName = GeneratePeerName();
+std::string peer_name_;// = GeneratePeerName();
+std::string target_peer_;
+znet::PortNumber local_port_;
+std::unique_ptr<znet::holepunch::Dialer> dialer_;
 
 class DefaultPacketHandler : public znet::PacketHandler<DefaultPacketHandler,
                                                         znet::holepunch::RegisterPeerResponsePacket,
@@ -24,10 +28,24 @@ public:
 
   void OnPacket(const znet::holepunch::RegisterPeerResponsePacket& pk) {
     ZNET_LOG_INFO("RegisterPeerResponsePacket {}, ok: {}", pk.peer_name_, pk.ok_);
+    if (pk.ok_) {
+      auto req = std::make_shared<znet::holepunch::ConnectPeerPacket>();
+      req->target_ = target_peer_;
+      session_->SendPacket(req);
+    }
   }
 
   void OnPacket(const znet::holepunch::ConnectPeerResponsePacket& pk) {
     ZNET_LOG_INFO("ConnectPeerResponsePacket target: {}, endpoint: {}", pk.target_, pk.endpoint_->readable());
+    dialer_ = std::make_unique<znet::holepunch::Dialer>(znet::holepunch::DialerConfig{
+        "127.0.0.1",
+        local_port_,
+        pk.endpoint_->readable(),
+        pk.endpoint_->port(),
+        znet::ConnectionType::TCP
+    });
+    dialer_->Bind();
+    dialer_->Dial();
   }
 
   void OnUnknown(std::shared_ptr<znet::Packet> p) {
@@ -43,7 +61,7 @@ bool OnConnectEvent(znet::ClientConnectedToServerEvent& event) {
   session.SetHandler(std::make_shared<DefaultPacketHandler>(event.session()));
 
   auto pk = std::make_shared<znet::holepunch::RegisterPeerPacket>();
-  pk->peer_name_ = kPeerName;
+  pk->peer_name_ = peer_name_;
   pk->port_ = 6000; // Actual game endpoint port
   session.SendPacket(pk);
   return false;
@@ -61,6 +79,7 @@ int main(int argc, char* argv[]) {
       ("r,relay",  "relay IP",   cxxopts::value<std::string>()->default_value("127.0.0.1"))
           ("p,port",   "relay port", cxxopts::value<uint16_t>()->default_value("5001"))
               ("t,target", "peer name",  cxxopts::value<std::string>())
+              ("n,name", "name",  cxxopts::value<std::string>())
                   ("l,local",  "punch port", cxxopts::value<uint16_t>()->default_value("6000"))
                       ("h,help",   "help");
   auto res = opts.parse(argc, argv);
@@ -69,12 +88,13 @@ int main(int argc, char* argv[]) {
     return 0;
   }
 
-  std::string relay_ip   = res["relay"].as<std::string>();
-  uint16_t    relay_port = res["port" ].as<uint16_t>();
-  std::string peer        = res["target"].as<std::string>();
-  uint16_t    local_port  = res["local"].as<uint16_t>();
+  std::string relay_ip = res["relay"].as<std::string>();
+  uint16_t relay_port = res["port" ].as<uint16_t>();
+  target_peer_ = res["target"].as<std::string>();
+  local_port_ = res["local"].as<uint16_t>();
+  peer_name_ = res["name"].as<std::string>();
 
-  ZNET_LOG_INFO("I am the peer {}", kPeerName);
+  ZNET_LOG_INFO("I am the peer {}", peer_name_);
   znet::ClientConfig config{relay_ip, relay_port};
   znet::Client client{config};
   client.SetEventCallback(ZNET_BIND_GLOBAL_FN(OnEvent));

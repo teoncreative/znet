@@ -48,6 +48,20 @@ Result Client::Bind() {
   return Result::Success;
 }
 
+Result Client::Bind(const std::string& ip, PortNumber port) {
+  Result result = Bind();
+  if (result != Result::Success) {
+    return result;
+  }
+  local_address_ = InetAddress::from(ip, port);
+  if (bind(client_socket_, local_address_->handle_ptr(), local_address_->addr_size()) != 0) {
+    ZNET_LOG_DEBUG("Failed to bind: {}, {}", local_address_->readable(),
+                   GetLastErrorInfo());
+    return Result::CannotBind;
+  }
+  return Result::Success;
+}
+
 Result Client::Connect() {
   if (task_.IsRunning()) {
     return Result::AlreadyConnected;

@@ -59,6 +59,11 @@ public:
     response->target_ = other_data->peer_name_;
     response->endpoint_ = other_data->session_->remote_address();
     session_->SendPacket(response);
+
+    response = std::make_shared<znet::holepunch::ConnectPeerResponsePacket>();
+    response->target_ = data->peer_name_;
+    response->endpoint_ = data->session_->remote_address();
+    other_data->session_->SendPacket(response);
   }
 
   void OnUnknown(std::shared_ptr<znet::Packet> p) {
@@ -72,7 +77,9 @@ bool OnConnectEvent(znet::IncomingClientConnectedEvent& event) {
   znet::PeerSession& session = *event.session();
   session.SetCodec(znet::holepunch::BuildCodec());
   session.SetHandler(std::make_shared<DefaultPacketHandler>(event.session()));
-  session.SetUserPointer(std::make_shared<UserData>());
+  auto ptr = std::make_shared<UserData>();
+  ptr->session_ = event.session();
+  session.SetUserPointer(ptr);
   return false;
 }
 

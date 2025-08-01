@@ -13,9 +13,11 @@
 namespace znet {
 namespace holepunch {
 
-Dialer::Dialer(const DialerConfig& config) {
-  client_ = std::make_unique<Client>(ClientConfig{config.peer_ext_ip, config.local_port});
-  server_ = std::make_unique<Server>(ServerConfig{config.local_ip, config.local_port});
+Dialer::Dialer(const DialerConfig& config) : config_(config) {
+  server_ = std::make_shared<Server>(ServerConfig{config.local_ip, config.local_port});
+  server_->SetEventCallback(ZNET_BIND_FN(OnServerEvent));
+  client_ = std::make_shared<Client>(ClientConfig{config.peer_ext_ip, config.peer_ext_port});
+  client_->SetEventCallback(ZNET_BIND_FN(OnClientEvent));
 }
 
 Dialer::~Dialer() {
@@ -24,10 +26,10 @@ Dialer::~Dialer() {
 
 Result Dialer::Bind() {
   Result result;
-  if ((result = client_->Bind()) != Result::Success) {
+  if ((result = server_->Bind()) != Result::Success) {
     return result;
   }
-  if ((result = server_->Bind()) != Result::Success) {
+  if ((result = client_->Bind(config_.local_ip, config_.local_port)) != Result::Success) {
     return result;
   }
   return Result::Success;
@@ -35,10 +37,10 @@ Result Dialer::Bind() {
 
 Result Dialer::Dial() {
   Result result;
-  if ((result = client_->Connect()) != Result::Success) {
+  if ((result = server_->Listen()) != Result::Success) {
     return result;
   }
-  if ((result = server_->Listen()) != Result::Success) {
+  if ((result = client_->Connect()) != Result::Success) {
     return result;
   }
   return Result::Success;
@@ -47,6 +49,32 @@ Result Dialer::Dial() {
 void Dialer::Wait() {
   client_->Wait();
   server_->Wait();
+}
+
+void Dialer::OnServerEvent(znet::Event& event) {
+  EventDispatcher dispatcher{event};
+  dispatcher.Dispatch<IncomingClientConnectedEvent>(ZNET_BIND_FN(OnEvent));
+}
+
+void Dialer::OnClientEvent(znet::Event& event) {
+  EventDispatcher dispatcher{event};
+  dispatcher.Dispatch<ClientConnectedToServerEvent>(ZNET_BIND_FN(OnEvent));
+}
+
+bool Dialer::OnEvent(IncomingClientConnectedEvent& event) {
+  client_->Disconnect();
+  client_ = nullptr;
+  DialerCompleteWithServerEvent complete_event{server_};
+  event_callback_(complete_event);
+  return false;
+}
+
+bool Dialer::OnEvent(ClientConnectedToServerEvent& event) {
+  server_->Stop();
+  server_ = nullptr;
+  DialerCompleteWithClientEvent complete_event{client_};
+  event_callback_(complete_event);
+  return false;
 }
 
 }
