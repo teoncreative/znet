@@ -19,6 +19,11 @@ namespace znet {
 #define ZNET_MAX_BUFFER_SIZE 4096 //16384
 #endif
 
+// When this macro is given as a port, makes the system select a port instead
+// Use the client.local_address() function to get the port on Client
+// Use the server.bind_address() function to get the port on Server
+#define ZNET_PORT_AUTO 0
+
 using PacketId = uint64_t;
 using SessionId = uint64_t;
 

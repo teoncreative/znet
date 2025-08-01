@@ -105,6 +105,8 @@ class Server : public Interface {
 
   ZNET_NODISCARD int tps() const { return tps_; }
 
+ std::shared_ptr<InetAddress> bind_address() const { return bind_address_; }
+
  private:
   void CheckNetwork();
   void ProcessSessions();

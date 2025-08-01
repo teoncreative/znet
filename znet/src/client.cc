@@ -69,18 +69,17 @@ Result Client::Connect() {
              SO_REUSEADDR | SO_REUSEPORT | SO_BROADCAST, &option,
              sizeof(option));
 #endif
-  std::shared_ptr<InetAddress> local_address;
 
   sockaddr local_ss{};
   socklen_t local_len = sizeof(local_ss);
   if (getsockname(client_socket_, &local_ss, &local_len) == 0) {
-    local_address = InetAddress::from(&local_ss);
+    local_address_ = InetAddress::from(&local_ss);
   } else {
     ZNET_LOG_ERROR("getsockname failed, local address will be nullptr: {}", GetLastErrorInfo());
   }
 
   client_session_ =
-      std::make_shared<PeerSession>(local_address, server_address_, client_socket_, true);
+      std::make_shared<PeerSession>(local_address_, server_address_, client_socket_, true);
 
   // Connected to the server
   task_.Run([this]() {

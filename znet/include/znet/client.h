@@ -84,9 +84,14 @@ class Client : public Interface {
     return server_address_;
   }
 
+  ZNET_NODISCARD std::shared_ptr<InetAddress> local_address() const {
+    return local_address_;
+  }
+
  private:
   ClientConfig config_;
   std::shared_ptr<InetAddress> server_address_;
+  std::shared_ptr<InetAddress> local_address_;
   SocketHandle client_socket_ = -1;
 
   std::shared_ptr<PeerSession> client_session_;

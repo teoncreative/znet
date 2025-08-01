@@ -88,6 +88,14 @@ Result Server::Bind() {
                    GetLastErrorInfo());
     return Result::CannotBind;
   }
+  // Get the bind address back so we know the actual port.
+  sockaddr local_ss{};
+  socklen_t local_len = sizeof(local_ss);
+  if (getsockname(server_socket_, &local_ss, &local_len) == 0) {
+    bind_address_ = InetAddress::from(&local_ss);
+  } else {
+    ZNET_LOG_ERROR("getsockname failed, bind address might be incorrect: {}", GetLastErrorInfo());
+  }
   is_bind_ = true;
   ZNET_LOG_DEBUG("Bind to: {}", bind_address_->readable());
   return Result::Success;
