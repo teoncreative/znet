@@ -418,6 +418,10 @@ class Buffer {
 
   template <typename ValueFunc, typename T>
   void WriteArray(T* v, size_t size, ValueFunc value_func) {
+    if (!v) {
+      WriteInt(0);
+      return;
+    }
     WriteInt(size);
     for (int i = 0; i < size; i++) {
       auto& value = v[i];
