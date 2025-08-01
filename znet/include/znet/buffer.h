@@ -100,7 +100,7 @@ class Buffer {
   template<typename T, typename std::enable_if<std::is_arithmetic<T>::value && (sizeof(T) <= 8), int>::type = 0>
   T ReadInt() {
     size_t size = sizeof(T);
-    char* data = new (std::nothrow) char[size];
+    std::unique_ptr<char[]> data(new (std::nothrow) char[size]);
     if (!data) {
       failed_to_read_ = true;
       failed_to_alloc_ = true;
@@ -121,7 +121,7 @@ class Buffer {
     }
     read_cursor_ += size;
     T l = 0;
-    std::memcpy(&l, data, size);
+    std::memcpy(&l, data.get(), size);
     return l;
   }
 
