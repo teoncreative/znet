@@ -64,8 +64,7 @@ ServerConfig config{"127.0.0.1", 25000};
 Server server{config};
 server.SetEventCallback(...);
 server.Bind();
-server.Listen();
-server.Wait(); // Blocks main thread
+server.Listen(); // Async listen
 ````
 
 **Client:**
@@ -76,7 +75,6 @@ Client client{config};
 client.SetEventCallback(...);
 client.Bind();
 client.Connect(); // Async connect
-client.Wait();
 ```
 
 **Packets:**
