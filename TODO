@@ -5,19 +5,20 @@
 - [x] Client Implementation
 - [ ] Compression (optional if zlib or zstd is added)
 - [x] Encryption
-- [ ] Protocol version check
 - [ ] TCP options
 - [x] Windows support
 - [x] Linux support (Linux should be the same)
 - [x] Endianness
 - [ ] Saving packet buffer to a file
-- [ ] Async Example
 - [ ] More events
 - [ ] Better error handling
 - [x] Unit tests
 - [ ] More unit tests 
-- [ ] Documentation
-- [ ] Error handling in SendPacket and SendRaw
+- [x] Documentation
+- [ ] Error handling in SendPacket
 - [ ] Proxy support
 - [ ] Unix socket support
-- [ ] Limit array/vector read sizes
+- [ ] Limit array/vector/string read sizes
+- [ ] Connection throttling
+- [ ] Peer to peer TCP hole-punching
+- [ ] Validate IP addresses
