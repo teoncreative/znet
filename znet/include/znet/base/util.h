@@ -51,4 +51,8 @@ struct is_invocable {
   static constexpr bool value = decltype(test<F>(nullptr))::value;
 };
 
+namespace znet {
+
 std::string GeneratePeerName();
+
+}

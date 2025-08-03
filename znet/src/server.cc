@@ -9,6 +9,7 @@
 //
 
 #include "znet/server.h"
+#include <znet/init.h>
 #include "znet/base/scheduler.h"
 #include "znet/error.h"
 #include "znet/server_events.h"
@@ -28,6 +29,10 @@ Server::~Server() {
 }
 
 Result Server::Bind() {
+  Result init_result = Init();
+  if (init_result != Result::Success) {
+    return init_result;
+  }
   bind_address_ = InetAddress::from(config_.bind_ip, config_.bind_port);
   if (!bind_address_ || !bind_address_->is_valid()) {
     return Result::InvalidAddress;
@@ -36,18 +41,6 @@ Result Server::Bind() {
   const char option = 1;
 
   int domain = GetDomainByInetProtocolVersion(bind_address_->ipv());
-#ifdef TARGET_WIN
-  WORD wVersionRequested;
-  WSADATA wsaData;
-  int err;
-  /* Use the MAKEWORD(lowbyte, highbyte) macro declared in Windef.h */
-  wVersionRequested = MAKEWORD(2, 2);
-  err = WSAStartup(wVersionRequested, &wsaData);
-  if (err != 0) {
-    ZNET_LOG_ERROR("WSAStartup error. {}", err);
-    return Result::Failure;
-  }
-#endif
   server_socket_ = socket(
       domain, SOCK_STREAM,
       0);  // SOCK_STREAM for TCP, SOCK_DGRAM for UDP, there is also SOCK_RAW,
@@ -89,12 +82,12 @@ Result Server::Bind() {
     return Result::CannotBind;
   }
   // Get the bind address back so we know the actual port.
-  sockaddr local_ss{};
+  sockaddr_storage local_ss{};
   socklen_t local_len = sizeof(local_ss);
-  if (getsockname(server_socket_, &local_ss, &local_len) == 0) {
-    bind_address_ = InetAddress::from(&local_ss);
+  if (getsockname(server_socket_, reinterpret_cast<sockaddr*>(&local_ss), &local_len) == 0) {
+    bind_address_ = InetAddress::from(reinterpret_cast<sockaddr*>(&local_ss));
   } else {
-    ZNET_LOG_ERROR("getsockname failed, bind address might be incorrect: {}", GetLastErrorInfo());
+    ZNET_LOG_ERROR("getsockname failed: {}", GetLastErrorInfo());
   }
   is_bind_ = true;
   ZNET_LOG_DEBUG("Bind to: {}", bind_address_->readable());
@@ -182,9 +175,9 @@ void Server::SetTicksPerSecond(int tps) {
 }
 
 void Server::CheckNetwork() {
-  sockaddr client_address{};
+  sockaddr_storage client_address{};
   socklen_t addr_len = sizeof(client_address);
-  SocketHandle client_socket = accept(server_socket_, &client_address, &addr_len);
+  SocketHandle client_socket = accept(server_socket_, reinterpret_cast<sockaddr*>(&client_address), &addr_len);
 #ifdef TARGET_WIN
   if (client_socket == INVALID_SOCKET) {
     return;
@@ -209,7 +202,7 @@ void Server::CheckNetwork() {
     return;
   }
 #endif
-  std::shared_ptr<InetAddress> remote_address = InetAddress::from(&client_address);
+  std::shared_ptr<InetAddress> remote_address = InetAddress::from(reinterpret_cast<sockaddr*>(&client_address));
   if (remote_address == nullptr) {
     return;
   }

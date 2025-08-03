@@ -7,6 +7,8 @@ add_subdirectory(znet)
 # examples
 add_subdirectory(examples/basic/server)
 add_subdirectory(examples/basic/client)
+add_subdirectory(examples/multiversion/server)
+add_subdirectory(examples/multiversion/client_v2)
 
 # tests
 enable_testing()

@@ -9,7 +9,7 @@
 //
 
 #include "znet/client.h"
-
+#include "znet/init.h"
 #include "znet/client_events.h"
 #include "znet/error.h"
 #include "znet/logger.h"
@@ -28,19 +28,11 @@ Client::~Client() {
 }
 
 Result Client::Bind() {
-#ifdef TARGET_WIN
-  WORD wVersionRequested;
-  WSADATA wsaData;
-  int err;
-  /* Use the MAKEWORD(lowbyte, highbyte) macro declared in Windef.h */
-  wVersionRequested = MAKEWORD(2, 2);
-  err = WSAStartup(wVersionRequested, &wsaData);
-  if (err != 0) {
-    ZNET_LOG_ERROR("WSAStartup error. {}", err);
-    return Result::Failure;
+  Result init_result = Init();
+  if (init_result != Result::Success) {
+    return init_result;
   }
-#endif
-  client_socket_ = socket(AF_INET, SOCK_STREAM, 0);
+  client_socket_ = socket(GetDomainByInetProtocolVersion(server_address_->ipv()), SOCK_STREAM, 0);
   if (client_socket_ < 0) {
     ZNET_LOG_ERROR("Error binding socket.");
     return Result::CannotBind;
@@ -84,10 +76,10 @@ Result Client::Connect() {
              sizeof(option));
 #endif
 
-  sockaddr local_ss{};
+  sockaddr_storage local_ss{};
   socklen_t local_len = sizeof(local_ss);
-  if (getsockname(client_socket_, &local_ss, &local_len) == 0) {
-    local_address_ = InetAddress::from(&local_ss);
+  if (getsockname(client_socket_, reinterpret_cast<sockaddr*>(&local_ss), &local_len) == 0) {
+    local_address_ = InetAddress::from(reinterpret_cast<sockaddr*>(&local_ss));
   } else {
     ZNET_LOG_ERROR("getsockname failed, local address will be nullptr: {}", GetLastErrorInfo());
   }

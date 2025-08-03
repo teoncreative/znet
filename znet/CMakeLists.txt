@@ -3,6 +3,7 @@ project(znet)
 
 option(ZNET_USE_EXTERNAL_FMT "Looks for FMT via find_package" OFF)
 option(ZNET_PREFER_STD_SLEEP "Prefers thread sleep to wait between ticks, this results in less precision of the timings but reduces CPU usage." OFF)
+option(ZNET_PREFER_IPV4 "Prefers IPv4 addresses." OFF)
 
 if(NOT MSVC)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fpermissive -Werror=vla -Wno-deprecated")
@@ -25,6 +26,7 @@ set(ZNET_SOURCES
         src/codec.cc
         src/util.cc
         src/pch.cc
+        src/init.cc
 )
 
 add_library(znet STATIC

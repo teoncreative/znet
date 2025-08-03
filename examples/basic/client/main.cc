@@ -76,11 +76,13 @@ void OnEvent(Event& event) {
 }
 
 int main() {
+  znet::Init();
+
   // Create a client configuration
   // We're connecting to localhost (127.0.0.1) on port 25000
   // In a real application, you'd typically get these values from
   // command line arguments or a config file or from ui
-  ClientConfig config{"127.0.0.1", 25000};
+  ClientConfig config{"localhost", 25000};
 
   // Initialize the network client with our configuration
   // This sets up the internal client state but doesn't connect yet
@@ -109,5 +111,6 @@ int main() {
   client.Wait();
 
   // Connection is finished (disconnected)
+  znet::Cleanup();
   return 0;
 }

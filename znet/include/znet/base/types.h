@@ -41,11 +41,12 @@ constexpr Endianness GetSystemEndianness() {
 }
 #else
 inline Endianness GetSystemEndianness() {
-  union {
+  static union {
     uint32_t i;
     uint8_t c[4];
   } u = {0x01020304};
-  return (u.c[0] == 0x01) ? Endianness::BigEndian : Endianness::LittleEndian;
+  static Endianness e = (u.c[0] == 0x01) ? Endianness::BigEndian : Endianness::LittleEndian;
+  return e;
 }
 #endif
 

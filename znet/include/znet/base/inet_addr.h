@@ -29,6 +29,8 @@ using IPv6Address = IN6_ADDR;
 
 enum class InetProtocolVersion { IPv4, IPv6 };
 
+std::string ResolveHostnameToIP(const std::string& hostname);
+
 IPv4Address ParseIPv4(const std::string& ip_str);
 IPv6Address ParseIPv6(const std::string& ip_str);
 
@@ -36,9 +38,6 @@ int GetDomainByInetProtocolVersion(InetProtocolVersion version);
 
 bool IsIPv4(const std::string& ip);
 bool IsIPv6(const std::string& ip);
-
-bool IsValidIPv4(const std::string& ip);
-bool IsValidIPv6(const std::string& ip);
 
 class InetAddress {
  public:
@@ -62,7 +61,7 @@ class InetAddress {
 
   ZNET_NODISCARD virtual PortNumber port() const = 0;
 
-  static std::unique_ptr<InetAddress> from(const std::string& ip_str, PortNumber port);
+  static std::unique_ptr<InetAddress> from(const std::string& host, PortNumber port);
   static std::unique_ptr<InetAddress> from(sockaddr* addr);
 
  protected:

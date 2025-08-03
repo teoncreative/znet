@@ -77,11 +77,13 @@ void OnEvent(Event& event) {
 }
 
 int main() {
+  znet::Init();
+
   // Create the server configuration
   // We're listening on localhost (127.0.0.1) port 25000
   // In a real application, you'd typically get these values from
   // command line arguments or a config file or from ui
-  ServerConfig config{"127.0.0.1", 25000};
+  ServerConfig config{"localhost", 25000};
 
   // Initialize the server with our configuration
   // This sets up the internal server state but doesn't start listening yet
@@ -122,5 +124,6 @@ int main() {
   server.Wait();
 
   // Server has shut down cleanly
+  znet::Cleanup();
   return 0;
 }
