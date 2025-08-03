@@ -11,6 +11,7 @@
 #include "znet/base/inet_addr.h"
 #include "znet/logger.h"
 
+#include "znet/init.h"
 #include <regex>
 
 namespace znet {
@@ -56,6 +57,11 @@ bool IsIPv6(const std::string& ip) {
 }
 
 std::string ResolveHostnameToIP(const std::string& hostname) {
+  Result init_result = znet::Init();
+  if (init_result != Result::Success) {
+    ZNET_LOG_WARN("Cannot resolve hostname because initialization of znet had failed with reason: {}", GetResultString(init_result));
+    return hostname;
+  }
   addrinfo hints{}, *res = nullptr;
   hints.ai_family = AF_UNSPEC;
   hints.ai_socktype = SOCK_STREAM;

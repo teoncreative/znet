@@ -31,6 +31,7 @@ Server::~Server() {
 Result Server::Bind() {
   Result init_result = Init();
   if (init_result != Result::Success) {
+    ZNET_LOG_ERROR("Cannot bind because initialization of znet had failed with reason: {}", GetResultString(init_result));
     return init_result;
   }
   bind_address_ = InetAddress::from(config_.bind_ip, config_.bind_port);
@@ -103,7 +104,8 @@ Result Server::Listen() {
     return Result::AlreadyListening;
   }
   if (!is_bind_) {
-    return Result::CannotListen;
+    ZNET_LOG_ERROR("Cannot listen because the server is not bound, make sure to call Bind() first.");
+    return Result::NotBound;
   }
   if (listen(server_socket_, SOMAXCONN) != 0) {
     ZNET_LOG_DEBUG("Failed to listen connections from: {}, {}",
@@ -163,7 +165,7 @@ Result Server::Stop() {
     return Result::AlreadyStopped;
   }
   is_listening_ = false;
-  is_bind_ = false;
+  is_bind_ = false; // is this correct?
   return Result::Success;
 }
 

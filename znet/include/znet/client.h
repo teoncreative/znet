@@ -95,6 +95,7 @@ class Client : public Interface {
   std::shared_ptr<InetAddress> server_address_;
   std::shared_ptr<InetAddress> local_address_;
   SocketHandle client_socket_ = -1;
+  bool is_bind_ = false;
 
   std::shared_ptr<PeerSession> client_session_;
   Task task_;

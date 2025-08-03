@@ -30,6 +30,7 @@ Client::~Client() {
 Result Client::Bind() {
   Result init_result = Init();
   if (init_result != Result::Success) {
+    ZNET_LOG_ERROR("Cannot bind because initialization of znet had failed with reason: {}", GetResultString(init_result));
     return init_result;
   }
   client_socket_ = socket(GetDomainByInetProtocolVersion(server_address_->ipv()), SOCK_STREAM, 0);
@@ -37,6 +38,7 @@ Result Client::Bind() {
     ZNET_LOG_ERROR("Error binding socket.");
     return Result::CannotBind;
   }
+  is_bind_ = true;
   return Result::Success;
 }
 
@@ -60,6 +62,10 @@ Result Client::Connect() {
   }
   if (!server_address_ || !server_address_->is_valid()) {
     return Result::InvalidRemoteAddress;
+  }
+  if (!is_bind_) {
+    ZNET_LOG_ERROR("Cannot connect because the client is not bound, make sure to call Bind() first.");
+    return Result::CannotBind;
   }
   if (connect(client_socket_, server_address_->handle_ptr(),
               server_address_->addr_size()) < 0) {
@@ -117,6 +123,7 @@ Result Client::Disconnect() {
   if (!client_session_) {
     return Result::Failure;
   }
+  is_bind_ = false; // is this correct?
   return client_session_->Close();
 }
 

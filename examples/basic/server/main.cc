@@ -77,7 +77,12 @@ void OnEvent(Event& event) {
 }
 
 int main() {
-  znet::Init();
+  Result result;
+
+  if ((result = znet::Init()) != Result::Success) {
+    ZNET_LOG_ERROR("Failed to initialize znet: {}", GetResultString(result));
+    return 1;
+  }
 
   // Create the server configuration
   // We're listening on localhost (127.0.0.1) port 25000
@@ -108,14 +113,16 @@ int main() {
 
   // Try to bind the server to the configured network interface
   // This reserves the port for our use
-  if (server.Bind() != Result::Success) {
-    return 1; // Exit if binding fails (e.g., port already in use)
+  if ((result = server.Bind()) != Result::Success) {
+    ZNET_LOG_ERROR("Failed to bind: {}", GetResultString(result));
+    return 1;
   }
 
   // Start listening for incoming client connections
   // This begins accepting clients but doesn't block the main thread (async)
-  if (server.Listen() != Result::Success) {
-    return 1; // Exit if we can't start listening
+  if ((result = server.Listen()) != Result::Success) {
+    ZNET_LOG_ERROR("Failed to listen: {}", GetResultString(result));
+    return 1;
   }
 
   // Wait for the server to stop

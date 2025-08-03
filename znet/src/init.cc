@@ -44,7 +44,7 @@ class SocketGuard {
 
  private:
   bool sockets_initialized_ = false;
-  Result result_;
+  Result result_ = Result::NotInitialized;
 };
 
 static std::unique_ptr<SocketGuard> socket_guard_;

@@ -57,13 +57,50 @@ enum class Result {
   AlreadyClosed,
   AlreadyDisconnected,
   CannotBind,
+  NotBound,
   InvalidAddress,
   InvalidRemoteAddress,
   CannotCreateSocket,
   CannotListen,
   AlreadyConnected,
-  AlreadyListening
+  AlreadyListening,
+  NotInitialized
 };
+
+inline std::string GetResultString(Result result) {
+  switch (result) {
+    case Result::Success:
+      return "Success";
+    case Result::Failure:
+      return "Failure";
+    case Result::AlreadyStopped:
+      return "AlreadyStopped";
+    case Result::AlreadyClosed:
+      return "AlreadyClosed";
+    case Result::AlreadyDisconnected:
+      return "AlreadyDisconnected";
+    case Result::NotBound:
+      return "NotBound";
+    case Result::CannotBind:
+      return "CannotBind";
+    case Result::InvalidAddress:
+      return "InvalidAddress";
+    case Result::InvalidRemoteAddress:
+      return "InvalidRemoteAddress";
+    case Result::CannotCreateSocket:
+      return "CannotCreateSocket";
+    case Result::CannotListen:
+      return "CannotListen";
+    case Result::AlreadyConnected:
+      return "AlreadyConnected";
+    case Result::AlreadyListening:
+      return "AlreadyListening";
+    case Result::NotInitialized:
+      return "NotInitialized";
+    default:
+      return "Unknown";
+  }
+}
 
 enum class ConnectionType {
   TCP,

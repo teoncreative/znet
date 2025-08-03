@@ -76,7 +76,13 @@ void OnEvent(Event& event) {
 }
 
 int main() {
-  znet::Init();
+  Result result;
+
+  if ((result = znet::Init()) != Result::Success) {
+    ZNET_LOG_ERROR("Failed to initialize znet: {}", GetResultString(result));
+    return 1;
+  }
+
 
   // Create a client configuration
   // We're connecting to localhost (127.0.0.1) on port 25000
@@ -94,15 +100,17 @@ int main() {
 
   // Try to bind the client to a local network interface
   // This is required before we can connect to the server
-  if (client.Bind() != Result::Success) {
-    return 1; // Exit if binding fails (e.g., port already in use)
+  if ((result = client.Bind()) != Result::Success) {
+    ZNET_LOG_ERROR("Failed to bind: {}", GetResultString(result));
+    return 1;
   }
 
   // Attempt to establish a connection to the server
   // This initiates the connection process but doesn't wait. (async)
   // It runs on another thread
-  if (client.Connect() != Result::Success) {
-    return 1; // Exit if connection fails (e.g., server unreachable)
+  if ((result = client.Connect()) != Result::Success) {
+    ZNET_LOG_ERROR("Failed to connect: {}", GetResultString(result));
+    return 1;
   }
 
   // Wait for the connection to complete
