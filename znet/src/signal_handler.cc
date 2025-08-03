@@ -16,12 +16,13 @@ namespace znet {
 
 SignalHandlerFn handler_fn_;
 
-void RegisterSignalHandler(SignalHandlerFn fn) {
+void RegisterSignalHandler(SignalHandlerFn fn, Signal sig) {
   handler_fn_ = std::move(fn);
-  signal(SIGINT, [](int sig) {
+  signal(sig, [](int sig) {
     if (handler_fn_(static_cast<Signal>(sig))) {
       exit(0);
     }
   });
 }
+
 }  // namespace znet

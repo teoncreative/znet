@@ -98,13 +98,10 @@ int main() {
   // This ensures the server closes cleanly when interrupted (Ctrl+C)
   // This part is optional
   RegisterSignalHandler([&server](Signal sig) -> bool {
-    if (sig == znet::kSignalInterrupt) {
-      // stop the server when SIGINT is received
-      server.Stop();
-      return server.shutdown_complete();
-    }
-    return false;
-  });
+    // stop the server when SIGINT is received
+    server.Stop();
+    return server.shutdown_complete();
+  }, znet::kSignalInterrupt);
 
   // Register our event handler to process server events
   // OnEvent will be called for client connections, disconnections,
