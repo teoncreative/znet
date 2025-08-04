@@ -91,7 +91,7 @@ void TestVarInt(std::shared_ptr<Buffer> buffer) {
 void TestInetAddress(std::shared_ptr<Buffer> buffer) {
   EXPECT_EQ(buffer->size(), 0);
 
-  auto addr1 = InetAddress::from("localhost", 2001);
+  auto addr1 = InetAddress::from("127.0.0.1", 2001);
   buffer->WriteInetAddress(*addr1);
 
   auto addr2 = InetAddress::from("2001:db8:3333:4444:5555:6666:7777:8888", 2001);
