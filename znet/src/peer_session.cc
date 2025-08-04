@@ -26,7 +26,7 @@ PeerSession::PeerSession(std::shared_ptr<InetAddress> local_address,
       encryption_layer_(*this),
       connect_time_(std::chrono::steady_clock::now()) {
   static SessionId sIdCount = 0;
-  session_id_ = sIdCount++;
+  id_ = sIdCount++;
   encryption_layer_.Initialize(is_initiator);
 }
 
@@ -35,7 +35,7 @@ void PeerSession::Process() {
     return;
   }
   if (IsExpired()) {
-    ZNET_LOG_INFO("Session {} was expired!", session_id_);
+    ZNET_LOG_INFO("Session {} was expired!", id_);
     Close();
     return;
   }

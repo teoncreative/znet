@@ -9,6 +9,7 @@ add_subdirectory(examples/basic/server)
 add_subdirectory(examples/basic/client)
 add_subdirectory(examples/multiversion/server)
 add_subdirectory(examples/multiversion/client_v2)
+add_subdirectory(examples/multiversion/client_v1)
 
 # tests
 enable_testing()

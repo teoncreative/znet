@@ -45,8 +45,8 @@ class PeerSession {
 
   bool IsReady() { return is_ready_; }
 
-  ZNET_NODISCARD SessionId session_id() const {
-    return session_id_;
+  ZNET_NODISCARD SessionId id() const {
+    return id_;
   }
 
   ZNET_NODISCARD std::shared_ptr<InetAddress> local_address() const {
@@ -115,7 +115,7 @@ class PeerSession {
     return std::chrono::steady_clock::now() > expire_at_;
   }
 
-  SessionId session_id_;
+  SessionId id_;
   SocketHandle socket_;
   std::shared_ptr<InetAddress> local_address_;
   PortNumber local_port_;

@@ -24,10 +24,6 @@ void Codec::Deserialize(std::shared_ptr<Buffer> buffer, PacketHandlerBase& handl
       ZNET_LOG_DEBUG("Reading packet header failed, dropping buffer!");
       break;
     }
-    if (size == 0) {
-      ZNET_LOG_DEBUG("Got packet with size 0, dropping it!");
-      continue;
-    }
     size_t read_cursor = buffer->read_cursor();
     auto it = serializers_.find(packet_id);
     if (it == serializers_.end()) {
