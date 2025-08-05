@@ -69,15 +69,30 @@ class PeerSession {
     handler_ = std::move(handler);
   }
 
+  /**
+   * @brief Associates user-defined data with the PeerSession.
+   *
+   * Allows attaching a user-defined object to the session for custom purposes.
+   * The object is held using a shared pointer and replaces any previously set data.
+   *
+   * @tparam T The type of the user-defined object.
+   * @param ptr Shared pointer to the object to associate with the session.
+   */
   template<typename T>
   void SetUserPointer(std::shared_ptr<T> ptr) {
     user_ptr_ = std::move(ptr);
   }
 
+  /**
+   * @brief Retrieves the user-defined object associated with the session, cast to the specified type.
+   *
+   * The caller should ensure the requested type matches the actual type of the stored object, otherwise it will throw an error.
+   *
+   * @tparam T The desired type of the user-defined object.
+   * @return std::shared_ptr<T> Pointer to the user-defined object cast to type T.
+   */
   template<typename T>
   ZNET_NODISCARD std::shared_ptr<T> user_ptr_typed() const {
-    // Attempt to static_pointer_cast to the desired type T
-    // This assumes the user knows the correct type.
     return std::static_pointer_cast<T>(user_ptr_);
   }
 

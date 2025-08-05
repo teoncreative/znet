@@ -63,15 +63,13 @@ std::shared_ptr<Buffer> TransportLayer::Receive() {
     if (err == WSAEWOULDBLOCK) {
       return nullptr; // no data received
     }
-    ZNET_LOG_ERROR("Closing connection due to an error: ", GetLastErrorInfo());
-    session_.Close();
 #else
     if (errno == EWOULDBLOCK || errno == EAGAIN) {
       return nullptr; // no data received
     }
+#endif
     ZNET_LOG_ERROR("Closing connection due to an error: ", GetLastErrorInfo());
     session_.Close();
-#endif
   }
   return nullptr;
 }
