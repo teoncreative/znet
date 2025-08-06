@@ -15,10 +15,20 @@
 #include "znet/init.h"
 #include "znet/logger.h"
 
+#ifdef ZNET_USE_ZSTD
+#define ZSTD_ENABLED_STR "true"
+#else
+#define ZSTD_ENABLED_STR "false"
+#endif
+
 namespace znet {
-class SocketGuard {
+
+class Initializer {
  public:
-  SocketGuard() {
+  Initializer() {
+    ZNET_LOG_INFO("Initializing znet...");
+    ZNET_LOG_INFO(" - compression_zstd: {}", ZSTD_ENABLED_STR);
+
 #ifdef TARGET_WIN
     WORD wVersionRequested;
     WSADATA wsaData;
@@ -35,10 +45,10 @@ class SocketGuard {
     result_ = Result::Success;
   }
 
-  SocketGuard(const SocketGuard&) = delete;
-  SocketGuard& operator=(const SocketGuard&) = delete;
+  Initializer(const Initializer&) = delete;
+  Initializer& operator=(const Initializer&) = delete;
 
-  ~SocketGuard() {}
+  ~Initializer() {}
 
   Result result() const { return result_; }
 
@@ -47,17 +57,17 @@ class SocketGuard {
   Result result_ = Result::NotInitialized;
 };
 
-static std::unique_ptr<SocketGuard> socket_guard_;
+static std::unique_ptr<Initializer> init_;
 
 Result Init() {
-  if (!socket_guard_) {
-    socket_guard_ = std::make_unique<SocketGuard>();
+  if (!init_) {
+    init_ = std::make_unique<Initializer>();
   }
-  return socket_guard_->result();
+  return init_->result();
 }
 
 void Cleanup() {
-  socket_guard_ = nullptr;
+  init_ = nullptr;
 }
 
 }

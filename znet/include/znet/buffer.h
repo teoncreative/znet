@@ -14,6 +14,7 @@
 #include "znet/base/types.h"
 #include "znet/logger.h"
 #include "znet/base/util.h"
+#include "znet/base/inet_addr.h"
 #include <bitset>
 
 namespace znet {
@@ -136,6 +137,11 @@ class Buffer {
     T l = 0;
     std::memcpy(&l, data.get(), size);
     return l;
+  }
+
+  template<typename T, typename = std::void_t<decltype(T::Read())>>
+  T ReadCustom() {
+    return T::Read();
   }
 
   std::unique_ptr<InetAddress> ReadInetAddress() {
@@ -340,6 +346,12 @@ class Buffer {
     write_cursor_ += size;
   }
 
+  template<typename T, typename = std::void_t<decltype(T::Write())>>
+  T WriteCustom() {
+    return T::Write();
+  }
+
+
   void WriteInetAddress(InetAddress& address) {
     if (address.ipv() == InetProtocolVersion::IPv4) {
       WriteInt<uint8_t>(4);
@@ -500,6 +512,12 @@ class Buffer {
   void set_endianness(Endianness endianness) { endianness_ = endianness; }
 
   const char* data() { return data_; }
+
+  const char* read_cursor_data() { return data_ + read_cursor_; }
+
+  char* data_mutable() { return data_; }
+
+  char* read_cursor_data_mutable() { return data_ + read_cursor_; }
 
   ZNET_NODISCARD size_t write_cursor() const { return write_cursor_; }
 

@@ -63,9 +63,19 @@ std::shared_ptr<Buffer> TransportLayer::Receive() {
     if (err == WSAEWOULDBLOCK) {
       return nullptr; // no data received
     }
+    if (err == WSAECONNRESET) {
+      ZNET_LOG_ERROR("Connection lost because peer has closed the connection.");
+      session_.Close();
+      return nullptr;
+    }
 #else
     if (errno == EWOULDBLOCK || errno == EAGAIN) {
       return nullptr; // no data received
+    }
+    if (errno == ECONNRESET) {
+      ZNET_LOG_ERROR("Closing connection because peer closed the connection.");
+      session_.Close();
+      return nullptr;
     }
 #endif
     ZNET_LOG_ERROR("Closing connection due to an error: ", GetLastErrorInfo());
@@ -89,7 +99,7 @@ std::shared_ptr<Buffer> TransportLayer::ReadBuffer() {
       memcpy(data_, buffer_->data() + cursor, read_offset_);
       return nullptr;
     }
-    const char* data_ptr = buffer_->data() + buffer_->read_cursor();
+    const char* data_ptr = buffer_->read_cursor_data();
     buffer_->SkipRead(size);
     return std::make_shared<Buffer>(data_ptr, size);
   }

@@ -3,7 +3,9 @@
 - [x] Events
 - [x] Server Implementation
 - [x] Client Implementation
-- [ ] Compression (optional if zlib or zstd is added)
+- [x] Compression (zstd)
+- [ ] Compression (zlib)
+- [ ] Compression (snappy)
 - [x] TLS
 - [ ] TCP options
 - [x] Windows support

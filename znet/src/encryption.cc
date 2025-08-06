@@ -259,12 +259,12 @@ int DecryptData(const unsigned char* ciphertext, int ciphertext_len,
                 unsigned char* plaintext) {
   EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();
   if (!ctx) {
-    std::cerr << "Failed to create EVP_CIPHER_CTX" << std::endl;
+    ZNET_LOG_ERROR("Failed to create EVP_CIPHER_CTX");
     return false;
   }
 
   if (1 != EVP_DecryptInit_ex(ctx, EVP_aes_256_cbc(), nullptr, key, iv)) {
-    std::cerr << "Failed to initialize decryption" << std::endl;
+    ZNET_LOG_ERROR("Failed to initialize decryption");
     EVP_CIPHER_CTX_free(ctx);
     return false;
   }
@@ -272,14 +272,14 @@ int DecryptData(const unsigned char* ciphertext, int ciphertext_len,
   int plaintext_len = 0;
   if (1 != EVP_DecryptUpdate(ctx, plaintext, &plaintext_len, ciphertext,
                              ciphertext_len)) {
-    std::cerr << "Failed to decrypt data" << std::endl;
+    ZNET_LOG_ERROR("Failed to decrypt data");
     EVP_CIPHER_CTX_free(ctx);
     return false;
   }
 
   int len;
   if (1 != EVP_DecryptFinal_ex(ctx, plaintext + plaintext_len, &len)) {
-    std::cerr << "Failed to finalize decryption" << std::endl;
+    ZNET_LOG_ERROR("Failed to finalize decryption");
     EVP_CIPHER_CTX_free(ctx);
     return false;
   }

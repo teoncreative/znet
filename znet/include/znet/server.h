@@ -111,6 +111,7 @@ class Server : public Interface {
   void CheckNetwork();
   void ProcessSessions();
   void CleanupAndProcessSessions(SessionMap& map);
+  void DisconnectPeers();
 
  private:
   std::mutex mutex_;

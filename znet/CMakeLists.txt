@@ -23,6 +23,7 @@ set(ZNET_SOURCES
         src/encryption.cc
         src/transport.cc
         src/peer_session.cc
+        src/compression.cc
         src/codec.cc
         src/util.cc
         src/pch.cc
@@ -59,6 +60,25 @@ target_link_libraries(znet PUBLIC fmt::fmt)
 find_package(OpenSSL REQUIRED)
 target_link_libraries(znet PUBLIC ${OPENSSL_SSL_LIBRARIES} ${OPENSSL_CRYPTO_LIBRARIES})
 target_include_directories(znet PUBLIC ${OPENSSL_INCLUDE_DIR})
+
+# zstd
+if(ZNET_USE_EXTERNAL_FMT)
+    find_package(zstd::zstd CONFIG REQUIRED)
+
+    if(TARGET zstd::zstd)
+        target_link_libraries(znet PUBLIC zstd::zstd)
+        target_compile_definitions(znet PUBLIC ZNET_USE_ZSTD=1)
+    else()
+        message(STATUS "zstd not found — compression disabled.")
+    endif()
+else()
+    if(TARGET libzstd)
+        target_link_libraries(znet PUBLIC libzstd)
+        target_compile_definitions(znet PUBLIC ZNET_USE_ZSTD=1)
+    else()
+        message(STATUS "zstd not found — compression disabled.")
+    endif()
+endif()
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux" OR CMAKE_SYSTEM_NAME STREQUAL "Apple")
     find_package(Threads REQUIRED)

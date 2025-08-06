@@ -9,6 +9,7 @@
 //
 
 #include "znet/server.h"
+#include <corecrt_io.h>
 #include <znet/init.h>
 #include "znet/base/scheduler.h"
 #include "znet/error.h"
@@ -134,12 +135,7 @@ Result Server::Listen() {
     ServerShutdownEvent shutdown_event{*this};
     event_callback()(shutdown_event);
 
-    // Disconnect all sessions
-    for (const auto& item : sessions_) {
-      item.second->Close();
-    }
-    sessions_.clear();
-
+    DisconnectPeers();
     // Close the server
 #ifdef TARGET_WIN
     if (closesocket(server_socket_) != 0) {
@@ -239,6 +235,16 @@ void Server::CleanupAndProcessSessions(SessionMap& map) {
   for (auto&& item : map) {
     item.second->Process();
   }
+}
+
+void Server::DisconnectPeers() {
+  for (auto&& item : sessions_) {
+    item.second->Close();
+  }
+  for (auto&& item : pending_sessions_) {
+    item.second->Close();
+  }
+  ProcessSessions();
 }
 
 void Server::ProcessSessions() {

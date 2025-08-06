@@ -10,11 +10,12 @@
 
 #pragma once
 
-#include "znet/precompiled.h"
+#include "znet/codec.h"
 #include "znet/encryption.h"
 #include "znet/packet_handler.h"
+#include "znet/precompiled.h"
 #include "znet/transport.h"
-#include "znet/codec.h"
+#include "znet/compression.h"
 
 namespace znet {
 
@@ -115,13 +116,19 @@ class PeerSession {
                time_since_connect()).count();
   }
 
+  CompressionType out_compression_type() const {
+    return out_compression_type_;
+  }
+
+  void SetOutCompression(CompressionType type) {
+    out_compression_type_ = type;
+    ZNET_LOG_INFO("Set out compression to {} for {}", GetCompressionTypeName(type), id_);
+  }
+
  protected:
   friend class EncryptionLayer;
 
-  virtual void Ready() {
-    is_ready_ = true;
-    connect_time_ = std::chrono::steady_clock::now();
-  }
+  void Ready();
 
   bool IsExpired() const {
     if (!has_expiry_) {
@@ -141,6 +148,7 @@ class PeerSession {
   std::shared_ptr<PacketHandlerBase> handler_;
   TransportLayer transport_layer_;
   EncryptionLayer encryption_layer_;
+  CompressionType out_compression_type_ = CompressionType::None;
   bool is_initiator_;
   bool is_ready_ = false;
   bool is_alive_ = true;
