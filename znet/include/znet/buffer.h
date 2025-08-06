@@ -101,12 +101,17 @@ class Buffer {
 
   bool ReadBool() { return ReadInt<bool>(); }
 
-  float ReadFloat() { return ReadInt<float>(); }
+  float ReadFloat() { return ReadNumber<float>(); }
 
-  double ReadDouble() { return ReadInt<double>(); }
+  double ReadDouble() { return ReadNumber<double>(); }
+
+  template<typename T, typename std::enable_if<std::is_integral<T>::value && (sizeof(T) <= 8), int>::type = 0>
+  T ReadInt() {
+    return ReadNumber<T>();
+  }
 
   template<typename T, typename std::enable_if<std::is_arithmetic<T>::value && (sizeof(T) <= 8), int>::type = 0>
-  T ReadInt() {
+  T ReadNumber() {
     size_t size = sizeof(T);
     std::unique_ptr<char[]> data(new (std::nothrow) char[size]);
     if (!data) {
@@ -309,12 +314,17 @@ class Buffer {
 
   void WriteBool(bool b) { WriteInt(b); }
 
-  void WriteFloat(float f) { WriteInt(f); }
+  void WriteFloat(float f) { WriteNumber(f); }
 
-  void WriteDouble(double f) { WriteInt(f); }
+  void WriteDouble(double f) { WriteNumber(f); }
+
+  template<typename T, typename std::enable_if<std::is_integral<T>::value && (sizeof(T) <= 8), int>::type = 0>
+  void WriteInt(T c) {
+    return WriteNumber(c);
+  }
 
   template<typename T, typename std::enable_if<std::is_arithmetic<T>::value && (sizeof(T) <= 8), int>::type = 0>
-  void WriteInt(T c) {
+  void WriteNumber(T c) {
     char* pt = reinterpret_cast<char*>(&c);
     size_t size = sizeof(c);
     ReserveIncremental(size);

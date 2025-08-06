@@ -47,16 +47,16 @@ void TestBuffer(std::shared_ptr<Buffer> buffer) {
   buffer->ReserveExact(80);
   buffer->WriteString("Hello World!");
   buffer->WriteInt(asd);
-  buffer->WriteInt(f);
-  buffer->WriteInt(d);
-  buffer->WriteInt(d);
+  buffer->WriteFloat(f);
+  buffer->WriteDouble(d);
+  buffer->WriteDouble(d);
 
   std::cout << buffer->Dump() << std::endl;
   EXPECT_EQ(buffer->ReadString(), "Hello World!");
   EXPECT_EQ(buffer->ReadInt<int64_t>(), asd);
-  EXPECT_EQ(buffer->ReadInt<float>(), f);
-  EXPECT_EQ(buffer->ReadInt<double>(), d);
-  EXPECT_EQ(buffer->ReadInt<double>(), d);
+  EXPECT_EQ(buffer->ReadFloat(), f);
+  EXPECT_EQ(buffer->ReadDouble(), d);
+  EXPECT_EQ(buffer->ReadDouble(), d);
   EXPECT_EQ(buffer->mem_allocations(), 1);
   EXPECT_EQ(buffer->size(), 42);
 

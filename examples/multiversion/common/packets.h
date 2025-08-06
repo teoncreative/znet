@@ -25,13 +25,13 @@ enum PacketType : PacketId {
 };
 
 void WriteVec3(std::shared_ptr<Buffer> buffer, const Vec3& pos) {
-  buffer->WriteInt<double>(pos.x);
-  buffer->WriteInt<double>(pos.y);
-  buffer->WriteInt<double>(pos.z);
+  buffer->WriteDouble(pos.x);
+  buffer->WriteDouble(pos.y);
+  buffer->WriteDouble(pos.z);
 }
 
 Vec3 ReadVec3(std::shared_ptr<Buffer> buffer) {
-  return {buffer->ReadInt<double>(), buffer->ReadInt<double>(), buffer->ReadInt<double>()};
+  return {buffer->ReadDouble(), buffer->ReadDouble(), buffer->ReadDouble()};
 }
 
 class NetworkSettingsPacket : public Packet {
