@@ -105,12 +105,12 @@ class Buffer {
 
   double ReadDouble() { return ReadNumber<double>(); }
 
-  template<typename T, typename std::enable_if<std::is_integral<T>::value && (sizeof(T) <= 8), int>::type = 0>
+  template<typename T, typename std::enable_if<std::is_integral<T>::value && (sizeof(T) <= 16), int>::type = 0>
   T ReadInt() {
     return ReadNumber<T>();
   }
 
-  template<typename T, typename std::enable_if<std::is_arithmetic<T>::value && (sizeof(T) <= 8), int>::type = 0>
+  template<typename T, typename std::enable_if<std::is_arithmetic<T>::value && (sizeof(T) <= 16), int>::type = 0>
   T ReadNumber() {
     size_t size = sizeof(T);
     std::unique_ptr<char[]> data(new (std::nothrow) char[size]);
@@ -318,12 +318,12 @@ class Buffer {
 
   void WriteDouble(double f) { WriteNumber(f); }
 
-  template<typename T, typename std::enable_if<std::is_integral<T>::value && (sizeof(T) <= 8), int>::type = 0>
+  template<typename T, typename std::enable_if<std::is_integral<T>::value && (sizeof(T) <= 16), int>::type = 0>
   void WriteInt(T c) {
     return WriteNumber(c);
   }
 
-  template<typename T, typename std::enable_if<std::is_arithmetic<T>::value && (sizeof(T) <= 8), int>::type = 0>
+  template<typename T, typename std::enable_if<std::is_arithmetic<T>::value && (sizeof(T) <= 16), int>::type = 0>
   void WriteNumber(T c) {
     char* pt = reinterpret_cast<char*>(&c);
     size_t size = sizeof(c);
