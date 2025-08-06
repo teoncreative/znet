@@ -101,6 +101,10 @@ class Buffer {
 
   bool ReadBool() { return ReadInt<bool>(); }
 
+  float ReadFloat() { return ReadInt<float>(); }
+
+  double ReadDouble() { return ReadInt<double>(); }
+
   template<typename T, typename std::enable_if<std::is_arithmetic<T>::value && (sizeof(T) <= 8), int>::type = 0>
   T ReadInt() {
     size_t size = sizeof(T);
@@ -304,6 +308,10 @@ class Buffer {
   void WriteUnsignedChar(unsigned char c) { WriteInt(c); }
 
   void WriteBool(bool b) { WriteInt(b); }
+
+  void WriteFloat(float f) { WriteInt(f); }
+
+  void WriteDouble(double f) { WriteInt(f); }
 
   template<typename T, typename std::enable_if<std::is_arithmetic<T>::value && (sizeof(T) <= 8), int>::type = 0>
   void WriteInt(T c) {
