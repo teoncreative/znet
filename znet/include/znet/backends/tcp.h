@@ -95,7 +95,7 @@ class TCPServerBackend : public ServerBackend {
 
   bool IsAlive() override;
 
-  std::mutex& mutex() { return mutex_; }
+  std::mutex& mutex() override { return mutex_; }
 
  private:
   std::mutex mutex_;
