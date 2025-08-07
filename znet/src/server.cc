@@ -95,6 +95,7 @@ void Server::SetTicksPerSecond(int tps) {
 void Server::CheckNetwork() {
   auto session = backend_->Accept();
   if (session != nullptr) {
+    ZNET_LOG_DEBUG("Accepted new connection from: {}", session->remote_address()->readable());
     pending_sessions_[session->remote_address()] = session;
   }
 }
@@ -145,6 +146,10 @@ void Server::ProcessSessions() {
   std::vector<decltype(pending_sessions_)::key_type> promote;
   for (auto&& item : pending_sessions_) {
     if (!item.second->IsReady()) {
+      if (config_.connection_timeout.count() > 0 && item.second->time_since_connect() > config_.connection_timeout) {
+        ZNET_LOG_DEBUG("Pending connection from {} was timed-out.", item.second->remote_address()->readable());
+        item.second->Close();
+      }
       continue;
     }
     promote.emplace_back(item.first);

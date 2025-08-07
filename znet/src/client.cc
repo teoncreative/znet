@@ -70,6 +70,10 @@ Result Client::Connect() {
     // setup
     while (!client_session_->IsReady() && client_session_->IsAlive()) {
       client_session_->Process();
+      if (config_.connection_timeout.count() > 0 && client_session_->time_since_connect() > config_.connection_timeout) {
+        ZNET_LOG_DEBUG("Connection to {} timed-out.", server_address_->readable());
+        client_session_->Close();
+      }
     }
     if (!client_session_->IsAlive()) {
       return;

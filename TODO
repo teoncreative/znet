@@ -28,7 +28,7 @@
 - [ ] Public key authentication
 - [ ] Allowlists and denylists
 - [ ] Idle timeout and ping-pong
-- [ ] Abstract transport
+- [x] Abstract transport
 - [ ] Mock transport
 - [ ] Fuzz testing
 - [ ] Metrics

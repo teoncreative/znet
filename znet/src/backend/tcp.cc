@@ -401,6 +401,23 @@ std::shared_ptr<PeerSession> TCPServerBackend::Accept() {
                                     std::make_unique<TCPTransportLayer>(client_socket));
 }
 
+void TCPServerBackend::AcceptAndReject() {
+  sockaddr_storage client_address{};
+  socklen_t addr_len = sizeof(client_address);
+  SocketHandle client_socket = accept(server_socket_, reinterpret_cast<sockaddr*>(&client_address), &addr_len);
+#ifdef TARGET_WIN
+  if (client_socket == INVALID_SOCKET) {
+    return;
+  }
+  closesocket(client_socket);
+#else
+  if (client_socket <= 0) {
+    return;
+  }
+  close(client_socket);
+#endif
+}
+
 bool TCPServerBackend::IsAlive() {
   return is_listening_;
 }

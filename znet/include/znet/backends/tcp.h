@@ -91,6 +91,7 @@ class TCPServerBackend : public ServerBackend {
   void Update() override;
 
   std::shared_ptr<PeerSession> Accept() override;
+  void AcceptAndReject() override;
 
   bool IsAlive() override;
 

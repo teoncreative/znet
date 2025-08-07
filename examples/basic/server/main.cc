@@ -88,7 +88,7 @@ int main() {
   // We're listening on localhost (127.0.0.1) port 25000
   // In a real application, you'd typically get these values from
   // command line arguments or a config file or from ui
-  ServerConfig config{"localhost", 25000};
+  ServerConfig config{"localhost", 25000, std::chrono::seconds(10)};
 
   // Initialize the server with our configuration
   // This sets up the internal server state but doesn't start listening yet

@@ -49,6 +49,7 @@ class ServerBackend {
   virtual void Update() = 0;
 
   virtual std::shared_ptr<PeerSession> Accept() = 0;
+  virtual void AcceptAndReject() = 0;
 
   virtual bool IsAlive() = 0;
 

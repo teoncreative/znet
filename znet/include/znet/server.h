@@ -23,6 +23,7 @@ namespace znet {
 struct ServerConfig {
   std::string bind_ip;
   PortNumber bind_port;
+  std::chrono::steady_clock::duration connection_timeout;
   ConnectionType connection_type = ConnectionType::TCP;
 };
 
