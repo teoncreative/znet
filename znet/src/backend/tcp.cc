@@ -80,7 +80,7 @@ std::shared_ptr<Buffer> TCPTransportLayer::Receive() {
     }
     if (errno == ECONNRESET) {
       ZNET_LOG_ERROR("Closing connection because peer closed the connection.");
-      session_.Close();
+      Close();
       return nullptr;
     }
 #endif
