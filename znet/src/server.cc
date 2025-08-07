@@ -9,10 +9,8 @@
 //
 
 #include "znet/server.h"
-#include <corecrt_io.h>
-#include <znet/backends/tcp.h>
-#include <znet/init.h>
-#include "znet/base/scheduler.h"
+#include "znet/backends/tcp.h"
+#include "znet/init.h"
 #include "znet/error.h"
 #include "znet/server_events.h"
 
