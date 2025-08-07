@@ -14,6 +14,7 @@
 #include "znet/base/types.h"
 #include "znet/logger.h"
 #include "znet/base/util.h"
+#include "znet/base/inet_addr.h"
 #include <bitset>
 
 namespace znet {
@@ -101,8 +102,17 @@ class Buffer {
 
   bool ReadBool() { return ReadInt<bool>(); }
 
-  template<typename T, typename std::enable_if<std::is_arithmetic<T>::value && (sizeof(T) <= 8), int>::type = 0>
+  float ReadFloat() { return ReadNumber<float>(); }
+
+  double ReadDouble() { return ReadNumber<double>(); }
+
+  template<typename T, typename std::enable_if<std::is_integral<T>::value && (sizeof(T) <= 16), int>::type = 0>
   T ReadInt() {
+    return ReadNumber<T>();
+  }
+
+  template<typename T, typename std::enable_if<std::is_arithmetic<T>::value && (sizeof(T) <= 16), int>::type = 0>
+  T ReadNumber() {
     size_t size = sizeof(T);
     std::unique_ptr<char[]> data(new (std::nothrow) char[size]);
     if (!data) {
@@ -127,6 +137,11 @@ class Buffer {
     T l = 0;
     std::memcpy(&l, data.get(), size);
     return l;
+  }
+
+  template<typename T, typename = std::void_t<decltype(T::Read())>>
+  T ReadCustom() {
+    return T::Read();
   }
 
   std::unique_ptr<InetAddress> ReadInetAddress() {
@@ -305,8 +320,17 @@ class Buffer {
 
   void WriteBool(bool b) { WriteInt(b); }
 
-  template<typename T, typename std::enable_if<std::is_arithmetic<T>::value && (sizeof(T) <= 8), int>::type = 0>
+  void WriteFloat(float f) { WriteNumber(f); }
+
+  void WriteDouble(double f) { WriteNumber(f); }
+
+  template<typename T, typename std::enable_if<std::is_integral<T>::value && (sizeof(T) <= 16), int>::type = 0>
   void WriteInt(T c) {
+    return WriteNumber(c);
+  }
+
+  template<typename T, typename std::enable_if<std::is_arithmetic<T>::value && (sizeof(T) <= 16), int>::type = 0>
+  void WriteNumber(T c) {
     char* pt = reinterpret_cast<char*>(&c);
     size_t size = sizeof(c);
     ReserveIncremental(size);
@@ -321,6 +345,12 @@ class Buffer {
     }
     write_cursor_ += size;
   }
+
+  template<typename T, typename = std::void_t<decltype(T::Write())>>
+  T WriteCustom() {
+    return T::Write();
+  }
+
 
   void WriteInetAddress(InetAddress& address) {
     if (address.ipv() == InetProtocolVersion::IPv4) {
@@ -482,6 +512,12 @@ class Buffer {
   void set_endianness(Endianness endianness) { endianness_ = endianness; }
 
   const char* data() { return data_; }
+
+  const char* read_cursor_data() { return data_ + read_cursor_; }
+
+  char* data_mutable() { return data_; }
+
+  char* read_cursor_data_mutable() { return data_ + read_cursor_; }
 
   ZNET_NODISCARD size_t write_cursor() const { return write_cursor_; }
 

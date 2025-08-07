@@ -10,11 +10,13 @@
 
 #pragma once
 
-#include "znet/precompiled.h"
+#include "znet/codec.h"
 #include "znet/encryption.h"
 #include "znet/packet_handler.h"
+#include "znet/precompiled.h"
 #include "znet/transport.h"
-#include "znet/codec.h"
+#include "znet/compression.h"
+#include "znet/send_options.h"
 
 namespace znet {
 
@@ -33,7 +35,7 @@ class PeerSession {
  public:
   PeerSession(std::shared_ptr<InetAddress> local_address,
               std::shared_ptr<InetAddress> remote_address,
-              SocketHandle socket, bool is_initiator = false);
+              std::unique_ptr<TransportLayer> transport_layer, bool is_initiator = false);
   PeerSession(const PeerSession&) = delete;
   PeerSession(PeerSession&&) = delete;
 
@@ -41,12 +43,12 @@ class PeerSession {
 
   Result Close();
 
-  bool IsAlive() { return is_alive_; }
+  bool IsAlive();
 
   bool IsReady() { return is_ready_; }
 
-  ZNET_NODISCARD SessionId session_id() const {
-    return session_id_;
+  ZNET_NODISCARD SessionId id() const {
+    return id_;
   }
 
   ZNET_NODISCARD std::shared_ptr<InetAddress> local_address() const {
@@ -57,9 +59,9 @@ class PeerSession {
     return remote_address_;
   }
 
-  ZNET_NODISCARD TransportLayer& transport_layer() { return transport_layer_; }
+  bool SendPacket(std::shared_ptr<Packet> packet, SendOptions options = {});
 
-  bool SendPacket(std::shared_ptr<Packet> packet);
+  bool SendRaw(std::shared_ptr<Buffer> buffer, SendOptions options = {});
 
   void SetCodec(std::shared_ptr<Codec> codec) {
     codec_ = std::move(codec);
@@ -69,15 +71,30 @@ class PeerSession {
     handler_ = std::move(handler);
   }
 
+  /**
+   * @brief Associates user-defined data with the PeerSession.
+   *
+   * Allows attaching a user-defined object to the session for custom purposes.
+   * The object is held using a shared pointer and replaces any previously set data.
+   *
+   * @tparam T The type of the user-defined object.
+   * @param ptr Shared pointer to the object to associate with the session.
+   */
   template<typename T>
   void SetUserPointer(std::shared_ptr<T> ptr) {
     user_ptr_ = std::move(ptr);
   }
 
+  /**
+   * @brief Retrieves the user-defined object associated with the session, cast to the specified type.
+   *
+   * The caller should ensure the requested type matches the actual type of the stored object, otherwise it will throw an error.
+   *
+   * @tparam T The desired type of the user-defined object.
+   * @return std::shared_ptr<T> Pointer to the user-defined object cast to type T.
+   */
   template<typename T>
   ZNET_NODISCARD std::shared_ptr<T> user_ptr_typed() const {
-    // Attempt to static_pointer_cast to the desired type T
-    // This assumes the user knows the correct type.
     return std::static_pointer_cast<T>(user_ptr_);
   }
 
@@ -100,13 +117,19 @@ class PeerSession {
                time_since_connect()).count();
   }
 
+  CompressionType out_compression_type() const {
+    return out_compression_type_;
+  }
+
+  void SetOutCompression(CompressionType type) {
+    out_compression_type_ = type;
+    ZNET_LOG_INFO("Set out compression to {} for {}", GetCompressionTypeName(type), id_);
+  }
+
  protected:
   friend class EncryptionLayer;
 
-  virtual void Ready() {
-    is_ready_ = true;
-    connect_time_ = std::chrono::steady_clock::now();
-  }
+  void Ready();
 
   bool IsExpired() const {
     if (!has_expiry_) {
@@ -115,8 +138,7 @@ class PeerSession {
     return std::chrono::steady_clock::now() > expire_at_;
   }
 
-  SessionId session_id_;
-  SocketHandle socket_;
+  SessionId id_;
   std::shared_ptr<InetAddress> local_address_;
   PortNumber local_port_;
   std::shared_ptr<InetAddress> remote_address_;
@@ -124,11 +146,11 @@ class PeerSession {
 
   std::shared_ptr<Codec> codec_;
   std::shared_ptr<PacketHandlerBase> handler_;
-  TransportLayer transport_layer_;
+  std::unique_ptr<TransportLayer> transport_layer_;
   EncryptionLayer encryption_layer_;
+  CompressionType out_compression_type_ = CompressionType::None;
   bool is_initiator_;
   bool is_ready_ = false;
-  bool is_alive_ = true;
   std::chrono::steady_clock::time_point connect_time_;
   std::chrono::steady_clock::time_point expire_at_;
   bool has_expiry_ = false;

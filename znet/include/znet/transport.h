@@ -13,32 +13,23 @@
 
 #include "znet/precompiled.h"
 #include "znet/base/packet.h"
+#include "znet/send_options.h"
 #include "logger.h"
 #include "buffer.h"
 
 
 namespace znet {
 
-class PeerSession;
-
 class TransportLayer {
-  public:
-  TransportLayer(PeerSession& session, SocketHandle socket);
-  ~TransportLayer();
+ public:
+  virtual ~TransportLayer() = default;
 
-  std::shared_ptr<Buffer> Receive();
-  bool Send(std::shared_ptr<Buffer> buffer);
+  virtual std::shared_ptr<Buffer> Receive() = 0;
+  virtual bool Send(std::shared_ptr<Buffer> buffer, SendOptions options = {}) = 0;
 
- private:
-  std::shared_ptr<Buffer> ReadBuffer();
+  virtual Result Close() = 0;
 
-  PeerSession& session_;
-  char data_[ZNET_MAX_BUFFER_SIZE]{};
-  int read_offset_ = 0;
-  ssize_t data_size_ = 0;
-  std::shared_ptr<Buffer> buffer_;
-  SocketHandle socket_;
-  bool has_more_;
+  virtual bool IsClosed() = 0;
 
 };
 

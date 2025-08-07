@@ -74,6 +74,6 @@ typedef std::function<bool(Signal)>(SignalHandlerFn);
  *           a boolean. The function is executed when a signal is caught.
  *           Returning true from the handler indicates the program should exit.
  */
-void RegisterSignalHandler(SignalHandlerFn fn);
+void RegisterSignalHandler(SignalHandlerFn fn, Signal signal = kSignalInterrupt);
 
 }  // namespace znet

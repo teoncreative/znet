@@ -1,5 +1,5 @@
 //
-//    Copyright 2023 Metehan Gezer
+//    Copyright 2025 Metehan Gezer
 //
 //    Licensed under the Apache License, Version 2.0 (the "License");
 //    you may not use this file except in compliance with the License.
@@ -14,63 +14,69 @@
 
 using namespace znet;
 
-// MyPacketHandler manages network communication with a simple request-response pattern.
-// It inherits from PacketHandler and specifically handles DemoPacket type messages.
-class MyPacketHandler : public PacketHandler<MyPacketHandler, DemoPacket> {
- public:
-  // Creates a new handler associated with the given peer session
-  MyPacketHandler(std::shared_ptr<PeerSession> session) : session_(session) { }
 
-  // Called when a demo packet is received. Logs the event and sends back
-  // a response with a greeting message.
-  void OnPacket(std::shared_ptr<DemoPacket> p) {
-    ZNET_LOG_INFO("Received demo_packet.");
-    std::shared_ptr<DemoPacket> pk = std::make_shared<DemoPacket>();
-    pk->text = "Got ya! Hello from server!";
-    session_->SendPacket(pk);
+#include <iostream>
+#include "packets.h"
+#include "znet/znet.h"
+#include "player.h"
+
+using namespace znet;
+
+Codecs codecs_;
+std::unique_ptr<Player> player;
+
+struct PlayingPacketHandler
+    : public PacketHandler<PlayingPacketHandler, MovePacket> {
+
+  PlayingPacketHandler(std::shared_ptr<PeerSession> session)
+      : session_(session) {}
+
+  void OnPacket(const TeleportPacket& pk) {
+    player->pos_ = pk.pos;
   }
 
-  // Handles any unknown packet types that might be received.
-  // Currently just ignores them as a fallback mechanism.
-  void OnUnknown(std::shared_ptr<Packet> p) {
-    // fallback for unknown types
-  }
+  void OnUnknown(const Packet& pk) {}
 
  private:
-  // Stores the session we use to send responses back to the client
   std::shared_ptr<PeerSession> session_;
 };
 
-// Sets up a new client connection with appropriate packet handling and encoding.
-// Returns false to allow other handlers to process the event if needed.
+struct LoginPacketHandler
+    : public PacketHandler<LoginPacketHandler,
+                           StartGamePacket> {
+ public:
+  LoginPacketHandler(std::shared_ptr<PeerSession> session)
+      : session_(session) {}
+
+  void OnPacket(const StartGamePacket& pk) {
+    // Here, the pk.spawn_pos_ is available and sent by the server.
+    ZNET_LOG_INFO("Game start! LevelName: {}, GameMode: {}, SpawnPos: {}", pk.level_name_, pk.game_mode_, pk.spawn_pos_.to_string());
+    session_->SendPacket(std::make_shared<ClientReadyPacket>());
+    session_->SetHandler(std::make_shared<PlayingPacketHandler>(session_));
+  }
+
+  void OnUnknown(const Packet& p) {}
+
+ private:
+  std::shared_ptr<PeerSession> session_;
+};
+
+
 bool OnConnectEvent(ClientConnectedToServerEvent& event) {
   PeerSession& session = *event.session();
 
-  // Set up how packets will be encoded/decoded
-  // Note: It's more efficient to create this codec once and share it
-  // between clients, but for this example we create it per-connection
+  session.SetCodec(codecs_.codec_v2);
 
-  std::shared_ptr<Codec> codec = std::make_shared<Codec>();
-  codec->Add(PACKET_DEMO, std::make_unique<DemoSerializer>());
-  session.SetCodec(codec);
+  session.SetHandler(std::make_shared<LoginPacketHandler>(event.session()));
 
-  // Set up how packets will be processed
-  // The handler can be changed during the session - for example,
-  // you might use different handlers for login vs. game play
-  session.SetHandler(std::make_shared<MyPacketHandler>(event.session()));
-
-  // Send an initial greeting to the other peer
-  std::shared_ptr<DemoPacket> pk = std::make_shared<DemoPacket>();
-  pk->text = "Hello from client!";
+  std::shared_ptr<NetworkSettingsPacket> pk = std::make_shared<NetworkSettingsPacket>();
+  pk->protocol_ = 2;
   event.session()->SendPacket(pk);
   return false;
 }
 
-// Main event dispatcher - routes different types of events
-// to their appropriate handlers
 void OnEvent(Event& event) {
   EventDispatcher dispatcher{event};
-  // Route for different types of events
   dispatcher.Dispatch<ClientConnectedToServerEvent>(
       ZNET_BIND_GLOBAL_FN(OnConnectEvent));
 }
@@ -82,7 +88,6 @@ int main() {
     ZNET_LOG_ERROR("Failed to initialize znet: {}", GetResultString(result));
     return 1;
   }
-
 
   // Create a client configuration
   // We're connecting to localhost (127.0.0.1) on port 25000

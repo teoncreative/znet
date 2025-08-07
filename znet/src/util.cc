@@ -14,29 +14,28 @@
 #include <vector>
 #include <random>
 
+namespace znet {
+
 std::string GeneratePeerName() {
   static const std::vector<std::string> firstParts = {
-      "Skippy","Crimson","Neon","Rusty","Silent",
-      "Quantum","Velvet","Blaze","Echo","Frost",
-      "Solar","Pixel","Iron","Azure","Misty",
-      "Copper","Shadow","Polar","Turbo","Glitch",
-      "Apex","Boulder","Cascade","Drift","Ember",
-      "Gale","Halo","Jolt","Kinetic","Lunar",
-      "Monarch","Nimbus","Obsidian","Phoenix","Quasar"
-  };
+      "Skippy",  "Crimson", "Neon",     "Rusty",   "Silent",  "Quantum",
+      "Velvet",  "Blaze",   "Echo",     "Frost",   "Solar",   "Pixel",
+      "Iron",    "Azure",   "Misty",    "Copper",  "Shadow",  "Polar",
+      "Turbo",   "Glitch",  "Apex",     "Boulder", "Cascade", "Drift",
+      "Ember",   "Gale",    "Halo",     "Jolt",    "Kinetic", "Lunar",
+      "Monarch", "Nimbus",  "Obsidian", "Phoenix", "Quasar"};
   static const std::vector<std::string> secondParts = {
-      "Toe","Fox","Bolt","Wing","Shade",
-      "Pulse","Drift","Knight","Flare","Shard",
-      "Vector","Chaser","Spark","Raven","Quill",
-      "Stream","Bluff","Cipher","Warden","Orbit",
-      "Arc","Bramble","Crest","Dusk","Edge",
-      "Flicker","Harbor","Icicle","Jester","Kite",
-      "Ledger","Nexus","Omen","Rune","Spire"
-  };
+      "Toe",     "Fox",    "Bolt",   "Wing",   "Shade",   "Pulse",  "Drift",
+      "Knight",  "Flare",  "Shard",  "Vector", "Chaser",  "Spark",  "Raven",
+      "Quill",   "Stream", "Bluff",  "Cipher", "Warden",  "Orbit",  "Arc",
+      "Bramble", "Crest",  "Dusk",   "Edge",   "Flicker", "Harbor", "Icicle",
+      "Jester",  "Kite",   "Ledger", "Nexus",  "Omen",    "Rune",   "Spire"};
 
   static thread_local std::mt19937_64 gen{std::random_device{}()};
-  std::uniform_int_distribution<size_t> d1(0, firstParts.size()-1);
-  std::uniform_int_distribution<size_t> d2(0, secondParts.size()-1);
+  std::uniform_int_distribution<size_t> d1(0, firstParts.size() - 1);
+  std::uniform_int_distribution<size_t> d2(0, secondParts.size() - 1);
 
   return firstParts[d1(gen)] + secondParts[d2(gen)];
+}
+
 }

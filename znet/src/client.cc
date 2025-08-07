@@ -9,84 +9,71 @@
 //
 
 #include "znet/client.h"
-
+#include "znet/backends/tcp.h"
 #include "znet/client_events.h"
 #include "znet/error.h"
+#include "znet/init.h"
 #include "znet/logger.h"
 
 namespace znet {
 Client::Client(const ClientConfig& config) : config_(config) {
   server_address_ = InetAddress::from(config_.server_ip, config_.server_port);
+  backend_ = backends::CreateClientFromType(config.connection_type, server_address_);
 }
 
 Client::~Client() {
   ZNET_LOG_DEBUG("Destructor of the client is called.");
   Disconnect();
-#ifdef TARGET_WIN
-  WSACleanup();
-#endif
 }
 
 Result Client::Bind() {
-#ifdef TARGET_WIN
-  WORD wVersionRequested;
-  WSADATA wsaData;
-  int err;
-  /* Use the MAKEWORD(lowbyte, highbyte) macro declared in Windef.h */
-  wVersionRequested = MAKEWORD(2, 2);
-  err = WSAStartup(wVersionRequested, &wsaData);
-  if (err != 0) {
-    ZNET_LOG_ERROR("WSAStartup error. {}", err);
-    return Result::Failure;
+  Result init_result = Init();
+  if (init_result != Result::Success) {
+    ZNET_LOG_ERROR("Cannot bind because initialization of znet had failed with reason: {}", GetResultString(init_result));
+    return init_result;
   }
-#endif
-  client_socket_ = socket(AF_INET, SOCK_STREAM, 0);
-  if (client_socket_ < 0) {
-    ZNET_LOG_ERROR("Error binding socket.");
-    return Result::CannotBind;
+  if (!backend_) {
+    return Result::InvalidBackend;
   }
-  return Result::Success;
+  return backend_->Bind();
+}
+
+Result Client::Bind(const std::string& ip, PortNumber port) {
+  Result init_result = Init();
+  if (init_result != Result::Success) {
+    ZNET_LOG_ERROR("Cannot bind because initialization of znet had failed with reason: {}", GetResultString(init_result));
+    return init_result;
+  }
+  if (!backend_) {
+    return Result::InvalidBackend;
+  }
+  return backend_->Bind(ip, port);
 }
 
 Result Client::Connect() {
   if (task_.IsRunning()) {
     return Result::AlreadyConnected;
   }
-  if (!server_address_ || !server_address_->is_valid()) {
-    return Result::InvalidRemoteAddress;
+  if (!backend_) {
+    return Result::InvalidBackend;
   }
-  if (connect(client_socket_, server_address_->handle_ptr(),
-              server_address_->addr_size()) < 0) {
-    ZNET_LOG_ERROR("Error connecting to server: {}", GetLastErrorInfo());
-    return Result::Failure;
-  }
-  const char option = 1;
-#ifdef TARGET_WIN
-  setsockopt(client_socket_, SOL_SOCKET, SO_REUSEADDR | SO_BROADCAST, &option,
-             sizeof(option));
-#else
-  setsockopt(client_socket_, SOL_SOCKET,
-             SO_REUSEADDR | SO_REUSEPORT | SO_BROADCAST, &option,
-             sizeof(option));
-#endif
-  std::shared_ptr<InetAddress> local_address;
-
-  sockaddr local_ss{};
-  socklen_t local_len = sizeof(local_ss);
-  if (getsockname(client_socket_, &local_ss, &local_len) == 0) {
-    local_address = InetAddress::from(&local_ss);
-  } else {
-    ZNET_LOG_ERROR("getsockname failed, local address will be nullptr: {}", GetLastErrorInfo());
+  Result result = backend_->Connect();
+  if (result != Result::Success) {
+    return result;
   }
 
-  client_session_ =
-      std::make_shared<PeerSession>(local_address, server_address_, client_socket_, true);
+  client_session_ = backend_->client_session();
+  local_address_ = backend_->local_address();
 
   // Connected to the server
   task_.Run([this]() {
     // setup
     while (!client_session_->IsReady() && client_session_->IsAlive()) {
       client_session_->Process();
+      if (config_.connection_timeout.count() > 0 && client_session_->time_since_connect() > config_.connection_timeout) {
+        ZNET_LOG_DEBUG("Connection to {} timed-out.", server_address_->readable());
+        client_session_->Close();
+      }
     }
     if (!client_session_->IsAlive()) {
       return;

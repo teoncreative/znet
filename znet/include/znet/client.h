@@ -10,17 +10,19 @@
 
 #pragma once
 
-#include "znet/precompiled.h"
+#include <znet/backends/backend.h>
 #include "znet/interface.h"
 #include "znet/peer_session.h"
+#include "znet/precompiled.h"
 #include "znet/task.h"
 
 namespace znet {
 
 struct ClientConfig {
   std::string server_ip;
-  int server_port;
-  ConnectionType connection_type;
+  PortNumber server_port;
+  std::chrono::steady_clock::duration connection_timeout;
+  ConnectionType connection_type = ConnectionType::TCP;
 };
 
 /**
@@ -45,6 +47,8 @@ class Client : public Interface {
    * @return Result::Failure if setup process fails
    */
   Result Bind() override;
+
+  Result Bind(const std::string& ip, PortNumber port);
 
   /**
    * @brief Establishes connection to the specified server address. This function is not thread-safe.
@@ -84,12 +88,17 @@ class Client : public Interface {
     return server_address_;
   }
 
+  ZNET_NODISCARD std::shared_ptr<InetAddress> local_address() const {
+    return local_address_;
+  }
+
  private:
   ClientConfig config_;
   std::shared_ptr<InetAddress> server_address_;
-  SocketHandle client_socket_ = -1;
-
+  std::shared_ptr<InetAddress> local_address_;
+  std::unique_ptr<backends::ClientBackend> backend_;
   std::shared_ptr<PeerSession> client_session_;
+
   Task task_;
 
 };

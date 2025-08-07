@@ -27,3 +27,4 @@
 #include "znet/logger.h"
 #include "znet/server.h"
 #include "znet/peer_session.h"
+#include "znet/init.h"

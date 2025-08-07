@@ -9,6 +9,9 @@
 //
 
 #include "znet/server.h"
+#include <corecrt_io.h>
+#include <znet/backends/tcp.h>
+#include <znet/init.h>
 #include "znet/base/scheduler.h"
 #include "znet/error.h"
 #include "znet/server_events.h"
@@ -17,80 +20,23 @@ namespace znet {
 
 Server::Server() : Interface() {}
 
-Server::Server(const ServerConfig& config) : Interface(), config_(config) {}
+Server::Server(const ServerConfig& config) : Interface(), config_(config) {
+  bind_address_ = InetAddress::from(config_.bind_ip, config_.bind_port);
+  backend_ = backends::CreateServerFromType(config.connection_type, bind_address_);
+}
 
 Server::~Server() {
   ZNET_LOG_DEBUG("Destructor of the server is called.");
   Stop();
-#ifdef TARGET_WIN
-  WSACleanup();
-#endif
 }
 
 Result Server::Bind() {
-  bind_address_ = InetAddress::from(config_.bind_ip, config_.bind_port);
-  if (!bind_address_ || !bind_address_->is_valid()) {
-    return Result::InvalidAddress;
+  Result init_result = Init();
+  if (init_result != Result::Success) {
+    ZNET_LOG_ERROR("Cannot bind because initialization of znet had failed with reason: {}", GetResultString(init_result));
+    return init_result;
   }
-
-  const char option = 1;
-
-  int domain = GetDomainByInetProtocolVersion(bind_address_->ipv());
-#ifdef TARGET_WIN
-  WORD wVersionRequested;
-  WSADATA wsaData;
-  int err;
-  /* Use the MAKEWORD(lowbyte, highbyte) macro declared in Windef.h */
-  wVersionRequested = MAKEWORD(2, 2);
-  err = WSAStartup(wVersionRequested, &wsaData);
-  if (err != 0) {
-    ZNET_LOG_ERROR("WSAStartup error. {}", err);
-    return Result::Failure;
-  }
-#endif
-  server_socket_ = socket(
-      domain, SOCK_STREAM,
-      0);  // SOCK_STREAM for TCP, SOCK_DGRAM for UDP, there is also SOCK_RAW,
-           // but we don't care about that.
-  if (server_socket_ == -1) {
-    ZNET_LOG_ERROR("Error creating socket. {}", GetLastErrorInfo());
-    return Result::CannotCreateSocket;
-  }
-#ifdef TARGET_WIN
-  setsockopt(server_socket_, SOL_SOCKET, SO_REUSEADDR | SO_BROADCAST, &option,
-             sizeof(option));
-#else
-  setsockopt(server_socket_, SOL_SOCKET,
-             SO_REUSEADDR | SO_REUSEPORT | SO_BROADCAST, &option,
-             sizeof(option));
-#endif
-#ifdef TARGET_WIN
-  u_long mode = 1;  // 1 to enable non-blocking socket
-  ioctlsocket(server_socket_, FIONBIO, &mode);
-#else
-  // Set socket to non-blocking mode
-  int flags = fcntl(server_socket_, F_GETFL, 0);
-  if (flags < 0) {
-    ZNET_LOG_ERROR("Error getting socket flags: {}", GetLastErrorInfo());
-    close(server_socket_);
-    return Result::Failure;
-  }
-  if (fcntl(server_socket_, F_SETFL, flags | O_NONBLOCK) < 0) {
-    ZNET_LOG_ERROR("Error setting socket to non-blocking mode: {}",
-                   GetLastErrorInfo());
-    close(server_socket_);
-    return Result::Failure;
-  }
-#endif
-  if (bind(server_socket_, bind_address_->handle_ptr(),
-           bind_address_->addr_size()) != 0) {
-    ZNET_LOG_DEBUG("Failed to bind: {}, {}", bind_address_->readable(),
-                   GetLastErrorInfo());
-    return Result::CannotBind;
-  }
-  is_bind_ = true;
-  ZNET_LOG_DEBUG("Bind to: {}", bind_address_->readable());
-  return Result::Success;
+  return backend_->Bind();
 }
 
 void Server::Wait() {
@@ -101,16 +47,11 @@ Result Server::Listen() {
   if (task_.IsRunning()) {
     return Result::AlreadyListening;
   }
-  if (!is_bind_) {
-    return Result::CannotListen;
-  }
-  if (listen(server_socket_, SOMAXCONN) != 0) {
-    ZNET_LOG_DEBUG("Failed to listen connections from: {}, {}",
-                   bind_address_->readable(), GetLastErrorInfo());
-    return Result::CannotListen;
+  Result result = backend_->Listen();
+  if (result != Result::Success) {
+    return result;
   }
 
-  is_listening_ = true;
   shutdown_complete_ = false;
 
   task_.Run([this]() {
@@ -118,8 +59,8 @@ Result Server::Listen() {
     ServerStartupEvent startup_event{*this};
     event_callback()(startup_event);
 
-    while (is_listening_) {
-      std::lock_guard<std::mutex> lock(mutex_);
+    while (backend_->IsAlive()) {
+      std::lock_guard<std::mutex> lock(backend_->mutex());
       scheduler_.Start();
       CheckNetwork();
       ProcessSessions();
@@ -131,24 +72,8 @@ Result Server::Listen() {
     ServerShutdownEvent shutdown_event{*this};
     event_callback()(shutdown_event);
 
-    // Disconnect all sessions
-    for (const auto& item : sessions_) {
-      item.second->Close();
-    }
-    sessions_.clear();
-
-    // Close the server
-#ifdef TARGET_WIN
-    if (closesocket(server_socket_) != 0) {
-      ZNET_LOG_DEBUG("Failed to close socket: {}, {}",
-                     bind_address_->readable(), GetLastErrorInfo());
-    }
-#else
-    if (close(server_socket_) != 0) {
-      ZNET_LOG_DEBUG("Failed to close socket: {}, {}",
-                     bind_address_->readable(), GetLastErrorInfo());
-    }
-#endif
+    DisconnectPeers();
+    backend_->Close();
 
     ZNET_LOG_DEBUG("Server shutdown complete.");
     shutdown_complete_ = true;
@@ -157,57 +82,22 @@ Result Server::Listen() {
 }
 
 Result Server::Stop() {
-  std::lock_guard<std::mutex> lock(mutex_);
-  if (!is_listening_) {
-    return Result::AlreadyStopped;
-  }
-  is_listening_ = false;
-  is_bind_ = false;
-  return Result::Success;
+  return backend_->Close();
 }
 
 void Server::SetTicksPerSecond(int tps) {
-  std::lock_guard<std::mutex> lock(mutex_);
+  std::lock_guard<std::mutex> lock(backend_->mutex());
   tps = std::max(tps, 1);
   tps_ = tps;
   scheduler_.SetTicksPerSecond(tps);
 }
 
 void Server::CheckNetwork() {
-  sockaddr client_address{};
-  socklen_t addr_len = sizeof(client_address);
-  SocketHandle client_socket = accept(server_socket_, &client_address, &addr_len);
-#ifdef TARGET_WIN
-  if (client_socket == INVALID_SOCKET) {
-    return;
+  auto session = backend_->Accept();
+  if (session != nullptr) {
+    ZNET_LOG_DEBUG("Accepted new connection from: {}", session->remote_address()->readable());
+    pending_sessions_[session->remote_address()] = session;
   }
-  u_long mode = 1;  // 1 to enable non-blocking socket
-  ioctlsocket(server_socket_, FIONBIO, &mode);
-#else
-  if (client_socket <= 0) {
-    return;
-  }
-  // Set socket to non-blocking mode
-  int flags = fcntl(server_socket_, F_GETFL, 0);
-  if (flags < 0) {
-    ZNET_LOG_ERROR("Error getting socket flags: {}", GetLastErrorInfo());
-    close(client_socket);
-    return;
-  }
-  if (fcntl(server_socket_, F_SETFL, flags | O_NONBLOCK) < 0) {
-    ZNET_LOG_ERROR("Error setting socket to non-blocking mode: {}",
-                   GetLastErrorInfo());
-    close(client_socket);
-    return;
-  }
-#endif
-  std::shared_ptr<InetAddress> remote_address = InetAddress::from(&client_address);
-  if (remote_address == nullptr) {
-    return;
-  }
-  auto session =
-      std::make_shared<PeerSession>(bind_address_, remote_address, client_socket);
-  pending_sessions_[remote_address] = session;
 }
 
 void Server::CleanupAndProcessSessions(SessionMap& map) {
@@ -238,6 +128,16 @@ void Server::CleanupAndProcessSessions(SessionMap& map) {
   }
 }
 
+void Server::DisconnectPeers() {
+  for (auto&& item : sessions_) {
+    item.second->Close();
+  }
+  for (auto&& item : pending_sessions_) {
+    item.second->Close();
+  }
+  ProcessSessions();
+}
+
 void Server::ProcessSessions() {
   // cleanup and process pending sessions
   CleanupAndProcessSessions(pending_sessions_);
@@ -246,6 +146,10 @@ void Server::ProcessSessions() {
   std::vector<decltype(pending_sessions_)::key_type> promote;
   for (auto&& item : pending_sessions_) {
     if (!item.second->IsReady()) {
+      if (config_.connection_timeout.count() > 0 && item.second->time_since_connect() > config_.connection_timeout) {
+        ZNET_LOG_DEBUG("Pending connection from {} was timed-out.", item.second->remote_address()->readable());
+        item.second->Close();
+      }
       continue;
     }
     promote.emplace_back(item.first);

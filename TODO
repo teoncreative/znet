@@ -3,8 +3,10 @@
 - [x] Events
 - [x] Server Implementation
 - [x] Client Implementation
-- [ ] Compression (optional if zlib or zstd is added)
-- [x] Encryption
+- [x] Compression (zstd)
+- [ ] Compression (zlib)
+- [ ] Compression (snappy)
+- [x] TLS
 - [ ] TCP options
 - [x] Windows support
 - [x] Linux support (Linux should be the same)
@@ -19,6 +21,17 @@
 - [ ] Proxy support
 - [ ] Unix socket support
 - [ ] Limit array/vector/string read sizes
-- [ ] Connection throttling
+- [ ] Connection throttling (IP / CIDR)
+- [ ] Max concurrent connections
 - [ ] Peer to peer TCP hole-punching
-- [ ] Validate IP addresses
+- [x] Validate IP addresses
+- [ ] Public key authentication
+- [ ] Allowlists and denylists
+- [ ] Idle timeout and ping-pong
+- [x] Abstract transport
+- [ ] Mock transport
+- [ ] Fuzz testing
+- [ ] Metrics
+- [ ] Graceful Disconnects (?)
+- [ ] Version Negotiation (?)
+- [ ] Feature flag Negotiation (?)

@@ -77,11 +77,18 @@ void OnEvent(Event& event) {
 }
 
 int main() {
+  Result result;
+
+  if ((result = znet::Init()) != Result::Success) {
+    ZNET_LOG_ERROR("Failed to initialize znet: {}", GetResultString(result));
+    return 1;
+  }
+
   // Create the server configuration
   // We're listening on localhost (127.0.0.1) port 25000
   // In a real application, you'd typically get these values from
   // command line arguments or a config file or from ui
-  ServerConfig config{"127.0.0.1", 25000};
+  ServerConfig config{"localhost", 25000, std::chrono::seconds(10)};
 
   // Initialize the server with our configuration
   // This sets up the internal server state but doesn't start listening yet
@@ -91,13 +98,10 @@ int main() {
   // This ensures the server closes cleanly when interrupted (Ctrl+C)
   // This part is optional
   RegisterSignalHandler([&server](Signal sig) -> bool {
-    if (sig == znet::kSignalInterrupt) {
-      // stop the server when SIGINT is received
-      server.Stop();
-      return server.shutdown_complete();
-    }
-    return false;
-  });
+    // stop the server when SIGINT is received
+    server.Stop();
+    return server.shutdown_complete();
+  }, znet::kSignalInterrupt);
 
   // Register our event handler to process server events
   // OnEvent will be called for client connections, disconnections,
@@ -106,14 +110,16 @@ int main() {
 
   // Try to bind the server to the configured network interface
   // This reserves the port for our use
-  if (server.Bind() != Result::Success) {
-    return 1; // Exit if binding fails (e.g., port already in use)
+  if ((result = server.Bind()) != Result::Success) {
+    ZNET_LOG_ERROR("Failed to bind: {}", GetResultString(result));
+    return 1;
   }
 
   // Start listening for incoming client connections
   // This begins accepting clients but doesn't block the main thread (async)
-  if (server.Listen() != Result::Success) {
-    return 1; // Exit if we can't start listening
+  if ((result = server.Listen()) != Result::Success) {
+    ZNET_LOG_ERROR("Failed to listen: {}", GetResultString(result));
+    return 1;
   }
 
   // Wait for the server to stop
@@ -122,5 +128,6 @@ int main() {
   server.Wait();
 
   // Server has shut down cleanly
+  znet::Cleanup();
   return 0;
 }

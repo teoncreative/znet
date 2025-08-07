@@ -19,6 +19,11 @@ namespace znet {
 #define ZNET_MAX_BUFFER_SIZE 4096 //16384
 #endif
 
+// When this macro is given as a port, makes the system select a port instead
+// Use the client.local_address() function to get the port on Client
+// Use the server.bind_address() function to get the port on Server
+#define ZNET_PORT_AUTO 0
+
 using PacketId = uint64_t;
 using SessionId = uint64_t;
 
@@ -36,11 +41,12 @@ constexpr Endianness GetSystemEndianness() {
 }
 #else
 inline Endianness GetSystemEndianness() {
-  union {
+  static union {
     uint32_t i;
     uint8_t c[4];
   } u = {0x01020304};
-  return (u.c[0] == 0x01) ? Endianness::BigEndian : Endianness::LittleEndian;
+  static Endianness e = (u.c[0] == 0x01) ? Endianness::BigEndian : Endianness::LittleEndian;
+  return e;
 }
 #endif
 
@@ -51,17 +57,63 @@ enum class Result {
   AlreadyClosed,
   AlreadyDisconnected,
   CannotBind,
+  NotBound,
   InvalidAddress,
   InvalidRemoteAddress,
   CannotCreateSocket,
   CannotListen,
   AlreadyConnected,
-  AlreadyListening
+  AlreadyListening,
+  NotInitialized,
+  AlreadyBound,
+  InvalidBackend,
+  InvalidTransport
 };
+
+inline std::string GetResultString(Result result) {
+  switch (result) {
+    case Result::Success:
+      return "Success";
+    case Result::Failure:
+      return "Failure";
+    case Result::AlreadyStopped:
+      return "AlreadyStopped";
+    case Result::AlreadyClosed:
+      return "AlreadyClosed";
+    case Result::AlreadyDisconnected:
+      return "AlreadyDisconnected";
+    case Result::NotBound:
+      return "NotBound";
+    case Result::CannotBind:
+      return "CannotBind";
+    case Result::InvalidAddress:
+      return "InvalidAddress";
+    case Result::InvalidRemoteAddress:
+      return "InvalidRemoteAddress";
+    case Result::CannotCreateSocket:
+      return "CannotCreateSocket";
+    case Result::CannotListen:
+      return "CannotListen";
+    case Result::AlreadyConnected:
+      return "AlreadyConnected";
+    case Result::AlreadyListening:
+      return "AlreadyListening";
+    case Result::NotInitialized:
+      return "NotInitialized";
+    case Result::AlreadyBound:
+      return "AlreadyBound";
+    case Result::InvalidBackend:
+      return "InvalidBackend";
+    case Result::InvalidTransport:
+      return "InvalidTransport";
+    default:
+      return "Unknown";
+  }
+}
 
 enum class ConnectionType {
   TCP,
-  //UDPUnreliable,
+  RUDP,
   //RakNet,
   //ENet,
   //WebSocket,
