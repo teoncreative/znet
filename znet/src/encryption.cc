@@ -367,7 +367,7 @@ bool EncryptionLayer::SendPacket(std::shared_ptr<Packet> packet) {
   if (!buffer) {
     return false;
   }
-  return session_.transport_layer_.Send(buffer);
+  return session_.transport_layer_->Send(buffer);
 }
 
 std::shared_ptr<Buffer> EncryptionLayer::HandleOut(std::shared_ptr<Buffer> buffer) {

@@ -10,6 +10,7 @@
 
 #include "znet/server.h"
 #include <corecrt_io.h>
+#include <znet/backends/tcp.h>
 #include <znet/init.h>
 #include "znet/base/scheduler.h"
 #include "znet/error.h"
@@ -19,14 +20,14 @@ namespace znet {
 
 Server::Server() : Interface() {}
 
-Server::Server(const ServerConfig& config) : Interface(), config_(config) {}
+Server::Server(const ServerConfig& config) : Interface(), config_(config) {
+  bind_address_ = InetAddress::from(config_.bind_ip, config_.bind_port);
+  backend_ = backends::CreateServerFromType(config.connection_type, bind_address_);
+}
 
 Server::~Server() {
   ZNET_LOG_DEBUG("Destructor of the server is called.");
   Stop();
-#ifdef TARGET_WIN
-  WSACleanup();
-#endif
 }
 
 Result Server::Bind() {
@@ -35,65 +36,7 @@ Result Server::Bind() {
     ZNET_LOG_ERROR("Cannot bind because initialization of znet had failed with reason: {}", GetResultString(init_result));
     return init_result;
   }
-  bind_address_ = InetAddress::from(config_.bind_ip, config_.bind_port);
-  if (!bind_address_ || !bind_address_->is_valid()) {
-    return Result::InvalidAddress;
-  }
-
-  const char option = 1;
-
-  int domain = GetDomainByInetProtocolVersion(bind_address_->ipv());
-  server_socket_ = socket(
-      domain, SOCK_STREAM,
-      0);  // SOCK_STREAM for TCP, SOCK_DGRAM for UDP, there is also SOCK_RAW,
-           // but we don't care about that.
-  if (server_socket_ == -1) {
-    ZNET_LOG_ERROR("Error creating socket. {}", GetLastErrorInfo());
-    return Result::CannotCreateSocket;
-  }
-#ifdef TARGET_WIN
-  setsockopt(server_socket_, SOL_SOCKET, SO_REUSEADDR | SO_BROADCAST, &option,
-             sizeof(option));
-#else
-  setsockopt(server_socket_, SOL_SOCKET,
-             SO_REUSEADDR | SO_REUSEPORT | SO_BROADCAST, &option,
-             sizeof(option));
-#endif
-#ifdef TARGET_WIN
-  u_long mode = 1;  // 1 to enable non-blocking socket
-  ioctlsocket(server_socket_, FIONBIO, &mode);
-#else
-  // Set socket to non-blocking mode
-  int flags = fcntl(server_socket_, F_GETFL, 0);
-  if (flags < 0) {
-    ZNET_LOG_ERROR("Error getting socket flags: {}", GetLastErrorInfo());
-    close(server_socket_);
-    return Result::Failure;
-  }
-  if (fcntl(server_socket_, F_SETFL, flags | O_NONBLOCK) < 0) {
-    ZNET_LOG_ERROR("Error setting socket to non-blocking mode: {}",
-                   GetLastErrorInfo());
-    close(server_socket_);
-    return Result::Failure;
-  }
-#endif
-  if (bind(server_socket_, bind_address_->handle_ptr(),
-           bind_address_->addr_size()) != 0) {
-    ZNET_LOG_DEBUG("Failed to bind: {}, {}", bind_address_->readable(),
-                   GetLastErrorInfo());
-    return Result::CannotBind;
-  }
-  // Get the bind address back so we know the actual port.
-  sockaddr_storage local_ss{};
-  socklen_t local_len = sizeof(local_ss);
-  if (getsockname(server_socket_, reinterpret_cast<sockaddr*>(&local_ss), &local_len) == 0) {
-    bind_address_ = InetAddress::from(reinterpret_cast<sockaddr*>(&local_ss));
-  } else {
-    ZNET_LOG_ERROR("getsockname failed: {}", GetLastErrorInfo());
-  }
-  is_bind_ = true;
-  ZNET_LOG_DEBUG("Bind to: {}", bind_address_->readable());
-  return Result::Success;
+  return backend_->Bind();
 }
 
 void Server::Wait() {
@@ -104,17 +47,11 @@ Result Server::Listen() {
   if (task_.IsRunning()) {
     return Result::AlreadyListening;
   }
-  if (!is_bind_) {
-    ZNET_LOG_ERROR("Cannot listen because the server is not bound, make sure to call Bind() first.");
-    return Result::NotBound;
-  }
-  if (listen(server_socket_, SOMAXCONN) != 0) {
-    ZNET_LOG_DEBUG("Failed to listen connections from: {}, {}",
-                   bind_address_->readable(), GetLastErrorInfo());
-    return Result::CannotListen;
+  Result result = backend_->Listen();
+  if (result != Result::Success) {
+    return result;
   }
 
-  is_listening_ = true;
   shutdown_complete_ = false;
 
   task_.Run([this]() {
@@ -122,8 +59,8 @@ Result Server::Listen() {
     ServerStartupEvent startup_event{*this};
     event_callback()(startup_event);
 
-    while (is_listening_) {
-      std::lock_guard<std::mutex> lock(mutex_);
+    while (backend_->IsAlive()) {
+      std::lock_guard<std::mutex> lock(backend_->mutex());
       scheduler_.Start();
       CheckNetwork();
       ProcessSessions();
@@ -136,18 +73,7 @@ Result Server::Listen() {
     event_callback()(shutdown_event);
 
     DisconnectPeers();
-    // Close the server
-#ifdef TARGET_WIN
-    if (closesocket(server_socket_) != 0) {
-      ZNET_LOG_DEBUG("Failed to close socket: {}, {}",
-                     bind_address_->readable(), GetLastErrorInfo());
-    }
-#else
-    if (close(server_socket_) != 0) {
-      ZNET_LOG_DEBUG("Failed to close socket: {}, {}",
-                     bind_address_->readable(), GetLastErrorInfo());
-    }
-#endif
+    backend_->Close();
 
     ZNET_LOG_DEBUG("Server shutdown complete.");
     shutdown_complete_ = true;
@@ -156,57 +82,21 @@ Result Server::Listen() {
 }
 
 Result Server::Stop() {
-  std::lock_guard<std::mutex> lock(mutex_);
-  if (!is_listening_) {
-    return Result::AlreadyStopped;
-  }
-  is_listening_ = false;
-  is_bind_ = false; // is this correct?
-  return Result::Success;
+  return backend_->Close();
 }
 
 void Server::SetTicksPerSecond(int tps) {
-  std::lock_guard<std::mutex> lock(mutex_);
+  std::lock_guard<std::mutex> lock(backend_->mutex());
   tps = std::max(tps, 1);
   tps_ = tps;
   scheduler_.SetTicksPerSecond(tps);
 }
 
 void Server::CheckNetwork() {
-  sockaddr_storage client_address{};
-  socklen_t addr_len = sizeof(client_address);
-  SocketHandle client_socket = accept(server_socket_, reinterpret_cast<sockaddr*>(&client_address), &addr_len);
-#ifdef TARGET_WIN
-  if (client_socket == INVALID_SOCKET) {
-    return;
+  auto session = backend_->Accept();
+  if (session != nullptr) {
+    pending_sessions_[session->remote_address()] = session;
   }
-  u_long mode = 1;  // 1 to enable non-blocking socket
-  ioctlsocket(server_socket_, FIONBIO, &mode);
-#else
-  if (client_socket <= 0) {
-    return;
-  }
-  // Set socket to non-blocking mode
-  int flags = fcntl(server_socket_, F_GETFL, 0);
-  if (flags < 0) {
-    ZNET_LOG_ERROR("Error getting socket flags: {}", GetLastErrorInfo());
-    close(client_socket);
-    return;
-  }
-  if (fcntl(server_socket_, F_SETFL, flags | O_NONBLOCK) < 0) {
-    ZNET_LOG_ERROR("Error setting socket to non-blocking mode: {}",
-                   GetLastErrorInfo());
-    close(client_socket);
-    return;
-  }
-#endif
-  std::shared_ptr<InetAddress> remote_address = InetAddress::from(reinterpret_cast<sockaddr*>(&client_address));
-  if (remote_address == nullptr) {
-    return;
-  }
-  auto session =
-      std::make_shared<PeerSession>(bind_address_, remote_address, client_socket);
-  pending_sessions_[remote_address] = session;
 }
 
 void Server::CleanupAndProcessSessions(SessionMap& map) {

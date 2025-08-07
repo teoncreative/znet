@@ -16,6 +16,7 @@
 #include "znet/precompiled.h"
 #include "znet/transport.h"
 #include "znet/compression.h"
+#include "znet/send_options.h"
 
 namespace znet {
 
@@ -34,7 +35,7 @@ class PeerSession {
  public:
   PeerSession(std::shared_ptr<InetAddress> local_address,
               std::shared_ptr<InetAddress> remote_address,
-              SocketHandle socket, bool is_initiator = false);
+              std::unique_ptr<TransportLayer> transport_layer, bool is_initiator = false);
   PeerSession(const PeerSession&) = delete;
   PeerSession(PeerSession&&) = delete;
 
@@ -42,7 +43,7 @@ class PeerSession {
 
   Result Close();
 
-  bool IsAlive() { return is_alive_; }
+  bool IsAlive();
 
   bool IsReady() { return is_ready_; }
 
@@ -58,9 +59,9 @@ class PeerSession {
     return remote_address_;
   }
 
-  ZNET_NODISCARD TransportLayer& transport_layer() { return transport_layer_; }
+  bool SendPacket(std::shared_ptr<Packet> packet, SendOptions options = {});
 
-  bool SendPacket(std::shared_ptr<Packet> packet);
+  bool SendRaw(std::shared_ptr<Buffer> buffer, SendOptions options = {});
 
   void SetCodec(std::shared_ptr<Codec> codec) {
     codec_ = std::move(codec);
@@ -138,7 +139,6 @@ class PeerSession {
   }
 
   SessionId id_;
-  SocketHandle socket_;
   std::shared_ptr<InetAddress> local_address_;
   PortNumber local_port_;
   std::shared_ptr<InetAddress> remote_address_;
@@ -146,12 +146,11 @@ class PeerSession {
 
   std::shared_ptr<Codec> codec_;
   std::shared_ptr<PacketHandlerBase> handler_;
-  TransportLayer transport_layer_;
+  std::unique_ptr<TransportLayer> transport_layer_;
   EncryptionLayer encryption_layer_;
   CompressionType out_compression_type_ = CompressionType::None;
   bool is_initiator_;
   bool is_ready_ = false;
-  bool is_alive_ = true;
   std::chrono::steady_clock::time_point connect_time_;
   std::chrono::steady_clock::time_point expire_at_;
   bool has_expiry_ = false;

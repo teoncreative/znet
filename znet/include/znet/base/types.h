@@ -64,7 +64,10 @@ enum class Result {
   CannotListen,
   AlreadyConnected,
   AlreadyListening,
-  NotInitialized
+  NotInitialized,
+  AlreadyBound,
+  InvalidBackend,
+  InvalidTransport
 };
 
 inline std::string GetResultString(Result result) {
@@ -97,6 +100,12 @@ inline std::string GetResultString(Result result) {
       return "AlreadyListening";
     case Result::NotInitialized:
       return "NotInitialized";
+    case Result::AlreadyBound:
+      return "AlreadyBound";
+    case Result::InvalidBackend:
+      return "InvalidBackend";
+    case Result::InvalidTransport:
+      return "InvalidTransport";
     default:
       return "Unknown";
   }
@@ -104,7 +113,7 @@ inline std::string GetResultString(Result result) {
 
 enum class ConnectionType {
   TCP,
-  //UDPUnreliable,
+  RUDP,
   //RakNet,
   //ENet,
   //WebSocket,

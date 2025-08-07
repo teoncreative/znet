@@ -21,13 +21,13 @@ set(ZNET_SOURCES
         src/error.cc
         src/logger.cc
         src/encryption.cc
-        src/transport.cc
         src/peer_session.cc
         src/compression.cc
         src/codec.cc
         src/util.cc
         src/pch.cc
         src/init.cc
+        src/backend/tcp.cc
 )
 
 add_library(znet STATIC

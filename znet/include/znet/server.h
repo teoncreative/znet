@@ -16,13 +16,14 @@
 #include "znet/peer_session.h"
 #include "znet/precompiled.h"
 #include "znet/task.h"
+#include "znet/backends/backend.h"
 
 namespace znet {
 
 struct ServerConfig {
   std::string bind_ip;
   PortNumber bind_port;
-  ConnectionType connection_type;
+  ConnectionType connection_type = ConnectionType::TCP;
 };
 
 /**
@@ -114,12 +115,10 @@ class Server : public Interface {
   void DisconnectPeers();
 
  private:
-  std::mutex mutex_;
-  ServerConfig config_;
   std::shared_ptr<InetAddress> bind_address_;
-  bool is_listening_ = false;
-  bool is_bind_ = false;
-  SocketHandle server_socket_ = -1;
+  std::unique_ptr<backends::ServerBackend> backend_;
+
+  ServerConfig config_;
   bool shutdown_complete_ = false;
   int tps_ = 1000;
   Scheduler scheduler_{tps_};

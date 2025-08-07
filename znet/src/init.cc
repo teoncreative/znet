@@ -48,7 +48,11 @@ class Initializer {
   Initializer(const Initializer&) = delete;
   Initializer& operator=(const Initializer&) = delete;
 
-  ~Initializer() {}
+  ~Initializer() {
+#ifdef TARGET_WIN
+    WSACleanup();
+#endif
+  }
 
   Result result() const { return result_; }
 

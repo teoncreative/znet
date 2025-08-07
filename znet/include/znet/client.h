@@ -10,9 +10,10 @@
 
 #pragma once
 
-#include "znet/precompiled.h"
+#include <znet/backends/backend.h>
 #include "znet/interface.h"
 #include "znet/peer_session.h"
+#include "znet/precompiled.h"
 #include "znet/task.h"
 
 namespace znet {
@@ -20,7 +21,7 @@ namespace znet {
 struct ClientConfig {
   std::string server_ip;
   PortNumber server_port;
-  ConnectionType connection_type;
+  ConnectionType connection_type = ConnectionType::TCP;
 };
 
 /**
@@ -94,10 +95,9 @@ class Client : public Interface {
   ClientConfig config_;
   std::shared_ptr<InetAddress> server_address_;
   std::shared_ptr<InetAddress> local_address_;
-  SocketHandle client_socket_ = -1;
-  bool is_bind_ = false;
-
+  std::unique_ptr<backends::ClientBackend> backend_;
   std::shared_ptr<PeerSession> client_session_;
+
   Task task_;
 
 };

@@ -18,11 +18,10 @@ namespace znet {
 
 PeerSession::PeerSession(std::shared_ptr<InetAddress> local_address,
                          std::shared_ptr<InetAddress> remote_address,
-                         SocketHandle socket, bool is_initiator)
+                         std::unique_ptr<TransportLayer> transport_layer, bool is_initiator)
     : local_address_(std::move(local_address)),
       remote_address_(std::move(remote_address)),
-      socket_(socket), is_initiator_(is_initiator),
-      transport_layer_(*this, socket),
+      transport_layer_(std::move(transport_layer)), is_initiator_(is_initiator),
       encryption_layer_(*this),
       connect_time_(std::chrono::steady_clock::now()) {
   static SessionId sIdCount = 0;
@@ -31,7 +30,7 @@ PeerSession::PeerSession(std::shared_ptr<InetAddress> local_address,
 }
 
 void PeerSession::Process() {
-  if (!is_alive_) {
+  if (!IsAlive()) {
     return;
   }
   if (IsExpired()) {
@@ -40,7 +39,7 @@ void PeerSession::Process() {
     return;
   }
   std::shared_ptr<Buffer> buffer;
-  if ((buffer = transport_layer_.Receive())) {
+  if ((buffer = transport_layer_->Receive())) {
     buffer = compr::HandleInDynamic(buffer);
     buffer = encryption_layer_.HandleIn(buffer);
     if (buffer && handler_ && codec_) {
@@ -50,37 +49,51 @@ void PeerSession::Process() {
 }
 
 Result PeerSession::Close() {
-  if (!is_alive_) {
-    return Result::AlreadyDisconnected;
+  if (!transport_layer_) {
+    return Result::InvalidTransport;
   }
-  // Close the socket
-  is_alive_ = false;
-#ifdef TARGET_WIN
-  closesocket(socket_);
-#else
-  close(socket_);
-#endif
-  return Result::Success;
+  return transport_layer_->Close();
+}
+
+bool PeerSession::IsAlive() {
+  return transport_layer_ && !transport_layer_->IsClosed();
 }
 
 void PeerSession::Ready() {
+  if (!IsAlive()) {
+    return;
+  }
   is_ready_ = true;
   connect_time_ = std::chrono::steady_clock::now();
-  SetOutCompression(CompressionType::Zstandard);
 #ifdef ZNET_USE_ZSTD
+  SetOutCompression(CompressionType::Zstandard);
 #endif
 }
-bool PeerSession::SendPacket(std::shared_ptr<Packet> packet) {
+
+bool PeerSession::SendPacket(std::shared_ptr<Packet> packet, SendOptions options) {
+  if (!packet || !IsAlive()) {
+    return false;
+  }
   auto buffer = codec_->Serialize(std::move(packet));
   if (!buffer) {
     return false;
   }
   buffer = encryption_layer_.HandleOut(std::move(buffer));
+  if (!buffer) {
+    return false;
+  }
   buffer = compr::HandleOutWithType(out_compression_type_, std::move(buffer));
   if (!buffer) {
     return false;
   }
-  return transport_layer_.Send(buffer);
+  return transport_layer_->Send(buffer, options);
+}
+
+bool PeerSession::SendRaw(std::shared_ptr<Buffer> buffer, SendOptions options) {
+  if (!buffer || !IsAlive()) {
+    return false;
+  }
+  return transport_layer_->Send(buffer, options);
 }
 
 }
