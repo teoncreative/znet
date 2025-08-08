@@ -29,6 +29,10 @@ PeerSession::PeerSession(std::shared_ptr<InetAddress> local_address,
   encryption_layer_.Initialize(is_initiator);
 }
 
+PeerSession::~PeerSession() {
+  Close();
+}
+
 void PeerSession::Process() {
   if (!IsAlive()) {
     return;

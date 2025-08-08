@@ -38,6 +38,7 @@ class PeerSession {
               std::unique_ptr<TransportLayer> transport_layer, bool is_initiator = false);
   PeerSession(const PeerSession&) = delete;
   PeerSession(PeerSession&&) = delete;
+  ~PeerSession();
 
   void Process();
 
