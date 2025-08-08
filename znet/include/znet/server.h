@@ -105,15 +105,56 @@ class Server : public Interface {
 
   ZNET_NODISCARD bool shutdown_complete() const { return shutdown_complete_; }
 
-  ZNET_NODISCARD int tps() const { return tps_; }
-
  std::shared_ptr<InetAddress> bind_address() const { return bind_address_; }
 
  private:
+  struct TaskData {
+    std::mutex mutex_;
+    SessionMap sessions_;
+    std::unique_ptr<Task> task_;
+    bool running_ = true;
+    Scheduler scheduler_{120};
+    std::condition_variable cv_;
+
+    TaskData() = default;
+    ~TaskData() {
+      running_ = false;
+      cv_.notify_all();
+      if (task_) {
+        task_->Wait();
+      }
+      sessions_.clear();
+    }
+    TaskData(TaskData&& other) noexcept
+        : sessions_(std::move(other.sessions_)),
+          task_(std::move(other.task_)),
+          running_(other.running_) {
+      // new mutex_ is default constructed
+    }
+
+    TaskData& operator=(TaskData&& other) noexcept {
+      if (this != &other) {
+        std::lock_guard<std::mutex> lock(other.mutex_);
+        sessions_ = std::move(other.sessions_);
+        task_ = std::move(other.task_);
+        running_ = other.running_;
+        // mutex_ is not moved — stays as-is
+      }
+      return *this;
+    }
+    TaskData(const TaskData&) = delete;
+    TaskData& operator=(const TaskData&) = delete;
+  };
+
+  void MainProcessor();
+
   void CheckNetwork();
   void ProcessSessions();
-  void CleanupAndProcessSessions(SessionMap& map);
-  void DisconnectPeers();
+  void CleanupAndProcessSessions(SessionMap& sessions);
+  void DisconnectPending();
+  void PromoteReady(std::shared_ptr<PeerSession> session);
+  bool SubmitSession(TaskData& data, std::shared_ptr<PeerSession> session);
+  TaskData* SelectNextTask();
 
  private:
   std::shared_ptr<InetAddress> bind_address_;
@@ -121,11 +162,10 @@ class Server : public Interface {
 
   ServerConfig config_;
   bool shutdown_complete_ = false;
-  int tps_ = 1000;
-  Scheduler scheduler_{tps_};
+  Scheduler scheduler_{60};
   Task task_;
 
-  SessionMap sessions_;
+  std::vector<TaskData> tasks_;
   SessionMap pending_sessions_;
 };
 }  // namespace znet
