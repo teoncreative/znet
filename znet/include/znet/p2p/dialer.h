@@ -58,9 +58,13 @@ class Dialer {
                  sizeof(option));
     }
 
-    if (bind(listen_socket, local->handle_ptr(), local->addr_size()) != 0 ||
-        bind(active_socket, local->handle_ptr(), local->addr_size()) != 0) {
+    if (bind(listen_socket, local->handle_ptr(), local->addr_size()) != 0) {
       Cleanup(listen_socket, active_socket);
+      ZNET_LOG_ERROR("Failed to bind listen socket to {}", local->readable());
+      return Result::CannotBind;
+    }
+    if (bind(active_socket, local->handle_ptr(), local->addr_size()) != 0) {
+      ZNET_LOG_ERROR("Failed to active listen socket to {}", local->readable());
       return Result::CannotBind;
     }
 
