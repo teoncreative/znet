@@ -255,8 +255,10 @@ void TCPClientBackend::CleanupSocket() {
   CloseSocket(client_socket_);
   client_socket_ = INVALID_SOCKET;
   is_bind_ = false;
-  client_session_->Close();
-  client_session_ = nullptr;
+  if (client_session_) {
+    client_session_->Close();
+    client_session_ = nullptr;
+  }
 }
 
 TCPServerBackend::TCPServerBackend(std::shared_ptr<InetAddress> bind_address)
