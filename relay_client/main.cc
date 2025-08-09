@@ -68,7 +68,7 @@ int main(int argc, char* argv[]) {
   }
 
   uint16_t port = result["port"].as<uint16_t>();
-  std::string host = result["host"].as<std::string>();
+  std::string host = result["target"].as<std::string>();
 
   ZNET_LOG_INFO("Connecting to relay on {}:{}...", host, port);
   znet::p2p::PeerLocatorConfig config{host, port};
