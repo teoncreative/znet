@@ -37,7 +37,7 @@ class Dialer {
     if (!IsValidSocketHandle(listen_socket) ||
         !IsValidSocketHandle(active_socket)) {
       Cleanup(listen_socket, active_socket);
-      return Result::Failure;
+      return Result::CannotCreateSocket;
     }
 
     const char option = 1;
@@ -61,7 +61,7 @@ class Dialer {
     if (bind(listen_socket, local->handle_ptr(), local->addr_size()) != 0 ||
         bind(active_socket, local->handle_ptr(), local->addr_size()) != 0) {
       Cleanup(listen_socket, active_socket);
-      return Result::Failure;
+      return Result::CannotBind;
     }
 
     SetSocketBlocking(listen_socket, false);
@@ -69,25 +69,25 @@ class Dialer {
 
     if (listen(listen_socket, 1) != 0) {
       Cleanup(listen_socket, active_socket);
-      return Result::Failure;
+      return Result::CannotListen;
     }
 
     if (connect(active_socket, peer->handle_ptr(), peer->addr_size()) != 0 &&
         !WouldBlock(LastErr())) {
       Cleanup(listen_socket, active_socket);
-      return Result::Failure;
+      return Result::CannotConnect;
     }
-    fd_set r, w;
-    FD_ZERO(&r);
-    FD_ZERO(&w);
-    FD_SET(listen_socket, &r);
-    FD_SET(active_socket, &w);  // connect completion
-    struct timeval tv = {timeout_ms / 1000, (timeout_ms % 1000) * 1000};
-
     std::chrono::steady_clock::duration connection_timeout =
         std::chrono::seconds(60);
     std::chrono::steady_clock::time_point start_time;
     while (true) {
+      fd_set r, w;
+      FD_ZERO(&r);
+      FD_ZERO(&w);
+      FD_SET(listen_socket, &r);
+      FD_SET(active_socket, &w);  // connect completion
+      struct timeval tv = {timeout_ms / 1000, (timeout_ms % 1000) * 1000};
+
       int n =
           select(std::max(listen_socket, active_socket) + 1, &r, &w, NULL, &tv);
       if (n <= 0) {
