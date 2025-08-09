@@ -15,18 +15,6 @@
 
 namespace znet {
 
-#if defined(TARGET_APPLE) || defined(TARGET_WEB) || defined(TARGET_LINUX)
-using SocketHandle = int;
-using PortNumber = in_port_t;
-using IPv4Address = in_addr;
-using IPv6Address = in6_addr;
-#elif defined(TARGET_WIN)
-using SocketHandle = SOCKET;
-using PortNumber = USHORT;
-using IPv4Address = IN_ADDR;
-using IPv6Address = IN6_ADDR;
-#endif
-
 enum class InetProtocolVersion { IPv4, IPv6 };
 
 std::string ResolveHostnameToIP(const std::string& hostname);
@@ -61,6 +49,8 @@ class InetAddress {
 
   ZNET_NODISCARD virtual PortNumber port() const = 0;
 
+  ZNET_NODISCARD virtual std::unique_ptr<InetAddress> WithPort(PortNumber port) const = 0;
+
   static std::unique_ptr<InetAddress> from(const std::string& host, PortNumber port);
   static std::unique_ptr<InetAddress> from(sockaddr* addr);
 
@@ -89,6 +79,10 @@ class InetAddressIPv4 : public InetAddress {
     return addr.sin_port;
   }
 
+  ZNET_NODISCARD std::unique_ptr<InetAddress> WithPort(PortNumber port) const override {
+    return std::make_unique<InetAddressIPv4>(addr.sin_addr, port);
+  }
+
  private:
   sockaddr_in addr{};
   bool is_valid_;
@@ -97,9 +91,7 @@ class InetAddressIPv4 : public InetAddress {
 class InetAddressIPv6 : public InetAddress {
  public:
   explicit InetAddressIPv6(PortNumber port);
-
   InetAddressIPv6(IPv6Address ip, PortNumber port);
-
   InetAddressIPv6(const std::string& str, PortNumber port);
 
   ZNET_NODISCARD bool is_valid() const override { return is_valid_; }
@@ -114,6 +106,9 @@ class InetAddressIPv6 : public InetAddress {
     return addr.sin6_port;
   }
 
+  ZNET_NODISCARD std::unique_ptr<InetAddress> WithPort(PortNumber port) const override {
+    return std::make_unique<InetAddressIPv6>(addr.sin6_addr, port);
+  }
  private:
   sockaddr_in6 addr{};
   bool is_valid_;

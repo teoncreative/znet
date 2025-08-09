@@ -21,7 +21,7 @@
 #include "znet/base/util.h"
 #include "znet/buffer.h"
 #include "znet/client.h"
-#include "znet/event/event.h"
+#include "znet/base/event.h"
 #include "znet/client_events.h"
 #include "znet/server_events.h"
 #include "znet/logger.h"

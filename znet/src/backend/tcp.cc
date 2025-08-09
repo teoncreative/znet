@@ -21,7 +21,7 @@ namespace znet {
 namespace backends {
 
 
-TCPTransportLayer::TCPTransportLayer(znet::SocketHandle socket) : socket_(socket) {
+TCPTransportLayer::TCPTransportLayer(SocketHandle socket) : socket_(socket) {
 
 }
 
@@ -153,11 +153,8 @@ Result TCPTransportLayer::Close() {
   }
   // Close the socket
   is_closed_ = true;
-#ifdef TARGET_WIN
-  closesocket(socket_);
-#else
-  close(socket_);
-#endif
+  CloseSocket(socket_);
+  socket_ = INVALID_SOCKET;
   return Result::Success;
 }
 
@@ -173,10 +170,21 @@ TCPClientBackend::~TCPClientBackend() {
 
 Result TCPClientBackend::Bind() {
   client_socket_ = socket(GetDomainByInetProtocolVersion(server_address_->ipv()), SOCK_STREAM, 0);
-  if (client_socket_ < 0) {
+  if (!IsValidSocketHandle(client_socket_)) {
     ZNET_LOG_ERROR("Error binding socket.");
     return Result::CannotBind;
   }
+  const char option = 1;
+#ifdef TARGET_WIN
+  setsockopt(client_socket_, SOL_SOCKET, SO_BROADCAST, &option,
+             sizeof(option));
+  setsockopt(client_socket_, SOL_SOCKET, SO_BROADCAST, &option,
+             sizeof(option));
+#else
+  setsockopt(client_socket_, SOL_SOCKET, SO_REUSEADDR, &option, sizeof(option));
+  setsockopt(client_socket_, SOL_SOCKET, SO_REUSEPORT, &option, sizeof(option));
+  setsockopt(client_socket_, SOL_SOCKET, SO_BROADCAST, &option, sizeof(option));
+#endif
   is_bind_ = true;
   return Result::Success;
 }
@@ -190,6 +198,7 @@ Result TCPClientBackend::Bind(const std::string& ip, PortNumber port) {
   if (bind(client_socket_, local_address_->handle_ptr(), local_address_->addr_size()) != 0) {
     ZNET_LOG_DEBUG("Failed to bind: {}, {}", local_address_->readable(),
                    GetLastErrorInfo());
+    CleanupSocket();
     return Result::CannotBind;
   }
   return Result::Success;
@@ -209,17 +218,9 @@ Result TCPClientBackend::Connect() {
   if (connect(client_socket_, server_address_->handle_ptr(),
               server_address_->addr_size()) < 0) {
     ZNET_LOG_ERROR("Error connecting to server: {}", GetLastErrorInfo());
+    CleanupSocket();
     return Result::Failure;
   }
-  const char option = 1;
-#ifdef TARGET_WIN
-  setsockopt(client_socket_, SOL_SOCKET, SO_REUSEADDR | SO_BROADCAST, &option,
-             sizeof(option));
-#else
-  setsockopt(client_socket_, SOL_SOCKET,
-             SO_REUSEADDR | SO_REUSEPORT | SO_BROADCAST, &option,
-             sizeof(option));
-#endif
 
   sockaddr_storage local_ss{};
   socklen_t local_len = sizeof(local_ss);
@@ -248,6 +249,14 @@ void TCPClientBackend::Update() {
 
 bool TCPClientBackend::IsAlive() {
   return client_session_ && client_session_->IsAlive();
+}
+
+void TCPClientBackend::CleanupSocket() {
+  CloseSocket(client_socket_);
+  client_socket_ = INVALID_SOCKET;
+  is_bind_ = false;
+  client_session_->Close();
+  client_session_ = nullptr;
 }
 
 TCPServerBackend::TCPServerBackend(std::shared_ptr<InetAddress> bind_address)
@@ -285,24 +294,14 @@ Result TCPServerBackend::Bind() {
              SO_REUSEADDR | SO_REUSEPORT | SO_BROADCAST, &option,
              sizeof(option));
 #endif
-#ifdef TARGET_WIN
-  u_long mode = 1;  // 1 to enable non-blocking socket
-  ioctlsocket(server_socket_, FIONBIO, &mode);
-#else
-  // Set socket to non-blocking mode
-  int flags = fcntl(server_socket_, F_GETFL, 0);
-  if (flags < 0) {
-    ZNET_LOG_ERROR("Error getting socket flags: {}", GetLastErrorInfo());
-    close(server_socket_);
-    return Result::Failure;
-  }
-  if (fcntl(server_socket_, F_SETFL, flags | O_NONBLOCK) < 0) {
+  // Enable non-blockig socket
+  if (!SetSocketBlocking(server_socket_, false)) {
     ZNET_LOG_ERROR("Error setting socket to non-blocking mode: {}",
                    GetLastErrorInfo());
-    close(server_socket_);
+    CloseSocket(server_socket_);
     return Result::Failure;
   }
-#endif
+
   if (bind(server_socket_, bind_address_->handle_ptr(),
            bind_address_->addr_size()) != 0) {
     ZNET_LOG_DEBUG("Failed to bind: {}, {}", bind_address_->readable(),
@@ -345,19 +344,12 @@ Result TCPServerBackend::Close() {
     return Result::AlreadyStopped;
   }
   // Close the server
-#ifdef TARGET_WIN
-  if (closesocket(server_socket_) != 0) {
+  if (!CloseSocket(server_socket_)) {
     ZNET_LOG_DEBUG("Failed to close socket: {}, {}",
                    bind_address_->readable(), GetLastErrorInfo());
   }
-#else
-  if (close(server_socket_) != 0) {
-    ZNET_LOG_DEBUG("Failed to close socket: {}, {}",
-                   bind_address_->readable(), GetLastErrorInfo());
-  }
-#endif
   is_listening_ = false;
-  is_bind_ = false; // is this correct?
+  is_bind_ = false;
   return Result::Success;
 }
 
@@ -369,27 +361,24 @@ std::shared_ptr<PeerSession> TCPServerBackend::Accept() {
   sockaddr_storage client_address{};
   socklen_t addr_len = sizeof(client_address);
   SocketHandle client_socket = accept(server_socket_, reinterpret_cast<sockaddr*>(&client_address), &addr_len);
-#ifdef TARGET_WIN
-  if (client_socket == INVALID_SOCKET) {
+  if (!IsValidSocketHandle(client_socket)) {
     return nullptr;
   }
+#ifdef TARGET_WIN
   u_long mode = 1;  // 1 to enable non-blocking socket
   ioctlsocket(server_socket_, FIONBIO, &mode);
 #else
-  if (client_socket <= 0) {
-    return nullptr;
-  }
   // Set socket to non-blocking mode
   int flags = fcntl(server_socket_, F_GETFL, 0);
   if (flags < 0) {
     ZNET_LOG_ERROR("Error getting socket flags: {}", GetLastErrorInfo());
-    close(client_socket);
+    CloseSocket(client_socket);
     return nullptr;
   }
   if (fcntl(server_socket_, F_SETFL, flags | O_NONBLOCK) < 0) {
     ZNET_LOG_ERROR("Error setting socket to non-blocking mode: {}",
                    GetLastErrorInfo());
-    close(client_socket);
+    CloseSocket(client_socket);
     return nullptr;
   }
 #endif
@@ -405,17 +394,7 @@ void TCPServerBackend::AcceptAndReject() {
   sockaddr_storage client_address{};
   socklen_t addr_len = sizeof(client_address);
   SocketHandle client_socket = accept(server_socket_, reinterpret_cast<sockaddr*>(&client_address), &addr_len);
-#ifdef TARGET_WIN
-  if (client_socket == INVALID_SOCKET) {
-    return;
-  }
-  closesocket(client_socket);
-#else
-  if (client_socket <= 0) {
-    return;
-  }
-  close(client_socket);
-#endif
+  CloseSocket(client_socket);
 }
 
 bool TCPServerBackend::IsAlive() {

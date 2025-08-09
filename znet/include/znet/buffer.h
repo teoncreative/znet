@@ -139,7 +139,7 @@ class Buffer {
     return l;
   }
 
-  template<typename T, typename = std::void_t<decltype(T::Read())>>
+  template<typename T, typename = void_t<decltype(T::Read())>>
   T ReadCustom() {
     return T::Read();
   }
@@ -346,7 +346,7 @@ class Buffer {
     write_cursor_ += size;
   }
 
-  template<typename T, typename = std::void_t<decltype(T::Write())>>
+  template<typename T, typename = void_t<decltype(T::Write())>>
   T WriteCustom() {
     return T::Write();
   }

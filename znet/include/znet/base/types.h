@@ -119,4 +119,17 @@ enum class ConnectionType {
   //WebSocket,
 };
 
+#if defined(TARGET_APPLE) || defined(TARGET_WEB) || defined(TARGET_LINUX)
+using SocketHandle = int;
+using PortNumber = in_port_t;
+using IPv4Address = in_addr;
+using IPv6Address = in6_addr;
+#define INVALID_SOCKET -1
+#elif defined(TARGET_WIN)
+using SocketHandle = SOCKET;
+using PortNumber = USHORT;
+using IPv4Address = IN_ADDR;
+using IPv6Address = IN6_ADDR;
+#endif
+
 }  // namespace znet
