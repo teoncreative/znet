@@ -25,6 +25,7 @@ struct PacketHandlerBase {
   virtual void Handle(std::shared_ptr<Packet> p) = 0;
 };
 
+
 // This is a fuming mess, clean it up!
 template<typename Derived, typename... PacketTypes>
 class PacketHandler : public PacketHandlerBase {
@@ -34,35 +35,27 @@ class PacketHandler : public PacketHandlerBase {
     auto it = m.find(std::type_index(typeid(*p)));
     if (it != m.end()) {
       it->second(static_cast<Derived*>(this), p);
-    } else {
-      call_unknown(static_cast<Derived*>(this), p);
     }
   }
 
  private:
   using HandlerFn = void(*)(Derived*, std::shared_ptr<Packet>);
 
-  template <typename T, typename Arg>
-  struct has_const_ref {
-   private:
-    template <typename U>
-    static auto test(int) -> decltype(std::declval<U>().OnPacket(std::declval<const Arg&>()), std::true_type{});
-    template <typename>
-    static std::false_type test(...);
-   public:
-    static constexpr bool value = decltype(test<T>(0))::value;
-  };
+  // traits for OnPacket(const P&)
+  template<typename T, typename P, typename = void>
+  struct has_pkt_const : std::false_type {};
+  template<typename T, typename P>
+  struct has_pkt_const<T,P,void_t<
+                                 decltype(std::declval<T>().OnPacket(std::declval<const P&>()))
+                                 >> : std::true_type {};
 
-  template <typename T, typename Arg>
-  struct has_shared_ptr {
-   private:
-    template <typename U>
-    static auto test(int) -> decltype(std::declval<U>().OnPacket(std::declval<std::shared_ptr<Arg>>()), std::true_type{});
-    template <typename>
-    static std::false_type test(...);
-   public:
-    static constexpr bool value = decltype(test<T>(0))::value;
-  };
+  // traits for OnPacket(shared_ptr<P>)
+  template<typename T, typename P, typename = void>
+  struct has_pkt_shared : std::false_type {};
+  template<typename T, typename P>
+  struct has_pkt_shared<T,P,void_t<
+                                  decltype(std::declval<T>().OnPacket(std::declval<std::shared_ptr<P>>()))
+                                  >> : std::true_type {};
 
   static const std::unordered_map<std::type_index, HandlerFn>& table() {
     static const auto tbl = [] {
@@ -74,57 +67,31 @@ class PacketHandler : public PacketHandlerBase {
     return tbl;
   }
 
+  // main dispatcher
   template<typename P>
-  static void call(Derived* self, std::shared_ptr<Packet> p) {
-    call_impl<P>(
-        self, p,
-        std::integral_constant<bool, has_const_ref<Derived, P>::value>{},
-        std::integral_constant<bool, has_shared_ptr<Derived, P>::value>{});
+  static void call(Derived* self, std::shared_ptr<Packet> p_base) {
+    auto p = std::static_pointer_cast<P>(p_base);
+    call_pkt_const <Derived,P>(self, p, has_pkt_const <Derived,P>{});
+    call_pkt_shared<Derived,P>(self, p, has_pkt_shared<Derived,P>{});
   }
 
-  template<typename P>
-  static void call_impl(Derived* self, std::shared_ptr<Packet> p, std::true_type, std::false_type) {
-    self->OnPacket((const P&) *std::static_pointer_cast<P>(p));
+  // tag-dispatchers for OnPacket
+  template<typename D, typename P>
+  static void call_pkt_const(D* self, std::shared_ptr<P> p, std::true_type) {
+    self->OnPacket(static_cast<const P&>(*p));
   }
 
-  template<typename P>
-  static void call_impl(Derived* self, std::shared_ptr<Packet> p, std::false_type, std::true_type) {
-    self->OnPacket(std::static_pointer_cast<P>(p));
+  template<typename D, typename P>
+  static void call_pkt_const(D*, std::shared_ptr<P>, std::false_type) {}
+
+  template<typename D, typename P>
+  static void call_pkt_shared(D* self, std::shared_ptr<P> p, std::true_type) {
+    self->OnPacket(p);
   }
 
-  template<typename P>
-  static void call_impl(Derived* self, std::shared_ptr<Packet> p, std::true_type, std::true_type) {
-    self->OnPacket((const P&) *std::static_pointer_cast<P>(p));
-    self->OnPacket(std::static_pointer_cast<P>(p));
-  }
+  template<typename D, typename P>
+  static void call_pkt_shared(D*, std::shared_ptr<P>, std::false_type) {}
 
-  template<typename P>
-  static void call_impl(Derived* self, std::shared_ptr<Packet> p, std::false_type, std::false_type) {
-  }
-
-  static void call_unknown(Derived* self, std::shared_ptr<Packet> p) {
-    constexpr bool has_const_ref = is_invocable<decltype(&Derived::OnUnknown), Derived*, const Packet&>::value;
-    constexpr bool has_shared = is_invocable<decltype(&Derived::OnUnknown), Derived*, std::shared_ptr<Packet>>::value;
-
-    call_unknown_impl(self, p, std::integral_constant<bool, has_const_ref>{}, std::integral_constant<bool, has_shared>{});
-  }
-
-  static void call_unknown_impl(Derived* self, std::shared_ptr<Packet> p, std::true_type, std::false_type) {
-    self->OnUnknown(*p);
-  }
-
-  static void call_unknown_impl(Derived* self, std::shared_ptr<Packet> p, std::false_type, std::true_type) {
-    self->OnUnknown(p);
-  }
-
-  static void call_unknown_impl(Derived* self, std::shared_ptr<Packet> p, std::true_type, std::true_type) {
-    self->OnUnknown(*p);
-    self->OnUnknown(p);
-  }
-
-  static void call_unknown_impl(Derived* self, std::shared_ptr<Packet> p, std::false_type, std::false_type) {
-
-  }
 };
 
 class CallbackPacketHandler : public PacketHandlerBase {

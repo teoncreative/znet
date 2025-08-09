@@ -17,14 +17,14 @@
 namespace znet {
 
 std::string GeneratePeerName() {
-  static const std::vector<std::string> firstParts = {
+  static const std::vector<std::string> first = {
       "Skippy",  "Crimson", "Neon",     "Rusty",   "Silent",  "Quantum",
       "Velvet",  "Blaze",   "Echo",     "Frost",   "Solar",   "Pixel",
       "Iron",    "Azure",   "Misty",    "Copper",  "Shadow",  "Polar",
       "Turbo",   "Glitch",  "Apex",     "Boulder", "Cascade", "Drift",
       "Ember",   "Gale",    "Halo",     "Jolt",    "Kinetic", "Lunar",
       "Monarch", "Nimbus",  "Obsidian", "Phoenix", "Quasar"};
-  static const std::vector<std::string> secondParts = {
+  static const std::vector<std::string> second = {
       "Toe",     "Fox",    "Bolt",   "Wing",   "Shade",   "Pulse",  "Drift",
       "Knight",  "Flare",  "Shard",  "Vector", "Chaser",  "Spark",  "Raven",
       "Quill",   "Stream", "Bluff",  "Cipher", "Warden",  "Orbit",  "Arc",
@@ -32,10 +32,10 @@ std::string GeneratePeerName() {
       "Jester",  "Kite",   "Ledger", "Nexus",  "Omen",    "Rune",   "Spire"};
 
   static thread_local std::mt19937_64 gen{std::random_device{}()};
-  std::uniform_int_distribution<size_t> d1(0, firstParts.size() - 1);
-  std::uniform_int_distribution<size_t> d2(0, secondParts.size() - 1);
+  std::uniform_int_distribution<size_t> d1(0, first.size() - 1);
+  std::uniform_int_distribution<size_t> d2(0, second.size() - 1);
 
-  return firstParts[d1(gen)] + secondParts[d2(gen)];
+  return first[d1(gen)] + second[d2(gen)];
 }
 
 }

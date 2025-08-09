@@ -35,8 +35,6 @@ struct PlayingPacketHandler
     player->pos_ = pk.pos;
   }
 
-  void OnUnknown(const Packet& pk) {}
-
  private:
   std::shared_ptr<PeerSession> session_;
 };
@@ -58,8 +56,6 @@ struct LoginPacketHandler
     session_->SendPacket(std::make_shared<ClientReadyPacket>());
     session_->SetHandler(std::make_shared<PlayingPacketHandler>(session_));
   }
-
-  void OnUnknown(const Packet& p) {}
 
  private:
   std::shared_ptr<PeerSession> session_;

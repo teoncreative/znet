@@ -36,8 +36,6 @@ struct PlayingPacketHandler
     player_->pos_ += pk.delta;
   }
 
-  void OnUnknown(const Packet& pk) {}
-
  private:
   std::shared_ptr<PeerSession> session_;
   std::shared_ptr<Player> player_;
@@ -82,8 +80,6 @@ struct LoginPacketHandler
                                                                 session_->user_ptr_typed<Player>()));
     // After this, session_ is invalid.
   }
-
-  void OnUnknown(const Packet& p) {}
 
  private:
   std::shared_ptr<PeerSession> session_;

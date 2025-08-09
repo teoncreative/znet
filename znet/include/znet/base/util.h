@@ -12,6 +12,7 @@
 #pragma once
 
 #include "znet/precompiled.h"
+#include "znet/base/types.h"
 #include <ostream>
 #include <sstream>
 #include <iostream>
@@ -29,6 +30,11 @@
     return fn(std::forward<decltype(args)>(args)...); \
   }
 
+namespace znet {
+
+template<class...>
+using void_t = void;
+
 template <class T>
 std::string ToHex(const T& numValue, int width) {
   std::ostringstream stream;
@@ -38,21 +44,43 @@ std::string ToHex(const T& numValue, int width) {
   return stream.str();
 }
 
-template <typename F, typename... Args>
-struct is_invocable {
- private:
-  template <typename U>
-  static auto test(U*) -> decltype(std::declval<U>()(std::declval<Args>()...), std::true_type{});
-
-  template <typename>
-  static std::false_type test(...);
-
- public:
-  static constexpr bool value = decltype(test<F>(nullptr))::value;
-};
-
-namespace znet {
-
 std::string GeneratePeerName();
+
+inline bool IsValidSocketHandle(SocketHandle handle) {
+#ifdef TARGET_WIN
+  return handle != INVALID_SOCKET;
+#else
+  return handle >= 0;
+#endif
+}
+
+inline bool CloseSocket(SocketHandle socket) {
+  if (IsValidSocketHandle(socket)) {
+#ifdef TARGET_WIN
+    return closesocket(socket) == 0;
+#else
+    return close(socket) == 0;
+#endif
+  }
+  return false;
+}
+
+inline bool SetSocketBlocking(SocketHandle socket, bool blocking) {
+#ifdef TARGET_WIN
+  u_long mode = blocking ? 0UL : 1UL; // 1 to enable non-blocking socket
+  return ioctlsocket(socket, FIONBIO, &mode) == 0;
+#else
+  int flags = fcntl(socket, F_GETFL, 0);
+  if (flags == -1) {
+    return false;
+  }
+  if (blocking) {
+    flags &= ~O_NONBLOCK;
+  } else {
+    flags |=  O_NONBLOCK;
+  }
+  return fcntl(socket, F_SETFL, flags) == 0;
+#endif
+}
 
 }

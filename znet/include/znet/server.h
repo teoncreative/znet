@@ -107,6 +107,8 @@ class Server : public Interface {
 
  std::shared_ptr<InetAddress> bind_address() const { return bind_address_; }
 
+  bool IsAlive() const;
+
  private:
   struct TaskData {
     std::mutex mutex_;

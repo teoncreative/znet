@@ -13,7 +13,7 @@
 #include <utility>
 
 #include "znet/precompiled.h"
-#include "znet/event/event.h"
+#include "znet/base/event.h"
 #include "znet/packet_handler.h"
 
 namespace znet {
@@ -28,7 +28,7 @@ class Interface {
 
   virtual void Wait() = 0;
 
-  virtual void SetEventCallback(EventCallbackFn fn) { event_callback_ = std::move(fn); }
+  void SetEventCallback(EventCallbackFn fn) { event_callback_ = std::move(fn); }
 
   ZNET_NODISCARD EventCallbackFn event_callback() const {
     return event_callback_;

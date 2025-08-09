@@ -12,7 +12,7 @@
 #pragma once
 
 #include "znet/precompiled.h"
-#include "znet/event/event.h"
+#include "znet/base/event.h"
 #include "znet/peer_session.h"
 
 namespace znet {

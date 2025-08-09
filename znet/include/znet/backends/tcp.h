@@ -70,6 +70,8 @@ class TCPClientBackend : public ClientBackend {
   std::shared_ptr<InetAddress> local_address() override { return local_address_; }
 
  private:
+  void CleanupSocket();
+ private:
   std::mutex mutex_;
   std::shared_ptr<InetAddress> server_address_;
   std::shared_ptr<InetAddress> local_address_;

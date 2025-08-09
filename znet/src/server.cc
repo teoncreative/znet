@@ -28,8 +28,8 @@ Server::Server(const ServerConfig& config) : Interface(), config_(config) {
     data.task_ = std::make_unique<Task>();
     data.task_->Run([this, &data]() {
       std::unique_lock<std::mutex> lock(data.mutex_);
-      while (data.running_ && backend_->IsAlive()) {
-        if (data.sessions_.empty()) {
+      while (data.running_) {
+        if (data.sessions_.empty() || !backend_->IsAlive()) {
           data.cv_.wait(lock, [&]() {
             return !data.sessions_.empty() || !data.running_;
           });
@@ -98,6 +98,10 @@ void Server::SetTicksPerSecond(int tps) {
   for (TaskData& data : tasks_) {
     data.scheduler_.SetTicksPerSecond(tps);
   }
+}
+
+bool Server::IsAlive() const {
+  return backend_->IsAlive();
 }
 
 void Server::MainProcessor() {

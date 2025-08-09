@@ -1,5 +1,5 @@
 //
-//    Copyright 2023 Metehan Gezer
+//    Copyright 2025 Metehan Gezer
 //
 //    Licensed under the Apache License, Version 2.0 (the "License");
 //    you may not use this file except in compliance with the License.
@@ -19,6 +19,7 @@ namespace znet {
 enum EventCategory {
   EventCategoryServer = BIT(0),
   EventCategoryClient = BIT(1),
+  EventCategoryP2P = BIT(1),
   EventCategoryUser = BIT(2)
 };
 

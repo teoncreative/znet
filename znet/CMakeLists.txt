@@ -28,6 +28,7 @@ set(ZNET_SOURCES
         src/pch.cc
         src/init.cc
         src/backend/tcp.cc
+        src/p2p/locator.cc
 )
 
 add_library(znet STATIC
