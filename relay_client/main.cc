@@ -57,7 +57,7 @@ int main(int argc, char* argv[]) {
       "relay-client",
       "relay-client is a test utility to test peer to peer connections");
   opts.add_options()
-      ("t,target", "Address of the relay server")
+      ("t,target", "Address of the relay server", cxxopts::value<std::string>())
       ("p,port", "Port of the relay server",cxxopts::value<uint16_t>()->default_value("5001"))
           ("h,help", "Print usage");
 
