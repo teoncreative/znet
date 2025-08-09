@@ -108,9 +108,12 @@ int main(int argc, char* argv[]) {
   cxxopts::Options opts(
       "relay-server",
       "relay-server is a utility for znet that exchanges peer endpoints");
-  opts.add_options()("p,port", "Port to listen on",
-                     cxxopts::value<uint16_t>()->default_value("5001"))(
-      "h,help", "Print usage");
+  opts.add_options()
+      ("p,port", "Port to listen on",
+                     cxxopts::value<uint16_t>()->default_value("5001"))
+          ("t,target", "Host to listen on",
+           cxxopts::value<std::string>()->default_value("127.0.0.1"))
+              ("h,help", "Print usage");
 
   auto result = opts.parse(argc, argv);
   if (result["help"].as<bool>()) {
@@ -119,9 +122,10 @@ int main(int argc, char* argv[]) {
   }
 
   uint16_t port = result["port"].as<uint16_t>();
-  ZNET_LOG_INFO("Starting relay on port {}...", port);
+  std::string target = result["target"].as<std::string>();
+  ZNET_LOG_INFO("Starting relay on {}:{}...", target, port);
 
-  znet::ServerConfig config{"127.0.0.1", port};
+  znet::ServerConfig config{target, port};
   znet::Server relay{config};
   relay.SetEventCallback(ZNET_BIND_GLOBAL_FN(OnEvent));
 
