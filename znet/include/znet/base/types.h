@@ -67,7 +67,8 @@ enum class Result {
   NotInitialized,
   AlreadyBound,
   InvalidBackend,
-  InvalidTransport
+  InvalidTransport,
+  Timeout
 };
 
 inline std::string GetResultString(Result result) {
@@ -106,6 +107,8 @@ inline std::string GetResultString(Result result) {
       return "InvalidBackend";
     case Result::InvalidTransport:
       return "InvalidTransport";
+    case Result::Timeout:
+      return "Timeout";
     default:
       return "Unknown";
   }

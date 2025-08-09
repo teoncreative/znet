@@ -31,16 +31,11 @@ bool OnReady(znet::p2p::PeerLocatorReadyEvent& event) {
 
 bool OnPunchRequest(znet::p2p::StartPunchRequestEvent& event) {
   ZNET_LOG_INFO("Received punch request to {} at {}", event.target_peer(), event.target_endpoint()->readable());
-  while (true) {
-    auto result = znet::p2p::Dialer::Punch(
-        znet::InetAddress::from("127.0.0.1", event.bind_port()),
-        event.target_endpoint()
-    );
-    if (result == znet::Result::Success) {
-      break;
-    }
-  }
-  ZNET_LOG_INFO("OK!");
+  auto result = znet::p2p::Dialer::Punch(
+      znet::InetAddress::from("127.0.0.1", event.bind_port()),
+      event.target_endpoint()
+  );
+  ZNET_LOG_INFO("Result: {}", GetResultString(result));
   return false;
 }
 
