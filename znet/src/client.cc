@@ -94,11 +94,11 @@ void Client::Wait() {
   task_.Wait();
 }
 
-Result Client::Disconnect() {
+Result Client::Disconnect(CloseOptions options) {
   if (!client_session_) {
     return Result::Failure;
   }
-  return client_session_->Close();
+  return client_session_->Close(options);
 }
 
 ZNET_NODISCARD std::shared_ptr<InetAddress> Client::local_address() const {

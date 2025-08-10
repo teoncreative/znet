@@ -147,12 +147,14 @@ bool TCPTransportLayer::Send(std::shared_ptr<Buffer> buffer, SendOptions options
   return true;
 }
 
-Result TCPTransportLayer::Close() {
+Result TCPTransportLayer::Close(CloseOptions options) {
   if (is_closed_) {
     return Result::AlreadyDisconnected;
   }
-  linger l; l.l_onoff = 1; l.l_linger = 0;
-  setsockopt(socket_, SOL_SOCKET, SO_LINGER, reinterpret_cast<const char*>(&l), sizeof(l));
+  if (options.GetOr<NoLingerKey>(false)) {
+    linger l; l.l_onoff = 1; l.l_linger = 0;
+    setsockopt(socket_, SOL_SOCKET, SO_LINGER, reinterpret_cast<const char*>(&l), sizeof(l));
+  }
   // Close the socket
   is_closed_ = true;
   CloseSocket(socket_);

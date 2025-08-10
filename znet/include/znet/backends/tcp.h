@@ -28,9 +28,9 @@ class TCPTransportLayer : public TransportLayer {
   ~TCPTransportLayer();
 
   std::shared_ptr<Buffer> Receive() override;
-  bool Send(std::shared_ptr<Buffer> buffer, SendOptions options) override;
+  bool Send(std::shared_ptr<Buffer> buffer, SendOptions options = {}) override;
 
-  Result Close() override;
+  Result Close(CloseOptions options = {}) override;
 
   bool IsClosed() override { return is_closed_; }
 

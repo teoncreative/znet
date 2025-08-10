@@ -42,7 +42,7 @@ class PeerSession {
 
   void Process();
 
-  Result Close();
+  Result Close(CloseOptions options = {});
 
   bool IsAlive();
 
