@@ -162,7 +162,7 @@ Result TCPTransportLayer::Close(CloseOptions options) {
   return Result::Success;
 }
 
-uint64_t TCPTransportLayer::GetRTT() const {
+/*uint64_t TCPTransportLayer::GetRTT() const {
 #ifndef TARGET_WIN
   struct tcp_info ti{};
   socklen_t len = sizeof(ti);
@@ -175,7 +175,7 @@ uint64_t TCPTransportLayer::GetRTT() const {
 #else
   return 0;
 #endif
-}
+}*/
 
 TCPClientBackend::TCPClientBackend(std::shared_ptr<InetAddress> server_address)
     : server_address_(server_address) {

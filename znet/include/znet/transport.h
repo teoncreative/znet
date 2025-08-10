@@ -29,8 +29,6 @@ class TransportLayer {
 
   virtual Result Close(CloseOptions options = {}) = 0;
 
-  virtual uint64_t GetRTT() const = 0;
-
   virtual bool IsClosed() = 0;
 
 };
