@@ -71,7 +71,8 @@ Result PeerLocator::Connect() {
     is_running_ = false;
     if (bind_endpoint_ && target_endpoint_) {
       Result result;
-      std::shared_ptr<PeerSession> session = Punch(
+      std::shared_ptr<PeerSession> session =
+          PunchSync(
           bind_endpoint_,
           target_endpoint_,
           &result

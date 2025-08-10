@@ -18,6 +18,67 @@
 #include "znet/znet.h"
 #include "znet/base/inet_addr.h"
 
+// This part until the locator stuff is directly taken from the basic examples.
+enum PacketType {
+  PACKET_DEMO
+};
+
+class DemoPacket : public znet::Packet {
+ public:
+  DemoPacket() : Packet(PACKET_DEMO) { }
+
+  std::string text;
+};
+
+class DemoSerializer : public znet::PacketSerializer<DemoPacket> {
+ public:
+  DemoSerializer() : PacketSerializer<DemoPacket>() {}
+
+  std::shared_ptr<znet::Buffer> SerializeTyped(std::shared_ptr<DemoPacket> packet, std::shared_ptr<znet::Buffer> buffer) override {
+    buffer->WriteString(packet->text);
+    return buffer;
+  }
+
+  std::shared_ptr<DemoPacket> DeserializeTyped(std::shared_ptr<znet::Buffer> buffer) override {
+    auto packet = std::make_shared<DemoPacket>();
+    packet->text = buffer->ReadString();
+    return packet;
+  }
+};
+
+class MyPacketHandler : public znet::PacketHandler<MyPacketHandler, DemoPacket> {
+ public:
+  MyPacketHandler(std::shared_ptr<znet::PeerSession> session) : session_(session) { }
+
+  void OnPacket(std::shared_ptr<DemoPacket> p) {
+    ZNET_LOG_INFO("Received demo_packet.");
+    std::shared_ptr<DemoPacket> pk = std::make_shared<DemoPacket>();
+    pk->text = "Got ya! Hello from server!";
+    session_->SendPacket(pk);
+  }
+
+ private:
+  std::shared_ptr<znet::PeerSession> session_;
+};
+
+// On connect
+bool OnConnect(znet::p2p::PeerConnectedEvent& event) {
+  std::shared_ptr<znet::PeerSession> session = event.session();
+  ZNET_LOG_INFO("Connected to peer {}!", session->id());
+
+  std::shared_ptr<znet::Codec> codec = std::make_shared<znet::Codec>();
+  codec->Add(PACKET_DEMO, std::make_unique<DemoSerializer>());
+  session->SetCodec(codec);
+
+  session->SetHandler(std::make_shared<MyPacketHandler>(event.session()));
+
+  std::shared_ptr<DemoPacket> pk = std::make_shared<DemoPacket>();
+  pk->text = "Hello from client!";
+  session->SendPacket(pk);
+  return false;
+}
+
+// Locator code
 std::unique_ptr<znet::p2p::PeerLocator> locator_;
 std::shared_ptr<znet::InetAddress> bind_endpoint_;
 std::shared_ptr<znet::InetAddress> target_endpoint_;
@@ -28,11 +89,6 @@ bool OnReady(znet::p2p::PeerLocatorReadyEvent& event) {
   ZNET_LOG_INFO("Enter peer name:");
   std::cin >> peer_name;
   locator_->AskPeer(peer_name);
-  return false;
-}
-
-bool OnConnect(znet::p2p::PeerConnectedEvent& event) {
-  ZNET_LOG_INFO("Connected to peer {}!", event.session()->id());
   return false;
 }
 

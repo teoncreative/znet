@@ -23,7 +23,7 @@
 namespace znet {
 namespace p2p {
 
-std::shared_ptr<PeerSession> Punch(const std::shared_ptr<InetAddress>& local,
+std::shared_ptr<PeerSession> PunchSync(const std::shared_ptr<InetAddress>& local,
                                    const std::shared_ptr<InetAddress>& peer,
                                    Result* out_result,
                                    int timeout_ms = 5000);
