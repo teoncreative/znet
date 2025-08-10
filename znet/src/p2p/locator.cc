@@ -51,6 +51,7 @@ Result PeerLocator::Start() {
   if ((result = client_.Bind()) != Result::Success) {
     return result;
   }
+  ZNET_LOG_INFO("Relay client bound to {}", client_.local_address()->readable());
   if ((result = client_.Connect()) != Result::Success) {
     return result;
   }
