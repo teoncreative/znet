@@ -33,8 +33,8 @@ namespace p2p {
 // When the server sees that two peers want to connect to each other,
 // it will send these packets with each others' information
 //
-// StartPunchPacket S -> C1
-// StartPunchPacket S -> C2
+// StartPunchRequestPacket S -> C1
+// StartPunchRequestPacket S -> C2
 
 
 enum PacketType {
