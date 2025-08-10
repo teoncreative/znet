@@ -45,18 +45,18 @@ class PeerLocatorReadyEvent : public Event {
 
 class StartPunchRequestEvent : public Event {
  public:
-  explicit StartPunchRequestEvent(std::string target_peer, PortNumber bind_port, std::shared_ptr<InetAddress> target_endpoint)
-      : target_peer_(target_peer), bind_port_(bind_port), target_endpoint_(target_endpoint) {}
+  explicit StartPunchRequestEvent(std::string target_peer, std::shared_ptr<InetAddress> bind_endpoint, std::shared_ptr<InetAddress> target_endpoint)
+      : target_peer_(target_peer), bind_endpoint_(bind_endpoint), target_endpoint_(target_endpoint) {}
 
   const std::string& target_peer() const { return target_peer_; }
-  PortNumber bind_port() const { return bind_port_; }
+  std::shared_ptr<InetAddress> bind_endpoint() const { return bind_endpoint_; }
   std::shared_ptr<InetAddress> target_endpoint() const { return target_endpoint_; }
 
   ZNET_EVENT_CLASS_TYPE(StartPunchRequestEvent)
   ZNET_EVENT_CLASS_CATEGORY(EventCategoryP2P)
  private:
   std::string target_peer_;
-  PortNumber bind_port_;
+  std::shared_ptr<InetAddress> bind_endpoint_;
   std::shared_ptr<InetAddress> target_endpoint_;
 };
 
@@ -67,6 +67,7 @@ class PeerLocator {
   ~PeerLocator();
 
   Result Start();
+  Result Close();
 
   void Wait();
 

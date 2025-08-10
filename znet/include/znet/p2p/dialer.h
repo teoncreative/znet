@@ -64,7 +64,7 @@ class Dialer {
       return Result::CannotBind;
     }
     if (bind(active_socket, local->handle_ptr(), local->addr_size()) != 0) {
-      ZNET_LOG_ERROR("Failed to active listen socket to {}", local->readable());
+      ZNET_LOG_ERROR("Failed to bind active socket to {}", local->readable());
       return Result::CannotBind;
     }
 
@@ -83,7 +83,8 @@ class Dialer {
     }
     std::chrono::steady_clock::duration connection_timeout =
         std::chrono::seconds(60);
-    std::chrono::steady_clock::time_point start_time;
+    std::chrono::steady_clock::time_point start_time =
+        std::chrono::steady_clock::now();
     while (true) {
       fd_set r, w;
       FD_ZERO(&r);

@@ -27,7 +27,7 @@ class LocatorPacketHandler : public PacketHandler<LocatorPacketHandler, SetPeerN
   }
 
   void OnPacket(const StartPunchRequestPacket& pk) {
-    StartPunchRequestEvent event{pk.target_peer_, pk.bind_port_, pk.target_endpoint_};
+    StartPunchRequestEvent event{pk.target_peer_, pk.bind_endpoint_, pk.target_endpoint_};
     locator_.event_callback_(event);
   }
 
@@ -55,6 +55,10 @@ Result PeerLocator::Start() {
     return result;
   }
   return result;
+}
+
+Result PeerLocator::Close() {
+  return client_.Disconnect();
 }
 
 void PeerLocator::AskPeer(std::string peer_name) {
