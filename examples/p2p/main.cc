@@ -27,6 +27,7 @@ class DemoPacket : public Packet {
   DemoPacket() : Packet(PACKET_DEMO) { }
 
   std::string text;
+  uint64_t send_time_us;
 };
 
 class DemoSerializer : public PacketSerializer<DemoPacket> {
@@ -35,12 +36,14 @@ class DemoSerializer : public PacketSerializer<DemoPacket> {
 
   std::shared_ptr<Buffer> SerializeTyped(std::shared_ptr<DemoPacket> packet, std::shared_ptr<Buffer> buffer) override {
     buffer->WriteString(packet->text);
+    buffer->WriteInt<uint64_t>(packet->send_time_us);
     return buffer;
   }
 
   std::shared_ptr<DemoPacket> DeserializeTyped(std::shared_ptr<Buffer> buffer) override {
     auto packet = std::make_shared<DemoPacket>();
     packet->text = buffer->ReadString();
+    packet->send_time_us = buffer->ReadInt<uint64_t>();
     return packet;
   }
 };
@@ -52,9 +55,18 @@ class MyPacketHandler : public PacketHandler<MyPacketHandler, DemoPacket> {
 
   void OnPacket(std::shared_ptr<DemoPacket> p) {
     ZNET_LOG_INFO("Received demo_packet.");
+
+    uint64_t now_us = std::chrono::duration_cast<std::chrono::microseconds>(
+                          std::chrono::steady_clock::now().time_since_epoch()
+                              ).count();
+
     std::shared_ptr<DemoPacket> pk = std::make_shared<DemoPacket>();
+    pk->send_time_us = now_us;
     pk->text = "Got ya! Hello from server!";
     session_->SendPacket(pk);
+
+    uint64_t rtt_us = now_us - p->send_time_us;
+    ZNET_LOG_INFO("Ping: {} ms", rtt_us / 1000.0);
   }
 
  private:
@@ -76,6 +88,9 @@ bool OnConnect(p2p::PeerConnectedEvent& event) {
   session_->SetHandler(std::make_shared<MyPacketHandler>(session_));
 
   std::shared_ptr<DemoPacket> pk = std::make_shared<DemoPacket>();
+  pk->send_time_us = std::chrono::duration_cast<std::chrono::microseconds>(
+                         std::chrono::steady_clock::now().time_since_epoch()
+                             ).count();
   pk->text = "Hello from client!";
   session_->SendPacket(pk);
   return false;
