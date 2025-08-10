@@ -167,7 +167,7 @@ uint64_t TCPTransportLayer::GetRTT() const {
   struct tcp_info ti{};
   socklen_t len = sizeof(ti);
   if (getsockopt(socket_, IPPROTO_TCP, TCP_INFO, &ti, &len) == 0) {
-    return ti.tcpi_rtt / 1000.0;
+    return ti.tcpi_rtt;
   } else {
     ZNET_LOG_ERROR("getsockopt TCP_INFO failed: {}", strerror(errno));
     return 0;
@@ -193,6 +193,7 @@ Result TCPClientBackend::Bind() {
     ZNET_LOG_ERROR("Error binding socket.");
     return Result::CannotBind;
   }
+  SetTCPNoDelay(client_socket_);
   const char option = 1;
 #ifdef TARGET_WIN
   setsockopt(client_socket_, SOL_SOCKET, SO_BROADCAST, &option,
@@ -322,7 +323,7 @@ Result TCPServerBackend::Bind() {
     CloseSocket(server_socket_);
     return Result::Failure;
   }
-
+  SetTCPNoDelay(server_socket_);
   if (bind(server_socket_, bind_address_->handle_ptr(),
            bind_address_->addr_size()) != 0) {
     ZNET_LOG_DEBUG("Failed to bind: {}, {}", bind_address_->readable(),
@@ -391,6 +392,7 @@ std::shared_ptr<PeerSession> TCPServerBackend::Accept() {
     CloseSocket(client_socket);
     return nullptr;
   }
+  SetTCPNoDelay(client_socket);
   std::shared_ptr<InetAddress> remote_address = InetAddress::from(reinterpret_cast<sockaddr*>(&client_address));
   if (remote_address == nullptr) {
     return nullptr;

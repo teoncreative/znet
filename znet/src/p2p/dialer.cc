@@ -136,7 +136,7 @@ std::shared_ptr<PeerSession> PunchSync(const std::shared_ptr<InetAddress>& local
       socklen_t length = sizeof(socket_error);
       getsockopt(socket_handle, SOL_SOCKET, SO_ERROR, (char*)&socket_error, &length);
       if (socket_error == 0) {
-
+        SetTCPNoDelay(socket_handle);
         *out_result = Result::Success;
         return std::make_shared<PeerSession>(local, peer,
                                              std::make_unique<backends::TCPTransportLayer>(socket_handle),
