@@ -201,7 +201,7 @@ int main(int argc, char* argv[]) {
 
       response = std::make_shared<znet::p2p::StartPunchRequestPacket>();
       response->target_peer_ = data->peer_name_;
-      response->target_endpoint_ = data->session_->remote_address();
+      response->target_endpoint_ = session->remote_address();
       response->bind_endpoint_ = znet::InetAddress::from("0.0.0.0", other_data->session_->remote_address()->port());
       other_data->session_->SendPacket(response);
     }

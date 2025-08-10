@@ -32,7 +32,8 @@ bool OnReady(znet::p2p::PeerLocatorReadyEvent& event) {
 }
 
 bool OnPunchRequest(znet::p2p::StartPunchRequestEvent& event) {
-  ZNET_LOG_INFO("Received punch request to {} at {}", event.target_peer(), event.target_endpoint()->readable());
+  ZNET_LOG_INFO("Received punch request to {}, {} (local) -> {} (remote)", event.target_peer(), event.bind_endpoint()->readable(),
+                event.target_endpoint()->readable());
   bind_endpoint_ = event.bind_endpoint();
   target_endpoint_ = event.target_endpoint();
   locator_->Close();
