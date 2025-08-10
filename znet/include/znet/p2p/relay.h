@@ -71,7 +71,7 @@ class StartPunchRequestPacket : public Packet {
   StartPunchRequestPacket() : Packet(PACKET_START_PUNCH_REQUEST) {}
 
   std::string target_peer_;
-  PortNumber bind_port_;
+  std::shared_ptr<InetAddress> bind_endpoint_;
   std::shared_ptr<InetAddress> target_endpoint_;
 };
 
@@ -135,7 +135,7 @@ class StartPunchRequestSerializer : public PacketSerializer<StartPunchRequestPac
 
   std::shared_ptr<Buffer> SerializeTyped(std::shared_ptr<StartPunchRequestPacket> packet, std::shared_ptr<Buffer> buffer) override {
     buffer->WriteString(packet->target_peer_);
-    buffer->WritePort(packet->bind_port_);
+    buffer->WriteInetAddress(*packet->bind_endpoint_);
     buffer->WriteInetAddress(*packet->target_endpoint_);
     return buffer;
   }
@@ -143,7 +143,7 @@ class StartPunchRequestSerializer : public PacketSerializer<StartPunchRequestPac
   std::shared_ptr<StartPunchRequestPacket> DeserializeTyped(std::shared_ptr<Buffer> buffer) override {
     auto packet = std::make_shared<StartPunchRequestPacket>();
     packet->target_peer_ = buffer->ReadString();
-    packet->bind_port_ = buffer->ReadPort();
+    packet->bind_endpoint_ = buffer->ReadInetAddress();
     packet->target_endpoint_ = buffer->ReadInetAddress();
     return packet;
   }

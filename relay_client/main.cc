@@ -30,9 +30,10 @@ bool OnReady(znet::p2p::PeerLocatorReadyEvent& event) {
 }
 
 bool OnPunchRequest(znet::p2p::StartPunchRequestEvent& event) {
+  locator_->Close();
   ZNET_LOG_INFO("Received punch request to {} at {}", event.target_peer(), event.target_endpoint()->readable());
   auto result = znet::p2p::Dialer::Punch(
-      znet::InetAddress::from("127.0.0.1", event.bind_port()),
+      event.bind_endpoint(),
       event.target_endpoint()
   );
   ZNET_LOG_INFO("Result: {}", GetResultString(result));
@@ -74,5 +75,8 @@ int main(int argc, char* argv[]) {
     return 1;  // Failed to bind
   }
   locator_->Wait();
+  while (true) {
+
+  }
   return 0;
 }

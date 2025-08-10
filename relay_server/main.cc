@@ -112,7 +112,7 @@ int main(int argc, char* argv[]) {
       ("p,port", "Port to listen on",
                      cxxopts::value<uint16_t>()->default_value("5001"))
           ("t,target", "Host to listen on",
-           cxxopts::value<std::string>()->default_value("127.0.0.1"))
+           cxxopts::value<std::string>()->default_value("0.0.0.0"))
               ("h,help", "Print usage");
 
   auto result = opts.parse(argc, argv);
@@ -191,14 +191,14 @@ int main(int argc, char* argv[]) {
       }
       auto response = std::make_shared<znet::p2p::StartPunchRequestPacket>();
       response->target_peer_ = other_data->peer_name_;
-      response->target_endpoint_ = other_data->session_->remote_address()->WithPort(data->bind_port_);
-      response->bind_port_ = data->bind_port_;
+      response->target_endpoint_ = other_data->session_->remote_address();
+      response->bind_endpoint_ = data->session_->remote_address();
       session->SendPacket(response);
 
       response = std::make_shared<znet::p2p::StartPunchRequestPacket>();
       response->target_peer_ = data->peer_name_;
-      response->target_endpoint_ = data->session_->remote_address()->WithPort(data->bind_port_);
-      response->bind_port_ = data->bind_port_;
+      response->target_endpoint_ = data->session_->remote_address();
+      response->bind_endpoint_ = other_data->session_->remote_address();
       other_data->session_->SendPacket(response);
     }
   }
