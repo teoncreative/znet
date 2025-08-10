@@ -31,12 +31,8 @@ bool OnReady(znet::p2p::PeerLocatorReadyEvent& event) {
   return false;
 }
 
-bool OnPunchRequest(znet::p2p::StartPunchRequestEvent& event) {
-  ZNET_LOG_INFO("Received punch request to {}, {} (local) -> {} (remote)", event.target_peer(), event.bind_endpoint()->readable(),
-                event.target_endpoint()->readable());
-  bind_endpoint_ = event.bind_endpoint();
-  target_endpoint_ = event.target_endpoint();
-  locator_->Close();
+bool OnConnect(znet::p2p::PeerConnectedEvent& event) {
+  ZNET_LOG_INFO("Connected to peer {}!", event.session()->id());
   return false;
 }
 
@@ -44,8 +40,8 @@ void OnEvent(znet::Event& event) {
   znet::EventDispatcher dispatcher{event};
   dispatcher.Dispatch<znet::p2p::PeerLocatorReadyEvent>(
       ZNET_BIND_GLOBAL_FN(OnReady));
-  dispatcher.Dispatch<znet::p2p::StartPunchRequestEvent>(
-      ZNET_BIND_GLOBAL_FN(OnPunchRequest));
+  dispatcher.Dispatch<znet::p2p::PeerConnectedEvent>(
+      ZNET_BIND_GLOBAL_FN(OnConnect));
 }
 
 int main(int argc, char* argv[]) {
@@ -71,16 +67,8 @@ int main(int argc, char* argv[]) {
   locator_ = std::make_unique<znet::p2p::PeerLocator>(config);
   locator_->SetEventCallback(ZNET_BIND_GLOBAL_FN(OnEvent));
 
-  if (locator_->Start() != znet::Result::Success) {
+  if (locator_->Connect() != znet::Result::Success) {
     return 1;  // Failed to bind
   }
   locator_->Wait();
-  Scheduler::PreciseSleep(std::chrono::seconds(30));
-  if (bind_endpoint_ && target_endpoint_) {
-    auto punch_result = znet::p2p::Dialer::Punch(
-        bind_endpoint_,
-        target_endpoint_
-    );
-    ZNET_LOG_INFO("Result: {}", znet::GetResultString(punch_result));
-  }
 }

@@ -13,6 +13,7 @@
 //
 
 #include "znet/p2p/locator.h"
+#include "znet/p2p/dialer.h"
 #include "znet/p2p/relay.h"
 
 namespace znet {
@@ -27,8 +28,14 @@ class LocatorPacketHandler : public PacketHandler<LocatorPacketHandler, SetPeerN
   }
 
   void OnPacket(const StartPunchRequestPacket& pk) {
-    StartPunchRequestEvent event{pk.target_peer_, pk.bind_endpoint_, pk.target_endpoint_};
-    locator_.event_callback_(event);
+    ZNET_LOG_INFO("Received punch request to {}, {} (local) -> {} (remote)", pk.target_peer_, pk.bind_endpoint_->readable(),
+                  pk.target_endpoint_->readable());
+    locator_.target_endpoint_ = pk.target_endpoint_;
+    locator_.bind_endpoint_ = pk.bind_endpoint_;
+    locator_.punch_id_ = pk.punch_id_;
+    CloseOptions options;
+    options.Set<NoLingerKey>(true);
+    locator_.client_.Disconnect(options);
   }
 
  private:
@@ -43,10 +50,42 @@ PeerLocator::PeerLocator(const znet::p2p::PeerLocatorConfig& config)
 }
 
 PeerLocator::~PeerLocator() {
-
+  Disconnect();
 }
 
-Result PeerLocator::Start() {
+Result PeerLocator::Connect() {
+  if (is_running_) {
+    return Result::AlreadyConnected;
+  }
+  is_running_ = true;
+  peer_name_ = "";
+  session_ = nullptr;
+
+  bind_endpoint_ = nullptr;
+  target_endpoint_ = nullptr;
+  punch_id_ = ~0;
+
+  task_.Run([this]() {
+    std::unique_lock<std::mutex> lock(mutex_);
+    cv_.wait(lock);
+    is_running_ = false;
+    if (bind_endpoint_ && target_endpoint_) {
+      Result result;
+      std::shared_ptr<PeerSession> session = Punch(
+          bind_endpoint_,
+          target_endpoint_,
+          &result
+      );
+      if (result == Result::Success) {
+        PeerConnectedEvent event{session, punch_id_};
+        event_callback_(event);
+        return;
+      }
+    }
+    PeerLocatorCloseEvent event;
+    event_callback_(event);
+  });
+
   Result result;
   if ((result = client_.Bind()) != Result::Success) {
     return result;
@@ -59,34 +98,41 @@ Result PeerLocator::Start() {
   return result;
 }
 
-Result PeerLocator::Close() {
-  CloseOptions options;
-  options.Set<NoLingerKey>(true);
-  return client_.Disconnect(options);
+Result PeerLocator::Disconnect() {
+  return client_.Disconnect();
 }
 
-void PeerLocator::AskPeer(std::string peer_name) {
+Result PeerLocator::AskPeer(std::string peer_name) {
+  if (!session_ || !session_->IsAlive()) {
+    return Result::NotConnected;
+  }
   auto pk = std::make_shared<ConnectPeerPacket>();
   pk->target_peer_ = peer_name;
   session_->SendPacket(pk);
+  return Result::Success;
 }
 
 void PeerLocator::Wait() {
   client_.Wait();
+  task_.Wait();
 }
 
 void PeerLocator::OnEvent(Event& event) {
   EventDispatcher dispatcher{event};
   dispatcher.Dispatch<ClientConnectedToServerEvent>(ZNET_BIND_FN(OnConnectEvent));
+  dispatcher.Dispatch<ClientDisconnectedFromServerEvent>(ZNET_BIND_FN(OnDisconnectEvent));
 }
 
 bool PeerLocator::OnConnectEvent(ClientConnectedToServerEvent& event) {
   session_ = event.session();
   session_->SetCodec(BuildCodec());
   session_->SetHandler(std::make_shared<LocatorPacketHandler>(*this));
-  auto pk = std::make_shared<IdentifyPacket>();
-  pk->port_ = 50200;
-  session_->SendPacket(pk);
+  session_->SendPacket(std::make_shared<IdentifyPacket>());
+  return false;
+}
+
+bool PeerLocator::OnDisconnectEvent(ClientDisconnectedFromServerEvent& event) {
+  cv_.notify_all();
   return false;
 }
 

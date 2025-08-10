@@ -69,7 +69,8 @@ enum class Result {
   InvalidBackend,
   InvalidTransport,
   Timeout,
-  CannotConnect
+  CannotConnect,
+  NotConnected
 };
 
 inline std::string GetResultString(Result result) {
@@ -112,6 +113,8 @@ inline std::string GetResultString(Result result) {
       return "Timeout";
     case Result::CannotConnect:
       return "CannotConnect";
+    case Result::NotConnected:
+      return "NotConnected";
     default:
       return "Unknown";
   }

@@ -48,7 +48,6 @@ class IdentifyPacket : public Packet {
  public:
   IdentifyPacket() : Packet(PACKET_IDENTIFY) {}
 
-  PortNumber port_;
 };
 
 class SetPeerNamePacket : public Packet {
@@ -73,6 +72,7 @@ class StartPunchRequestPacket : public Packet {
   std::string target_peer_;
   std::shared_ptr<InetAddress> bind_endpoint_;
   std::shared_ptr<InetAddress> target_endpoint_;
+  uint64_t punch_id_;
 };
 
 class IdentifySerializer : public PacketSerializer<IdentifyPacket> {
@@ -81,13 +81,11 @@ class IdentifySerializer : public PacketSerializer<IdentifyPacket> {
   ~IdentifySerializer() override = default;
 
   std::shared_ptr<Buffer> SerializeTyped(std::shared_ptr<IdentifyPacket> packet, std::shared_ptr<Buffer> buffer) override {
-    buffer->WritePort(packet->port_);
     return buffer;
   }
 
   std::shared_ptr<IdentifyPacket> DeserializeTyped(std::shared_ptr<Buffer> buffer) override {
     auto packet = std::make_shared<IdentifyPacket>();
-    packet->port_ = buffer->ReadPort();
     return packet;
   }
 };
@@ -137,6 +135,7 @@ class StartPunchRequestSerializer : public PacketSerializer<StartPunchRequestPac
     buffer->WriteString(packet->target_peer_);
     buffer->WriteInetAddress(*packet->bind_endpoint_);
     buffer->WriteInetAddress(*packet->target_endpoint_);
+    buffer->WriteInt<uint64_t>(packet->punch_id_);
     return buffer;
   }
 
@@ -145,6 +144,7 @@ class StartPunchRequestSerializer : public PacketSerializer<StartPunchRequestPac
     packet->target_peer_ = buffer->ReadString();
     packet->bind_endpoint_ = buffer->ReadInetAddress();
     packet->target_endpoint_ = buffer->ReadInetAddress();
+    packet->punch_id_ = buffer->ReadInt<uint64_t>();
     return packet;
   }
 };
