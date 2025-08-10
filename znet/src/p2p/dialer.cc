@@ -52,6 +52,7 @@ std::shared_ptr<PeerSession> PunchSync(const std::shared_ptr<InetAddress>& local
     *out_result = Result::CannotCreateSocket;
     return nullptr;
   }
+  SetTCPNoDelay(socket_handle);
 
   int option = 1;
   setsockopt(socket_handle, SOL_SOCKET, SO_REUSEADDR, (char*)&option, sizeof(option));
@@ -136,7 +137,6 @@ std::shared_ptr<PeerSession> PunchSync(const std::shared_ptr<InetAddress>& local
       socklen_t length = sizeof(socket_error);
       getsockopt(socket_handle, SOL_SOCKET, SO_ERROR, (char*)&socket_error, &length);
       if (socket_error == 0) {
-        SetTCPNoDelay(socket_handle);
         *out_result = Result::Success;
         return std::make_shared<PeerSession>(local, peer,
                                              std::make_unique<backends::TCPTransportLayer>(socket_handle),
