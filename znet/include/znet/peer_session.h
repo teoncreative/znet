@@ -129,7 +129,6 @@ class PeerSession {
     ZNET_LOG_INFO("Set out compression to {} for {}", GetCompressionTypeName(type), id_);
   }
 
-  uint64_t GetRTT() const;
  protected:
   friend class EncryptionLayer;
 

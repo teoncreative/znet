@@ -32,8 +32,6 @@ class TCPTransportLayer : public TransportLayer {
 
   Result Close(CloseOptions options = {}) override;
 
-  uint64_t GetRTT() const override;
-
   bool IsClosed() override { return is_closed_; }
 
  private:

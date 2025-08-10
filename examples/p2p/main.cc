@@ -105,9 +105,6 @@ class MyPacketHandler : public PacketHandler<MyPacketHandler, PingPacket, PongPa
     }
 
     ZNET_LOG_INFO("Ping: {:.2f} ms", static_cast<double>(rtt_us) / 1000.0);
-#ifndef TARGET_WIN
-    ZNET_LOG_INFO("Ping kernel: {:.2f} ms", static_cast<double>(session_->GetRTT()) / 1000.0);
-#endif
   }
 
  private:
