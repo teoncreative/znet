@@ -43,22 +43,31 @@ class PeerLocatorReadyEvent : public Event {
   std::shared_ptr<InetAddress> endpoint_;
 };
 
-class StartPunchRequestEvent : public Event {
+class PeerLocatorCloseEvent : public Event {
  public:
-  explicit StartPunchRequestEvent(std::string target_peer, std::shared_ptr<InetAddress> bind_endpoint, std::shared_ptr<InetAddress> target_endpoint)
-      : target_peer_(target_peer), bind_endpoint_(bind_endpoint), target_endpoint_(target_endpoint) {}
+  explicit PeerLocatorCloseEvent() {}
 
-  const std::string& target_peer() const { return target_peer_; }
-  std::shared_ptr<InetAddress> bind_endpoint() const { return bind_endpoint_; }
-  std::shared_ptr<InetAddress> target_endpoint() const { return target_endpoint_; }
 
-  ZNET_EVENT_CLASS_TYPE(StartPunchRequestEvent)
+  ZNET_EVENT_CLASS_TYPE(PeerLocatorCloseEvent)
   ZNET_EVENT_CLASS_CATEGORY(EventCategoryP2P)
  private:
-  std::string target_peer_;
-  std::shared_ptr<InetAddress> bind_endpoint_;
-  std::shared_ptr<InetAddress> target_endpoint_;
 };
+
+class PeerConnectedEvent : public Event {
+ public:
+  explicit PeerConnectedEvent(std::shared_ptr<PeerSession> session, uint64_t punch_id) : session_(session), punch_id_(punch_id) {}
+
+  std::shared_ptr<PeerSession> session() const { return session_; }
+  uint64_t punch_id() const { return punch_id_; }
+
+  ZNET_EVENT_CLASS_TYPE(PeerConnectedEvent)
+  ZNET_EVENT_CLASS_CATEGORY(EventCategoryP2P)
+ private:
+  std::shared_ptr<PeerSession> session_;
+  uint64_t punch_id_;
+
+};
+
 
 class PeerLocator {
  public:
@@ -66,12 +75,12 @@ class PeerLocator {
   PeerLocator(const PeerLocator&) = delete;
   ~PeerLocator();
 
-  Result Start();
-  Result Close();
+  Result Connect();
+  Result Disconnect();
 
   void Wait();
 
-  void AskPeer(std::string peer_name);
+  Result AskPeer(std::string peer_name);
 
   void SetEventCallback(EventCallbackFn fn) { event_callback_ = std::move(fn); }
 
@@ -86,16 +95,27 @@ class PeerLocator {
 
   void OnEvent(Event&);
   bool OnConnectEvent(ClientConnectedToServerEvent& event);
+  bool OnDisconnectEvent(ClientDisconnectedFromServerEvent& event);
 
   void SetPeerName(std::string peer_name, std::shared_ptr<InetAddress> endpoint);
 
   EventCallbackFn event_callback_;
   Client client_;
-  std::shared_ptr<PeerSession> session_;
   PortNumber game_port_;
 
   std::string peer_name_;
   std::shared_ptr<InetAddress> endpoint_;
+  std::shared_ptr<PeerSession> session_;
+
+  std::mutex mutex_;
+  std::condition_variable cv_;
+  Task task_;
+
+  std::shared_ptr<InetAddress> bind_endpoint_;
+  std::shared_ptr<InetAddress> target_endpoint_;
+  uint64_t punch_id_ = ~0;
+
+  bool is_running_ = true;
 };
 
 
