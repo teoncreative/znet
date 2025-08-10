@@ -61,20 +61,22 @@ class MyPacketHandler : public znet::PacketHandler<MyPacketHandler, DemoPacket> 
   std::shared_ptr<znet::PeerSession> session_;
 };
 
+std::shared_ptr<znet::PeerSession> session_;
+
 // On connect
 bool OnConnect(znet::p2p::PeerConnectedEvent& event) {
-  std::shared_ptr<znet::PeerSession> session = event.session();
-  ZNET_LOG_INFO("Connected to peer {}!", session->id());
+  session_ = event.session();
+  ZNET_LOG_INFO("Connected to peer! punch_id: {}", event.punch_id());
 
   std::shared_ptr<znet::Codec> codec = std::make_shared<znet::Codec>();
   codec->Add(PACKET_DEMO, std::make_unique<DemoSerializer>());
-  session->SetCodec(codec);
+  session_->SetCodec(codec);
 
-  session->SetHandler(std::make_shared<MyPacketHandler>(event.session()));
+  session_->SetHandler(std::make_shared<MyPacketHandler>(session_));
 
   std::shared_ptr<DemoPacket> pk = std::make_shared<DemoPacket>();
   pk->text = "Hello from client!";
-  session->SendPacket(pk);
+  session_->SendPacket(pk);
   return false;
 }
 
@@ -129,4 +131,7 @@ int main(int argc, char* argv[]) {
     return 1;  // Failed to connect
   }
   locator_->Wait();
+  while (session_ && session_->IsAlive()) {
+
+  }
 }
