@@ -190,15 +190,18 @@ int main(int argc, char* argv[]) {
         continue;
       }
       auto response = std::make_shared<znet::p2p::StartPunchRequestPacket>();
+      // add start_at
+      // add punch_id to dedupe and select a server
+      // handle ipv6 instead of hard coding the endpoint
       response->target_peer_ = other_data->peer_name_;
       response->target_endpoint_ = other_data->session_->remote_address();
-      response->bind_endpoint_ = data->session_->remote_address();
+      response->bind_endpoint_ = znet::InetAddress::from("0.0.0.0", data->session_->remote_address()->port());
       session->SendPacket(response);
 
       response = std::make_shared<znet::p2p::StartPunchRequestPacket>();
       response->target_peer_ = data->peer_name_;
       response->target_endpoint_ = data->session_->remote_address();
-      response->bind_endpoint_ = other_data->session_->remote_address();
+      response->bind_endpoint_ = znet::InetAddress::from("0.0.0.0", other_data->session_->remote_address()->port());
       other_data->session_->SendPacket(response);
     }
   }
