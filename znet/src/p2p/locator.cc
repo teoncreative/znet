@@ -33,6 +33,7 @@ class LocatorPacketHandler : public PacketHandler<LocatorPacketHandler, SetPeerN
     locator_.target_endpoint_ = pk.target_endpoint_;
     locator_.bind_endpoint_ = pk.bind_endpoint_;
     locator_.punch_id_ = pk.punch_id_;
+    locator_.target_peer_name_ = pk.target_peer_;
     CloseOptions options;
     options.Set<NoLingerKey>(true);
     locator_.client_.Disconnect(options);
@@ -73,10 +74,11 @@ Result PeerLocator::Connect() {
       Result result;
       std::shared_ptr<PeerSession> session =
           PunchSync(
-          bind_endpoint_,
-          target_endpoint_,
-          &result
-      );
+              bind_endpoint_,
+              target_endpoint_,
+              &result,
+              IsInitiator(punch_id_, peer_name_, target_peer_name_)
+          );
       if (result == Result::Success) {
         PeerConnectedEvent event{session, punch_id_};
         event_callback_(event);

@@ -36,9 +36,10 @@ bool WouldBlock(int e) {
 }
 
 std::shared_ptr<PeerSession> PunchSync(const std::shared_ptr<InetAddress>& local,
-                                   const std::shared_ptr<InetAddress>& peer,
-                                   Result* out_result,
-                                   int timeout_ms) {
+                                       const std::shared_ptr<InetAddress>& peer,
+                                       Result* out_result,
+                                       bool is_initiator,
+                                       int timeout_ms) {
   ZNET_LOG_INFO("Attempting to punch to {} from {}", peer->readable(), local->readable());
   if (!local || !peer || !local->is_valid() || !peer->is_valid()) {
     *out_result = Result::InvalidAddress;
@@ -137,7 +138,9 @@ std::shared_ptr<PeerSession> PunchSync(const std::shared_ptr<InetAddress>& local
       if (socket_error == 0) {
         *out_result = Result::Success;
         return std::make_shared<PeerSession>(local, peer,
-                                                                             std::make_unique<backends::TCPTransportLayer>(socket_handle));
+                                             std::make_unique<backends::TCPTransportLayer>(socket_handle),
+                                             is_initiator,
+                                             true);
       } else {
         CloseSocket(socket_handle);
         *out_result = Result::CannotConnect;

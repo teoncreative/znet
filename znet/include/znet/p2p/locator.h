@@ -113,6 +113,7 @@ class PeerLocator {
 
   std::shared_ptr<InetAddress> bind_endpoint_;
   std::shared_ptr<InetAddress> target_endpoint_;
+  std::string target_peer_name_;
   uint64_t punch_id_ = ~0;
 
   bool is_running_ = false;
