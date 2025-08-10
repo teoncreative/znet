@@ -46,6 +46,7 @@
 #include <unistd.h>
 #endif
 #if defined(TARGET_LINUX)
+#include <netinet/tcp.h>
 #include <netinet/in.h>
 #include <cerrno>
 #include <cstring>
