@@ -13,7 +13,7 @@
 #include <deque>
 #include <random>
 #include "cxxopts.h"
-#include "znet/p2p/relay.h"
+#include "znet/p2p/rendezvous.h"
 #include "znet/znet.h"
 
 struct UserData {
