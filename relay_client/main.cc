@@ -75,7 +75,7 @@ int main(int argc, char* argv[]) {
     return 1;  // Failed to bind
   }
   locator_->Wait();
-
+  Scheduler::PreciseSleep(std::chrono::seconds(30));
   if (bind_endpoint_ && target_endpoint_) {
     auto punch_result = znet::p2p::Dialer::Punch(
         bind_endpoint_,
