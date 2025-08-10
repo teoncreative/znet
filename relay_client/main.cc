@@ -123,8 +123,10 @@ int main(int argc, char* argv[]) {
   locator_ = std::make_unique<znet::p2p::PeerLocator>(config);
   locator_->SetEventCallback(ZNET_BIND_GLOBAL_FN(OnEvent));
 
-  if (locator_->Connect() != znet::Result::Success) {
-    return 1;  // Failed to bind
+  znet::Result connect_result;
+  if ((connect_result = locator_->Connect()) != znet::Result::Success) {
+    ZNET_LOG_ERROR("Failed to connect to relay! Reason: {}", znet::GetResultString(connect_result));
+    return 1;  // Failed to connect
   }
   locator_->Wait();
 }
