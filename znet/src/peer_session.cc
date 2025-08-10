@@ -52,11 +52,11 @@ void PeerSession::Process() {
   }
 }
 
-Result PeerSession::Close() {
+Result PeerSession::Close(CloseOptions options) {
   if (!transport_layer_) {
     return Result::InvalidTransport;
   }
-  return transport_layer_->Close();
+  return transport_layer_->Close(options);
 }
 
 bool PeerSession::IsAlive() {

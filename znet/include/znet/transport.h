@@ -11,12 +11,12 @@
 
 #pragma once
 
-#include "znet/precompiled.h"
+#include "znet/logger.h"
 #include "znet/base/packet.h"
+#include "znet/precompiled.h"
 #include "znet/send_options.h"
-#include "logger.h"
-#include "buffer.h"
-
+#include "znet/buffer.h"
+#include "znet/close_options.h"
 
 namespace znet {
 
@@ -27,7 +27,7 @@ class TransportLayer {
   virtual std::shared_ptr<Buffer> Receive() = 0;
   virtual bool Send(std::shared_ptr<Buffer> buffer, SendOptions options = {}) = 0;
 
-  virtual Result Close() = 0;
+  virtual Result Close(CloseOptions options = {}) = 0;
 
   virtual bool IsClosed() = 0;
 

@@ -60,7 +60,9 @@ Result PeerLocator::Start() {
 }
 
 Result PeerLocator::Close() {
-  return client_.Disconnect();
+  CloseOptions options;
+  options.Set<NoLingerKey>(true);
+  return client_.Disconnect(options);
 }
 
 void PeerLocator::AskPeer(std::string peer_name) {

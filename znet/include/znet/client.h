@@ -66,7 +66,7 @@ class Client : public Interface {
    * @return Result::Success if the disconnection is successful.
    * @return Result::Failure if no active session exists or disconnection fails.
    */
-  Result Disconnect();
+  Result Disconnect(CloseOptions options = {});
 
   /**
    * @brief Waits for the completion of the client's thread. This function is thread-safe.
