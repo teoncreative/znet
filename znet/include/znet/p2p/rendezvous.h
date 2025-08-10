@@ -12,20 +12,20 @@
 // Created by Metehan Gezer on 08/08/2025.
 //
 
-#ifndef ZNET_PARENT_RELAY_H
-#define ZNET_PARENT_RELAY_H
+#ifndef ZNET_PARENT_RENDEZVOUS_H
+#define ZNET_PARENT_RENDEZVOUS_H
 
 #include "znet/server.h"
 
 namespace znet {
 namespace p2p {
 
-// Relay flow: (C1 is the first client, C2 is the second client, S is the server)
+// Rendezvous flow: (C1 is the first client, C2 is the second client, S is the server)
 // IdentifyPacket C1 -> S
-// SetPeerNamePacket S -> C1 - Relay server selects a unique name and replies
+// SetPeerNamePacket S -> C1 - Rendezvous server selects a unique name and replies
 //
 // IdentifyPacket C2 -> S
-// SetPeerNamePacket S -> C2 - Relay server selects a unique name and replies
+// SetPeerNamePacket S -> C2 - Rendezvous server selects a unique name and replies
 //
 // ConnectPeerPacket C1 -> S - C1 asks to connect to C2's peer name
 // ConnectPeerPacket C2 -> S - C2 asks to connect to C1's peer name
@@ -161,4 +161,4 @@ inline std::shared_ptr<Codec> BuildCodec() {
 }
 }
 
-#endif  //ZNET_PARENT_RELAY_H
+#endif  //ZNET_PARENT_RENDEZVOUS_H
