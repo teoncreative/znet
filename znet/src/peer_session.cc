@@ -8,11 +8,12 @@
 //        http://www.apache.org/licenses/LICENSE-2.0
 //
 
-#include <utility>
-
+#include "znet/error.h"
 #include "znet/peer_session.h"
 #include "znet/server_events.h"
-#include "znet/error.h"
+#include "znet/base/scheduler.h"
+
+#include <utility>
 
 namespace znet {
 
@@ -33,7 +34,7 @@ PeerSession::PeerSession(std::shared_ptr<InetAddress> local_address,
     task_.Run([this]() {
       while (IsAlive()) {
         Process();
-        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        Scheduler::PreciseSleep(std::chrono::milliseconds(1));
       }
     });
   }
