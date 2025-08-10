@@ -6,7 +6,7 @@ add_subdirectory(vendor/fmt)
 add_subdirectory(znet)
 
 # relay server
-add_subdirectory(relay_client)
+add_subdirectory(relay_server)
 
 # examples
 add_subdirectory(examples/basic/server)
