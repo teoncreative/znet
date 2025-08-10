@@ -28,6 +28,7 @@ class Dialer {
   static Result Punch(const std::shared_ptr<InetAddress>& local,
                       const std::shared_ptr<InetAddress>& peer,
                       int timeout_ms = 5000) {
+    ZNET_LOG_INFO("Attempting to punch to {} from {}", peer->readable(), local->readable());
     if (!local || !peer || !local->is_valid() || !peer->is_valid()) {
       return Result::Failure;
     }
@@ -57,6 +58,19 @@ class Dialer {
         !WouldBlock(LastErr())) {
       CloseSocket(socket_handle);
       return Result::CannotConnect;
+    }
+
+    sockaddr_storage local_ss{};
+    socklen_t local_len = sizeof(local_ss);
+    if (getsockname(socket_handle, reinterpret_cast<sockaddr*>(&local_ss), &local_len) == 0) {
+      auto confirm_address = InetAddress::from(reinterpret_cast<sockaddr*>(&local_ss));
+      if (confirm_address) {
+        ZNET_LOG_DEBUG("getsockname: {}", confirm_address->readable());
+      } else {
+        ZNET_LOG_DEBUG("getsockname: invalid address");
+      }
+    } else {
+      ZNET_LOG_ERROR("getsockname failed: {}", GetLastErrorInfo());
     }
 
     std::chrono::steady_clock::time_point start_time = std::chrono::steady_clock::now();
