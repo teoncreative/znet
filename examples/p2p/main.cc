@@ -66,7 +66,7 @@ class MyPacketHandler : public PacketHandler<MyPacketHandler, DemoPacket> {
     session_->SendPacket(pk);
 
     uint64_t rtt_us = now_us - p->send_time_us;
-    ZNET_LOG_INFO("Ping: {} ms", rtt_us / 1000.0);
+    ZNET_LOG_INFO("Ping: {:.2f} ms",  static_cast<double>(rtt_us) / 1000.0);
   }
 
  private:
