@@ -162,6 +162,21 @@ Result TCPTransportLayer::Close(CloseOptions options) {
   return Result::Success;
 }
 
+uint64_t TCPTransportLayer::GetRTT() const {
+#ifndef TARGET_WIN
+  struct tcp_info ti{};
+  socklen_t len = sizeof(ti);
+  if (getsockopt(socket_, IPPROTO_TCP, TCP_INFO, &ti, &len) == 0) {
+    return ti.tcpi_rtt / 1000.0;
+  } else {
+    ZNET_LOG_ERROR("getsockopt TCP_INFO failed: {}", strerror(errno));
+    return 0;
+  }
+#else
+  return 0;
+#endif
+}
+
 TCPClientBackend::TCPClientBackend(std::shared_ptr<InetAddress> server_address)
     : server_address_(server_address) {
 
@@ -370,24 +385,12 @@ std::shared_ptr<PeerSession> TCPServerBackend::Accept() {
   if (!IsValidSocketHandle(client_socket)) {
     return nullptr;
   }
-#ifdef TARGET_WIN
-  u_long mode = 1;  // 1 to enable non-blocking socket
-  ioctlsocket(server_socket_, FIONBIO, &mode);
-#else
-  // Set socket to non-blocking mode
-  int flags = fcntl(server_socket_, F_GETFL, 0);
-  if (flags < 0) {
-    ZNET_LOG_ERROR("Error getting socket flags: {}", GetLastErrorInfo());
-    CloseSocket(client_socket);
-    return nullptr;
-  }
-  if (fcntl(server_socket_, F_SETFL, flags | O_NONBLOCK) < 0) {
+  if (!SetSocketBlocking(client_socket, false)) {
     ZNET_LOG_ERROR("Error setting socket to non-blocking mode: {}",
                    GetLastErrorInfo());
     CloseSocket(client_socket);
     return nullptr;
   }
-#endif
   std::shared_ptr<InetAddress> remote_address = InetAddress::from(reinterpret_cast<sockaddr*>(&client_address));
   if (remote_address == nullptr) {
     return nullptr;

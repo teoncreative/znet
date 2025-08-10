@@ -105,16 +105,7 @@ class MyPacketHandler : public PacketHandler<MyPacketHandler, PingPacket, PongPa
     }
 
     ZNET_LOG_INFO("Ping: {:.2f} ms", static_cast<double>(rtt_us) / 1000.0);
-
-#ifndef TARGET_WIN
-    struct tcp_info ti{};
-    socklen_t len = sizeof(ti);
-    if (getsockopt(session->GetSocketHandle(), IPPROTO_TCP, TCP_INFO, &ti, &len) == 0) {
-      ZNET_LOG_INFO("kernel RTT: {:.2f} ms", ti.tcpi_rtt / 1000.0);
-    } else {
-      ZNET_LOG_ERROR("getsockopt TCP_INFO failed: {}", strerror(errno));
-    }
-#endif
+    ZNET_LOG_INFO("Ping kernel: {:.2f} ms}", session_->GetRTT());
   }
 
  private:

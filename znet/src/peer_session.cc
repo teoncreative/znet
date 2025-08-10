@@ -110,4 +110,7 @@ bool PeerSession::SendRaw(std::shared_ptr<Buffer> buffer, SendOptions options) {
   return transport_layer_->Send(buffer, options);
 }
 
+uint64_t PeerSession::GetRTT() const {
+  return transport_layer_->GetRTT();
+}
 }
