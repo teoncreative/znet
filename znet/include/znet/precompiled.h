@@ -51,6 +51,9 @@
 #include <cerrno>
 #include <cstring>
 #endif
+#if defined(TARGET_APPLE)
+#include <netinet/tcp.h>
+#endif
 #if defined(_WIN32) || defined(__WIN32__) || defined(WIN32)
 #define TARGET_WIN
 #define NOMINMAX
