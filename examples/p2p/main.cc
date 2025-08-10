@@ -17,56 +17,96 @@
 
 using namespace znet;
 
+static uint64_t NowMicros() {
+  return static_cast<uint64_t>(
+      std::chrono::duration_cast<std::chrono::microseconds>(
+          std::chrono::steady_clock::now().time_since_epoch()
+              ).count()
+  );
+}
+
 // Basic setup; locator logic starts below.
 enum PacketType {
-  PACKET_DEMO
+  PACKET_PING,
+  PACKET_PONG,
 };
 
-class DemoPacket : public Packet {
+class PingPacket : public Packet {
  public:
-  DemoPacket() : Packet(PACKET_DEMO) { }
+  PingPacket() : Packet(PACKET_PING) { }
 
-  std::string text;
-  uint64_t send_time_us;
+  uint64_t time;
 };
 
-class DemoSerializer : public PacketSerializer<DemoPacket> {
+class PongPacket : public Packet {
  public:
-  DemoSerializer() : PacketSerializer<DemoPacket>() {}
+  PongPacket() : Packet(PACKET_PONG) { }
 
-  std::shared_ptr<Buffer> SerializeTyped(std::shared_ptr<DemoPacket> packet, std::shared_ptr<Buffer> buffer) override {
-    buffer->WriteString(packet->text);
-    buffer->WriteInt<uint64_t>(packet->send_time_us);
+  uint64_t time;
+};
+
+class PingSerializer : public PacketSerializer<PingPacket> {
+ public:
+  PingSerializer() : PacketSerializer<PingPacket>() {}
+
+  std::shared_ptr<Buffer> SerializeTyped(std::shared_ptr<PingPacket> packet, std::shared_ptr<Buffer> buffer) override {
+    buffer->WriteInt<uint64_t>(packet->time);
     return buffer;
   }
 
-  std::shared_ptr<DemoPacket> DeserializeTyped(std::shared_ptr<Buffer> buffer) override {
-    auto packet = std::make_shared<DemoPacket>();
-    packet->text = buffer->ReadString();
-    packet->send_time_us = buffer->ReadInt<uint64_t>();
+  std::shared_ptr<PingPacket> DeserializeTyped(std::shared_ptr<Buffer> buffer) override {
+    auto packet = std::make_shared<PingPacket>();
+    packet->time = buffer->ReadInt<uint64_t>();
     return packet;
   }
 };
 
-// Echoes a response when a DemoPacket is received.
-class MyPacketHandler : public PacketHandler<MyPacketHandler, DemoPacket> {
+class PongSerializer : public PacketSerializer<PongPacket> {
+ public:
+  PongSerializer() : PacketSerializer<PongPacket>() {}
+
+  std::shared_ptr<Buffer> SerializeTyped(std::shared_ptr<PongPacket> packet, std::shared_ptr<Buffer> buffer) override {
+    buffer->WriteInt<uint64_t>(packet->time);
+    return buffer;
+  }
+
+  std::shared_ptr<PongPacket> DeserializeTyped(std::shared_ptr<Buffer> buffer) override {
+    auto packet = std::make_shared<PongPacket>();
+    packet->time = buffer->ReadInt<uint64_t>();
+    return packet;
+  }
+};
+
+static void SendPing(std::shared_ptr<PeerSession> session) {
+  std::shared_ptr<PingPacket> pk = std::make_shared<PingPacket>();
+  pk->time = std::chrono::duration_cast<std::chrono::microseconds>(
+                         std::chrono::steady_clock::now().time_since_epoch()
+                             ).count();
+  session->SendPacket(pk);
+}
+
+class MyPacketHandler : public PacketHandler<MyPacketHandler, PingPacket, PongPacket> {
  public:
   MyPacketHandler(std::shared_ptr<PeerSession> session) : session_(session) { }
 
-  void OnPacket(std::shared_ptr<DemoPacket> p) {
-    ZNET_LOG_INFO("Received demo_packet.");
+  void OnPacket(std::shared_ptr<PingPacket> p) {
+    std::shared_ptr<PongPacket> reply = std::make_shared<PongPacket>();
+    reply->time = p->time;
+    session_->SendPacket(reply);
 
-    uint64_t now_us = std::chrono::duration_cast<std::chrono::microseconds>(
-                          std::chrono::steady_clock::now().time_since_epoch()
-                              ).count();
+    SendPing(session_);
+  }
 
-    std::shared_ptr<DemoPacket> pk = std::make_shared<DemoPacket>();
-    pk->send_time_us = now_us;
-    pk->text = "Got ya! Hello from server!";
-    session_->SendPacket(pk);
+  void OnPacket(std::shared_ptr<PongPacket> p) {
+    uint64_t now_us = NowMicros();
+    int64_t rtt_us = static_cast<int64_t>(now_us) - static_cast<int64_t>(p->time);
 
-    uint64_t rtt_us = now_us - p->send_time_us;
-    ZNET_LOG_INFO("Ping: {:.2f} ms",  static_cast<double>(rtt_us) / 1000.0);
+    if (rtt_us < 0) {
+      ZNET_LOG_INFO("Ping: invalid (clock issue)");
+      return;
+    }
+
+    ZNET_LOG_INFO("Ping: {:.2f} ms", static_cast<double>(rtt_us) / 1000.0);
   }
 
  private:
@@ -82,17 +122,18 @@ bool OnConnect(p2p::PeerConnectedEvent& event) {
   ZNET_LOG_INFO("Connected to peer! punch_id: {}", event.punch_id());
 
   std::shared_ptr<Codec> codec = std::make_shared<Codec>();
-  codec->Add(PACKET_DEMO, std::make_unique<DemoSerializer>());
+  codec->Add(PACKET_PING, std::make_unique<PingSerializer>());
+  codec->Add(PACKET_PONG, std::make_unique<PongSerializer>());
   session_->SetCodec(codec);
 
   session_->SetHandler(std::make_shared<MyPacketHandler>(session_));
 
-  std::shared_ptr<DemoPacket> pk = std::make_shared<DemoPacket>();
-  pk->send_time_us = std::chrono::duration_cast<std::chrono::microseconds>(
-                         std::chrono::steady_clock::now().time_since_epoch()
-                             ).count();
-  pk->text = "Hello from client!";
-  session_->SendPacket(pk);
+  bool is_server = p2p::IsInitiator(event.punch_id(), event.self_peer_name(),
+                                    event.target_peer_name());
+
+  if (is_server) {
+    SendPing(session_);
+  }
   return false;
 }
 
