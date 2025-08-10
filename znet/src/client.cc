@@ -63,7 +63,6 @@ Result Client::Connect() {
   }
 
   client_session_ = backend_->client_session();
-  local_address_ = backend_->local_address();
 
   // Connected to the server
   task_.Run([this]() {
@@ -100,6 +99,10 @@ Result Client::Disconnect() {
     return Result::Failure;
   }
   return client_session_->Close();
+}
+
+ZNET_NODISCARD std::shared_ptr<InetAddress> Client::local_address() const {
+  return backend_->local_address();
 }
 
 }  // namespace znet
