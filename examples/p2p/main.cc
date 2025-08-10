@@ -171,8 +171,8 @@ void OnEvent(Event& event) {
       ZNET_BIND_GLOBAL_FN(OnClose));
 }
 
-// Note: This example requires a publicly accessible relay server.
-// The relay must run on a host outside both peers' local networks (not on either peer's machine),
+// Note: This example requires a publicly accessible rendezvous server.
+// The server must run on a host outside both peers' local networks (not on either peer's machine),
 // so it can observe each peer’s public IP address and port.
 int main(int argc, char* argv[]) {
   // We are getting the relay information from the command line arguments
