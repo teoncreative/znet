@@ -80,7 +80,7 @@ Result PeerLocator::Connect() {
               IsInitiator(punch_id_, peer_name_, target_peer_name_)
           );
       if (result == Result::Success) {
-        PeerConnectedEvent event{session, punch_id_};
+        PeerConnectedEvent event{session, punch_id_, peer_name_, target_peer_name_};
         event_callback_(event);
         return;
       }

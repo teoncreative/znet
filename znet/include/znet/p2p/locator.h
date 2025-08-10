@@ -15,10 +15,10 @@
 #ifndef ZNET_PARENT_LOCATOR_H
 #define ZNET_PARENT_LOCATOR_H
 
-#include "znet/client.h"
-#include "znet/precompiled.h"
 #include "znet/base/event.h"
+#include "znet/client.h"
 #include "znet/client_events.h"
+#include "znet/precompiled.h"
 
 namespace znet {
 namespace p2p {
@@ -30,10 +30,12 @@ struct PeerLocatorConfig {
 
 class PeerLocatorReadyEvent : public Event {
  public:
-  explicit PeerLocatorReadyEvent(std::string peer_name, std::shared_ptr<InetAddress> endpoint)
+  explicit PeerLocatorReadyEvent(std::string peer_name,
+                                 std::shared_ptr<InetAddress> endpoint)
       : peer_name_(peer_name), endpoint_(endpoint) {}
 
   const std::string& peer_name() const { return peer_name_; }
+
   std::shared_ptr<InetAddress> endpoint() const { return endpoint_; }
 
   ZNET_EVENT_CLASS_TYPE(PeerLocatorReadyEvent)
@@ -47,7 +49,6 @@ class PeerLocatorCloseEvent : public Event {
  public:
   explicit PeerLocatorCloseEvent() {}
 
-
   ZNET_EVENT_CLASS_TYPE(PeerLocatorCloseEvent)
   ZNET_EVENT_CLASS_CATEGORY(EventCategoryP2P)
  private:
@@ -55,19 +56,30 @@ class PeerLocatorCloseEvent : public Event {
 
 class PeerConnectedEvent : public Event {
  public:
-  explicit PeerConnectedEvent(std::shared_ptr<PeerSession> session, uint64_t punch_id) : session_(session), punch_id_(punch_id) {}
+  explicit PeerConnectedEvent(std::shared_ptr<PeerSession> session,
+                              uint64_t punch_id, std::string self_peer_name,
+                              std::string target_peer_name)
+      : session_(session),
+        punch_id_(punch_id),
+        self_peer_name_(self_peer_name),
+        target_peer_name_(target_peer_name) {}
 
   std::shared_ptr<PeerSession> session() const { return session_; }
+
   uint64_t punch_id() const { return punch_id_; }
+
+  const std::string& self_peer_name() const { return self_peer_name_; }
+
+  const std::string& target_peer_name() const { return target_peer_name_; }
 
   ZNET_EVENT_CLASS_TYPE(PeerConnectedEvent)
   ZNET_EVENT_CLASS_CATEGORY(EventCategoryP2P)
  private:
   std::shared_ptr<PeerSession> session_;
   uint64_t punch_id_;
-
+  std::string self_peer_name_;
+  std::string target_peer_name_;
 };
-
 
 class PeerLocator {
  public:
@@ -97,7 +109,8 @@ class PeerLocator {
   bool OnConnectEvent(ClientConnectedToServerEvent& event);
   bool OnDisconnectEvent(ClientDisconnectedFromServerEvent& event);
 
-  void SetPeerName(std::string peer_name, std::shared_ptr<InetAddress> endpoint);
+  void SetPeerName(std::string peer_name,
+                   std::shared_ptr<InetAddress> endpoint);
 
   EventCallbackFn event_callback_;
   Client client_;
@@ -119,8 +132,7 @@ class PeerLocator {
   bool is_running_ = false;
 };
 
-
-}
-}
+}  // namespace p2p
+}  // namespace znet
 
 #endif  //ZNET_PARENT_LOCATOR_H
