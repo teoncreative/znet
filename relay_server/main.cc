@@ -196,7 +196,7 @@ int main(int argc, char* argv[]) {
       // allow lan connection if possible
       response->target_peer_ = other_data->peer_name_;
       response->target_endpoint_ = other_data->session_->remote_address();
-      response->bind_endpoint_ = znet::InetAddress::from("0.0.0.0", data->session_->remote_address()->port());
+      response->bind_endpoint_ = znet::InetAddress::from("0.0.0.0", session->remote_address()->port());
       session->SendPacket(response);
 
       response = std::make_shared<znet::p2p::StartPunchRequestPacket>();
