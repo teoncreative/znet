@@ -36,8 +36,8 @@ class Scheduler {
 
   void Wait();
 
- private:
   static void PreciseSleep(Duration duration);
+ private:
 
   TimePoint start_time_;
   TimePoint end_time_;
