@@ -23,10 +23,34 @@
 namespace znet {
 namespace p2p {
 
+inline bool IsInitiator(uint64_t punch_id,
+                 const std::string& self_id,
+                 const std::string& peer_id) {
+  bool use_smaller = ((punch_id & 1ULL) == 0ULL);
+
+  bool self_is_smaller = (self_id < peer_id);
+
+  if (use_smaller) {
+    if (self_is_smaller) {
+      return true;
+    } else {
+      return false;
+    }
+  } else {
+    if (!self_is_smaller) {
+      return true;
+    } else {
+      return false;
+    }
+  }
+}
+
+
 std::shared_ptr<PeerSession> PunchSync(const std::shared_ptr<InetAddress>& local,
-                                   const std::shared_ptr<InetAddress>& peer,
-                                   Result* out_result,
-                                   int timeout_ms = 5000);
+                                       const std::shared_ptr<InetAddress>& peer,
+                                       Result* out_result,
+                                       bool is_initiator,
+                                       int timeout_ms = 5000);
 
 }  // namespace p2p
 }  // namespace znet

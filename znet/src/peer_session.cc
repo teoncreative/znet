@@ -18,7 +18,9 @@ namespace znet {
 
 PeerSession::PeerSession(std::shared_ptr<InetAddress> local_address,
                          std::shared_ptr<InetAddress> remote_address,
-                         std::unique_ptr<TransportLayer> transport_layer, bool is_initiator)
+                         std::unique_ptr<TransportLayer> transport_layer,
+                         bool is_initiator,
+                         bool self_managed)
     : local_address_(std::move(local_address)),
       remote_address_(std::move(remote_address)),
       transport_layer_(std::move(transport_layer)), is_initiator_(is_initiator),
@@ -27,6 +29,14 @@ PeerSession::PeerSession(std::shared_ptr<InetAddress> local_address,
   static SessionId sIdCount = 0;
   id_ = sIdCount++;
   encryption_layer_.Initialize(is_initiator);
+  if (self_managed) {
+    task_.Run([this]() {
+      while (IsAlive()) {
+        Process();
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+      }
+    });
+  }
 }
 
 PeerSession::~PeerSession() {
