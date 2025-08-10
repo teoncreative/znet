@@ -11,15 +11,15 @@
 #include <utility>
 
 #include <deque>
+#include <random>
 #include "cxxopts.h"
-#include "znet/p2p/relay.h"
+#include "znet/p2p/rendezvous.h"
 #include "znet/znet.h"
 
 struct UserData {
   std::shared_ptr<znet::PeerSession> session_;
   std::string peer_name_;
   std::string pending_target_;
-  znet::PortNumber bind_port_;
 };
 
 std::unordered_map<std::string, std::shared_ptr<UserData>> registry_;
@@ -42,7 +42,6 @@ class DefaultPacketHandler
   void OnPacket(const znet::p2p::IdentifyPacket& pk) {
     std::unique_lock<std::mutex> lock(mutex_);
     auto data = session_->user_ptr_typed<UserData>();
-    data->bind_port_ = pk.port_;
     name_await_queue_.push_front(session_);
     cv_.notify_one();
   }
@@ -108,9 +107,12 @@ int main(int argc, char* argv[]) {
   cxxopts::Options opts(
       "relay-server",
       "relay-server is a utility for znet that exchanges peer endpoints");
-  opts.add_options()("p,port", "Port to listen on",
-                     cxxopts::value<uint16_t>()->default_value("5001"))(
-      "h,help", "Print usage");
+  opts.add_options()
+      ("p,port", "Port to listen on",
+                     cxxopts::value<uint16_t>()->default_value("5001"))
+          ("t,target", "Host to listen on",
+           cxxopts::value<std::string>()->default_value("0.0.0.0"))
+              ("h,help", "Print usage");
 
   auto result = opts.parse(argc, argv);
   if (result["help"].as<bool>()) {
@@ -119,9 +121,10 @@ int main(int argc, char* argv[]) {
   }
 
   uint16_t port = result["port"].as<uint16_t>();
-  ZNET_LOG_INFO("Starting relay on port {}...", port);
+  std::string target = result["target"].as<std::string>();
+  ZNET_LOG_INFO("Starting relay on {}:{}...", target, port);
 
-  znet::ServerConfig config{"127.0.0.1", port};
+  znet::ServerConfig config{target, port};
   znet::Server relay{config};
   relay.SetEventCallback(ZNET_BIND_GLOBAL_FN(OnEvent));
 
@@ -185,16 +188,25 @@ int main(int argc, char* argv[]) {
                       data->peer_name_, data->pending_target_);
         continue;
       }
+      std::random_device rd;
+      std::mt19937 gen(rd());
+      uint64_t punch_id = gen();
+
       auto response = std::make_shared<znet::p2p::StartPunchRequestPacket>();
+      // add start_at
+      // handle ipv6 instead of hard coding the endpoint
+      // allow lan connection if possible
       response->target_peer_ = other_data->peer_name_;
-      response->target_endpoint_ = other_data->session_->remote_address()->WithPort(data->bind_port_);
-      response->bind_port_ = data->bind_port_;
+      response->target_endpoint_ = other_data->session_->remote_address();
+      response->bind_endpoint_ = znet::InetAddress::from("0.0.0.0", session->remote_address()->port());
+      response->punch_id_ = punch_id;
       session->SendPacket(response);
 
       response = std::make_shared<znet::p2p::StartPunchRequestPacket>();
       response->target_peer_ = data->peer_name_;
-      response->target_endpoint_ = data->session_->remote_address()->WithPort(data->bind_port_);
-      response->bind_port_ = data->bind_port_;
+      response->target_endpoint_ = session->remote_address();
+      response->bind_endpoint_ = znet::InetAddress::from("0.0.0.0", other_data->session_->remote_address()->port());
+      response->punch_id_ = punch_id;
       other_data->session_->SendPacket(response);
     }
   }

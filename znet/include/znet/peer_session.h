@@ -10,13 +10,14 @@
 
 #pragma once
 
+#include "znet/task.h"
 #include "znet/codec.h"
+#include "znet/compression.h"
 #include "znet/encryption.h"
 #include "znet/packet_handler.h"
 #include "znet/precompiled.h"
-#include "znet/transport.h"
-#include "znet/compression.h"
 #include "znet/send_options.h"
+#include "znet/transport.h"
 
 namespace znet {
 
@@ -35,14 +36,15 @@ class PeerSession {
  public:
   PeerSession(std::shared_ptr<InetAddress> local_address,
               std::shared_ptr<InetAddress> remote_address,
-              std::unique_ptr<TransportLayer> transport_layer, bool is_initiator = false);
+              std::unique_ptr<TransportLayer> transport_layer, bool is_initiator = false,
+              bool self_managed = false);
   PeerSession(const PeerSession&) = delete;
   PeerSession(PeerSession&&) = delete;
   ~PeerSession();
 
   void Process();
 
-  Result Close();
+  Result Close(CloseOptions options = {});
 
   bool IsAlive();
 
@@ -156,5 +158,6 @@ class PeerSession {
   std::chrono::steady_clock::time_point expire_at_;
   bool has_expiry_ = false;
   std::shared_ptr<void> user_ptr_;
+  Task task_;
 };
 }  // namespace znet

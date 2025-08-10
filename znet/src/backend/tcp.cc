@@ -147,9 +147,13 @@ bool TCPTransportLayer::Send(std::shared_ptr<Buffer> buffer, SendOptions options
   return true;
 }
 
-Result TCPTransportLayer::Close() {
+Result TCPTransportLayer::Close(CloseOptions options) {
   if (is_closed_) {
     return Result::AlreadyDisconnected;
+  }
+  if (options.GetOr<NoLingerKey>(false)) {
+    linger l; l.l_onoff = 1; l.l_linger = 0;
+    setsockopt(socket_, SOL_SOCKET, SO_LINGER, reinterpret_cast<const char*>(&l), sizeof(l));
   }
   // Close the socket
   is_closed_ = true;
@@ -157,6 +161,21 @@ Result TCPTransportLayer::Close() {
   socket_ = INVALID_SOCKET;
   return Result::Success;
 }
+
+/*uint64_t TCPTransportLayer::GetRTT() const {
+#ifndef TARGET_WIN
+  struct tcp_info ti{};
+  socklen_t len = sizeof(ti);
+  if (getsockopt(socket_, IPPROTO_TCP, TCP_INFO, &ti, &len) == 0) {
+    return ti.tcpi_rtt;
+  } else {
+    ZNET_LOG_ERROR("getsockopt TCP_INFO failed: {}", strerror(errno));
+    return 0;
+  }
+#else
+  return 0;
+#endif
+}*/
 
 TCPClientBackend::TCPClientBackend(std::shared_ptr<InetAddress> server_address)
     : server_address_(server_address) {
@@ -174,6 +193,7 @@ Result TCPClientBackend::Bind() {
     ZNET_LOG_ERROR("Error binding socket.");
     return Result::CannotBind;
   }
+  SetTCPNoDelay(client_socket_);
   const char option = 1;
 #ifdef TARGET_WIN
   setsockopt(client_socket_, SOL_SOCKET, SO_BROADCAST, &option,
@@ -255,8 +275,10 @@ void TCPClientBackend::CleanupSocket() {
   CloseSocket(client_socket_);
   client_socket_ = INVALID_SOCKET;
   is_bind_ = false;
-  client_session_->Close();
-  client_session_ = nullptr;
+  if (client_session_) {
+    client_session_->Close();
+    client_session_ = nullptr;
+  }
 }
 
 TCPServerBackend::TCPServerBackend(std::shared_ptr<InetAddress> bind_address)
@@ -301,7 +323,7 @@ Result TCPServerBackend::Bind() {
     CloseSocket(server_socket_);
     return Result::Failure;
   }
-
+  SetTCPNoDelay(server_socket_);
   if (bind(server_socket_, bind_address_->handle_ptr(),
            bind_address_->addr_size()) != 0) {
     ZNET_LOG_DEBUG("Failed to bind: {}, {}", bind_address_->readable(),
@@ -364,24 +386,13 @@ std::shared_ptr<PeerSession> TCPServerBackend::Accept() {
   if (!IsValidSocketHandle(client_socket)) {
     return nullptr;
   }
-#ifdef TARGET_WIN
-  u_long mode = 1;  // 1 to enable non-blocking socket
-  ioctlsocket(server_socket_, FIONBIO, &mode);
-#else
-  // Set socket to non-blocking mode
-  int flags = fcntl(server_socket_, F_GETFL, 0);
-  if (flags < 0) {
-    ZNET_LOG_ERROR("Error getting socket flags: {}", GetLastErrorInfo());
-    CloseSocket(client_socket);
-    return nullptr;
-  }
-  if (fcntl(server_socket_, F_SETFL, flags | O_NONBLOCK) < 0) {
+  if (!SetSocketBlocking(client_socket, false)) {
     ZNET_LOG_ERROR("Error setting socket to non-blocking mode: {}",
                    GetLastErrorInfo());
     CloseSocket(client_socket);
     return nullptr;
   }
-#endif
+  SetTCPNoDelay(client_socket);
   std::shared_ptr<InetAddress> remote_address = InetAddress::from(reinterpret_cast<sockaddr*>(&client_address));
   if (remote_address == nullptr) {
     return nullptr;

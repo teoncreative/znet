@@ -15,10 +15,10 @@
 #ifndef ZNET_PARENT_LOCATOR_H
 #define ZNET_PARENT_LOCATOR_H
 
-#include "znet/client.h"
-#include "znet/precompiled.h"
 #include "znet/base/event.h"
+#include "znet/client.h"
 #include "znet/client_events.h"
+#include "znet/precompiled.h"
 
 namespace znet {
 namespace p2p {
@@ -30,10 +30,12 @@ struct PeerLocatorConfig {
 
 class PeerLocatorReadyEvent : public Event {
  public:
-  explicit PeerLocatorReadyEvent(std::string peer_name, std::shared_ptr<InetAddress> endpoint)
+  explicit PeerLocatorReadyEvent(std::string peer_name,
+                                 std::shared_ptr<InetAddress> endpoint)
       : peer_name_(peer_name), endpoint_(endpoint) {}
 
   const std::string& peer_name() const { return peer_name_; }
+
   std::shared_ptr<InetAddress> endpoint() const { return endpoint_; }
 
   ZNET_EVENT_CLASS_TYPE(PeerLocatorReadyEvent)
@@ -43,21 +45,40 @@ class PeerLocatorReadyEvent : public Event {
   std::shared_ptr<InetAddress> endpoint_;
 };
 
-class StartPunchRequestEvent : public Event {
+class PeerLocatorCloseEvent : public Event {
  public:
-  explicit StartPunchRequestEvent(std::string target_peer, PortNumber bind_port, std::shared_ptr<InetAddress> target_endpoint)
-      : target_peer_(target_peer), bind_port_(bind_port), target_endpoint_(target_endpoint) {}
+  explicit PeerLocatorCloseEvent() {}
 
-  const std::string& target_peer() const { return target_peer_; }
-  PortNumber bind_port() const { return bind_port_; }
-  std::shared_ptr<InetAddress> target_endpoint() const { return target_endpoint_; }
-
-  ZNET_EVENT_CLASS_TYPE(StartPunchRequestEvent)
+  ZNET_EVENT_CLASS_TYPE(PeerLocatorCloseEvent)
   ZNET_EVENT_CLASS_CATEGORY(EventCategoryP2P)
  private:
-  std::string target_peer_;
-  PortNumber bind_port_;
-  std::shared_ptr<InetAddress> target_endpoint_;
+};
+
+class PeerConnectedEvent : public Event {
+ public:
+  explicit PeerConnectedEvent(std::shared_ptr<PeerSession> session,
+                              uint64_t punch_id, std::string self_peer_name,
+                              std::string target_peer_name)
+      : session_(session),
+        punch_id_(punch_id),
+        self_peer_name_(self_peer_name),
+        target_peer_name_(target_peer_name) {}
+
+  std::shared_ptr<PeerSession> session() const { return session_; }
+
+  uint64_t punch_id() const { return punch_id_; }
+
+  const std::string& self_peer_name() const { return self_peer_name_; }
+
+  const std::string& target_peer_name() const { return target_peer_name_; }
+
+  ZNET_EVENT_CLASS_TYPE(PeerConnectedEvent)
+  ZNET_EVENT_CLASS_CATEGORY(EventCategoryP2P)
+ private:
+  std::shared_ptr<PeerSession> session_;
+  uint64_t punch_id_;
+  std::string self_peer_name_;
+  std::string target_peer_name_;
 };
 
 class PeerLocator {
@@ -66,11 +87,12 @@ class PeerLocator {
   PeerLocator(const PeerLocator&) = delete;
   ~PeerLocator();
 
-  Result Start();
+  Result Connect();
+  Result Disconnect();
 
   void Wait();
 
-  void AskPeer(std::string peer_name);
+  Result AskPeer(std::string peer_name);
 
   void SetEventCallback(EventCallbackFn fn) { event_callback_ = std::move(fn); }
 
@@ -85,20 +107,32 @@ class PeerLocator {
 
   void OnEvent(Event&);
   bool OnConnectEvent(ClientConnectedToServerEvent& event);
+  bool OnDisconnectEvent(ClientDisconnectedFromServerEvent& event);
 
-  void SetPeerName(std::string peer_name, std::shared_ptr<InetAddress> endpoint);
+  void SetPeerName(std::string peer_name,
+                   std::shared_ptr<InetAddress> endpoint);
 
   EventCallbackFn event_callback_;
   Client client_;
-  std::shared_ptr<PeerSession> session_;
   PortNumber game_port_;
 
   std::string peer_name_;
   std::shared_ptr<InetAddress> endpoint_;
+  std::shared_ptr<PeerSession> session_;
+
+  std::mutex mutex_;
+  std::condition_variable cv_;
+  Task task_;
+
+  std::shared_ptr<InetAddress> bind_endpoint_;
+  std::shared_ptr<InetAddress> target_endpoint_;
+  std::string target_peer_name_;
+  uint64_t punch_id_ = ~0;
+
+  bool is_running_ = false;
 };
 
-
-}
-}
+}  // namespace p2p
+}  // namespace znet
 
 #endif  //ZNET_PARENT_LOCATOR_H

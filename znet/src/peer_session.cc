@@ -8,17 +8,19 @@
 //        http://www.apache.org/licenses/LICENSE-2.0
 //
 
-#include <utility>
-
-#include "znet/peer_session.h"
-#include "znet/server_events.h"
 #include "znet/error.h"
+#include "znet/peer_session.h"
+#include "znet/base/scheduler.h"
+
+#include <utility>
 
 namespace znet {
 
 PeerSession::PeerSession(std::shared_ptr<InetAddress> local_address,
                          std::shared_ptr<InetAddress> remote_address,
-                         std::unique_ptr<TransportLayer> transport_layer, bool is_initiator)
+                         std::unique_ptr<TransportLayer> transport_layer,
+                         bool is_initiator,
+                         bool self_managed)
     : local_address_(std::move(local_address)),
       remote_address_(std::move(remote_address)),
       transport_layer_(std::move(transport_layer)), is_initiator_(is_initiator),
@@ -27,6 +29,13 @@ PeerSession::PeerSession(std::shared_ptr<InetAddress> local_address,
   static SessionId sIdCount = 0;
   id_ = sIdCount++;
   encryption_layer_.Initialize(is_initiator);
+  if (self_managed) {
+    task_.Run([this]() {
+      while (IsAlive()) {
+        Process();
+      }
+    });
+  }
 }
 
 PeerSession::~PeerSession() {
@@ -52,11 +61,11 @@ void PeerSession::Process() {
   }
 }
 
-Result PeerSession::Close() {
+Result PeerSession::Close(CloseOptions options) {
   if (!transport_layer_) {
     return Result::InvalidTransport;
   }
-  return transport_layer_->Close();
+  return transport_layer_->Close(options);
 }
 
 bool PeerSession::IsAlive() {

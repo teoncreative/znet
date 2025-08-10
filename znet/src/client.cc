@@ -63,7 +63,6 @@ Result Client::Connect() {
   }
 
   client_session_ = backend_->client_session();
-  local_address_ = backend_->local_address();
 
   // Connected to the server
   task_.Run([this]() {
@@ -95,11 +94,15 @@ void Client::Wait() {
   task_.Wait();
 }
 
-Result Client::Disconnect() {
+Result Client::Disconnect(CloseOptions options) {
   if (!client_session_) {
     return Result::Failure;
   }
-  return client_session_->Close();
+  return client_session_->Close(options);
+}
+
+ZNET_NODISCARD std::shared_ptr<InetAddress> Client::local_address() const {
+  return backend_->local_address();
 }
 
 }  // namespace znet

@@ -69,22 +69,22 @@ class InetAddressIPv4 : public InetAddress {
 
   ZNET_NODISCARD bool is_valid() const override { return is_valid_; }
 
-  ZNET_NODISCARD socklen_t addr_size() const override { return sizeof(addr); }
+  ZNET_NODISCARD socklen_t addr_size() const override { return sizeof(addr_); }
 
   ZNET_NODISCARD sockaddr* handle_ptr() const override {
-    return (sockaddr*)&addr;
+    return (sockaddr*)&addr_;
   }
 
   ZNET_NODISCARD PortNumber port() const override {
-    return addr.sin_port;
+    return ntohs(addr_.sin_port);
   }
 
   ZNET_NODISCARD std::unique_ptr<InetAddress> WithPort(PortNumber port) const override {
-    return std::make_unique<InetAddressIPv4>(addr.sin_addr, port);
+    return std::make_unique<InetAddressIPv4>(addr_.sin_addr, port);
   }
 
  private:
-  sockaddr_in addr{};
+  sockaddr_in addr_{};
   bool is_valid_;
 };
 
@@ -96,21 +96,21 @@ class InetAddressIPv6 : public InetAddress {
 
   ZNET_NODISCARD bool is_valid() const override { return is_valid_; }
 
-  ZNET_NODISCARD socklen_t addr_size() const override { return sizeof(addr); }
+  ZNET_NODISCARD socklen_t addr_size() const override { return sizeof(addr_); }
 
   ZNET_NODISCARD sockaddr* handle_ptr() const override {
-    return (sockaddr*)&addr;
+    return (sockaddr*)&addr_;
   }
 
   ZNET_NODISCARD PortNumber port() const override {
-    return addr.sin6_port;
+    return ntohs(addr_.sin6_port);
   }
 
   ZNET_NODISCARD std::unique_ptr<InetAddress> WithPort(PortNumber port) const override {
-    return std::make_unique<InetAddressIPv6>(addr.sin6_addr, port);
+    return std::make_unique<InetAddressIPv6>(addr_.sin6_addr, port);
   }
  private:
-  sockaddr_in6 addr{};
+  sockaddr_in6 addr_{};
   bool is_valid_;
 };
 

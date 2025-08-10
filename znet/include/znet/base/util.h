@@ -16,7 +16,6 @@
 #include <ostream>
 #include <sstream>
 #include <iostream>
-#include <strstream>
 #include <iomanip>
 #include <type_traits>
 
@@ -63,6 +62,14 @@ inline bool CloseSocket(SocketHandle socket) {
 #endif
   }
   return false;
+}
+
+inline void SetTCPNoDelay(SocketHandle socket) {
+  int one = 1;
+  setsockopt(socket, IPPROTO_TCP, TCP_NODELAY, (char*)&one, sizeof(one));
+#ifndef TARGET_WIN
+  setsockopt(socket, IPPROTO_TCP, TCP_QUICKACK, (char*)&one, sizeof(one));
+#endif
 }
 
 inline bool SetSocketBlocking(SocketHandle socket, bool blocking) {

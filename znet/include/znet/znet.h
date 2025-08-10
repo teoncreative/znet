@@ -28,3 +28,7 @@
 #include "znet/server.h"
 #include "znet/peer_session.h"
 #include "znet/init.h"
+
+#include "znet/p2p/dialer.h"
+#include "znet/p2p/locator.h"
+#include "znet/p2p/rendezvous.h"

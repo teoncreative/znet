@@ -46,9 +46,13 @@
 #include <unistd.h>
 #endif
 #if defined(TARGET_LINUX)
+#include <netinet/tcp.h>
 #include <netinet/in.h>
 #include <cerrno>
 #include <cstring>
+#endif
+#if defined(TARGET_APPLE)
+#include <netinet/tcp.h>
 #endif
 #if defined(_WIN32) || defined(__WIN32__) || defined(WIN32)
 #define TARGET_WIN
