@@ -79,9 +79,7 @@ class PongSerializer : public PacketSerializer<PongPacket> {
 
 static void SendPing(std::shared_ptr<PeerSession> session) {
   std::shared_ptr<PingPacket> pk = std::make_shared<PingPacket>();
-  pk->time = std::chrono::duration_cast<std::chrono::microseconds>(
-                         std::chrono::steady_clock::now().time_since_epoch()
-                             ).count();
+  pk->time = NowMicros();
   session->SendPacket(pk);
 }
 
@@ -107,6 +105,16 @@ class MyPacketHandler : public PacketHandler<MyPacketHandler, PingPacket, PongPa
     }
 
     ZNET_LOG_INFO("Ping: {:.2f} ms", static_cast<double>(rtt_us) / 1000.0);
+
+#ifndef TARGET_WIN
+    struct tcp_info ti{};
+    socklen_t len = sizeof(ti);
+    if (getsockopt(session->GetSocketHandle(), IPPROTO_TCP, TCP_INFO, &ti, &len) == 0) {
+      ZNET_LOG_INFO("kernel RTT: {:.2f} ms", ti.tcpi_rtt / 1000.0);
+    } else {
+      ZNET_LOG_ERROR("getsockopt TCP_INFO failed: {}", strerror(errno));
+    }
+#endif
   }
 
  private:
