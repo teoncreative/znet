@@ -29,6 +29,7 @@ set(ZNET_SOURCES
         src/init.cc
         src/backend/tcp.cc
         src/p2p/locator.cc
+        src/p2p/dialer.cc
 )
 
 add_library(znet STATIC

@@ -13,6 +13,8 @@
 //
 
 #include "znet/p2p/dialer.h"
+#include "znet/transport.h"
+#include "znet/backends/tcp.h"
 
 namespace znet {
 namespace p2p {
@@ -33,18 +35,21 @@ bool WouldBlock(int e) {
 #endif
 }
 
-Result Punch(const std::shared_ptr<InetAddress>& local,
-             const std::shared_ptr<InetAddress>& peer,
-             int timeout_ms) {
+std::shared_ptr<PeerSession> PunchSync(const std::shared_ptr<InetAddress>& local,
+                                   const std::shared_ptr<InetAddress>& peer,
+                                   Result* out_result,
+                                   int timeout_ms) {
   ZNET_LOG_INFO("Attempting to punch to {} from {}", peer->readable(), local->readable());
   if (!local || !peer || !local->is_valid() || !peer->is_valid()) {
-    return Result::Failure;
+    *out_result = Result::InvalidAddress;
+    return nullptr;
   }
 
   const int domain = GetDomainByInetProtocolVersion(local->ipv());
   SocketHandle socket_handle = socket(domain, SOCK_STREAM, 0);
   if (!IsValidSocketHandle(socket_handle)) {
-    return Result::CannotCreateSocket;
+    *out_result = Result::CannotCreateSocket;
+    return nullptr;
   }
 
   int option = 1;
@@ -57,7 +62,8 @@ Result Punch(const std::shared_ptr<InetAddress>& local,
   if (bind(socket_handle, local->handle_ptr(), local->addr_size()) != 0) {
     CloseSocket(socket_handle);
     ZNET_LOG_ERROR("Failed to bind socket to {}: {} ({})", local->readable(), LastErr(), GetLastErrorInfo());
-    return Result::CannotBind;
+    *out_result = Result::CannotBind;
+    return nullptr;
   }
 
   SetSocketBlocking(socket_handle, false);
@@ -65,7 +71,8 @@ Result Punch(const std::shared_ptr<InetAddress>& local,
   if (connect(socket_handle, peer->handle_ptr(), peer->addr_size()) != 0 &&
       !WouldBlock(LastErr())) {
     CloseSocket(socket_handle);
-    return Result::CannotConnect;
+    *out_result = Result::CannotConnect;
+    return nullptr;
   }
 
   sockaddr_storage local_ss{};
@@ -88,7 +95,8 @@ Result Punch(const std::shared_ptr<InetAddress>& local,
     auto elapsed = std::chrono::steady_clock::now() - start_time;
     if (elapsed > connection_timeout) {
       CloseSocket(socket_handle);
-      return Result::Timeout;
+      *out_result = Result::Timeout;
+      return nullptr;
     }
 
     fd_set write_set;
@@ -114,7 +122,8 @@ Result Punch(const std::shared_ptr<InetAddress>& local,
       }
 #endif
       CloseSocket(socket_handle);
-      return Result::Failure;
+      *out_result = Result::Failure;
+      return nullptr;
     }
 
     if (result == 0) {
@@ -126,15 +135,19 @@ Result Punch(const std::shared_ptr<InetAddress>& local,
       socklen_t length = sizeof(socket_error);
       getsockopt(socket_handle, SOL_SOCKET, SO_ERROR, (char*)&socket_error, &length);
       if (socket_error == 0) {
-        return Result::Success;
+        *out_result = Result::Success;
+        return std::make_shared<PeerSession>(local, peer,
+                                                                             std::make_unique<backends::TCPTransportLayer>(socket_handle));
       } else {
         CloseSocket(socket_handle);
-        return Result::CannotConnect;
+        *out_result = Result::CannotConnect;
+        return nullptr;
       }
     }
   }
 
-  return Result::Failure;
+  *out_result = Result::Failure;
+  return nullptr;
 }
 
 }
