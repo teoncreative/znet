@@ -48,7 +48,7 @@ class Dialer {
 
     if (bind(socket_handle, local->handle_ptr(), local->addr_size()) != 0) {
       CloseSocket(socket_handle);
-      ZNET_LOG_ERROR("Failed to bind socket to {}: {}", local->readable(), GetLastErrorInfo());
+      ZNET_LOG_ERROR("Failed to bind socket to {}: {} ({})", local->readable(), LastErr(), GetLastErrorInfo());
       return Result::CannotBind;
     }
 
