@@ -10,7 +10,6 @@
 
 #include "znet/error.h"
 #include "znet/peer_session.h"
-#include "znet/server_events.h"
 #include "znet/base/scheduler.h"
 
 #include <utility>
@@ -34,7 +33,6 @@ PeerSession::PeerSession(std::shared_ptr<InetAddress> local_address,
     task_.Run([this]() {
       while (IsAlive()) {
         Process();
-        Scheduler::PreciseSleep(std::chrono::milliseconds(1));
       }
     });
   }
