@@ -115,7 +115,7 @@ class PeerLocator {
   std::shared_ptr<InetAddress> target_endpoint_;
   uint64_t punch_id_ = ~0;
 
-  bool is_running_ = true;
+  bool is_running_ = false;
 };
 
 
