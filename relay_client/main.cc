@@ -19,6 +19,8 @@
 #include "znet/base/inet_addr.h"
 
 std::unique_ptr<znet::p2p::PeerLocator> locator_;
+std::shared_ptr<znet::InetAddress> bind_endpoint_;
+std::shared_ptr<znet::InetAddress> target_endpoint_;
 
 bool OnReady(znet::p2p::PeerLocatorReadyEvent& event) {
   ZNET_LOG_INFO("Received peer name from relay: {}", event.peer_name());
@@ -30,14 +32,10 @@ bool OnReady(znet::p2p::PeerLocatorReadyEvent& event) {
 }
 
 bool OnPunchRequest(znet::p2p::StartPunchRequestEvent& event) {
-  locator_->Close();
-  locator_->Wait();
   ZNET_LOG_INFO("Received punch request to {} at {}", event.target_peer(), event.target_endpoint()->readable());
-  auto result = znet::p2p::Dialer::Punch(
-      event.bind_endpoint(),
-      event.target_endpoint()
-  );
-  ZNET_LOG_INFO("Result: {}", GetResultString(result));
+  bind_endpoint_ = event.bind_endpoint();
+  target_endpoint_ = event.target_endpoint();
+  locator_->Close();
   return false;
 }
 
@@ -76,8 +74,12 @@ int main(int argc, char* argv[]) {
     return 1;  // Failed to bind
   }
   locator_->Wait();
-  while (true) {
 
+  if (bind_endpoint_ && target_endpoint_) {
+    auto punch_result = znet::p2p::Dialer::Punch(
+        bind_endpoint_,
+        target_endpoint_
+    );
+    ZNET_LOG_INFO("Result: {}", znet::GetResultString(punch_result));
   }
-  return 0;
 }
