@@ -20,7 +20,8 @@ void Codec::Deserialize(std::shared_ptr<Buffer> buffer, PacketHandlerBase& handl
   while (buffer->readable_bytes() > 0) {
     auto packet_id = buffer->ReadVarInt<PacketId>();
     auto size = buffer->ReadInt<size_t>();
-    if (buffer->IsFailedToRead()) {
+    BufferError error = buffer->GetAndClearLastError();
+    if (error != BufferError::None) {
       ZNET_LOG_DEBUG("Reading packet header failed, dropping buffer!");
       break;
     }

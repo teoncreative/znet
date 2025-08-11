@@ -19,6 +19,8 @@
 #include "znet/peer_session.h"
 #include "znet/precompiled.h"
 
+#include <deque>
+
 namespace znet {
 namespace backends {
 
@@ -34,8 +36,17 @@ class TCPTransportLayer : public TransportLayer {
 
   bool IsClosed() override { return is_closed_; }
 
+  void Update() override;
+
  private:
   std::shared_ptr<Buffer> ReadBuffer();
+
+  struct QueuedPacket {
+    std::shared_ptr<Buffer> buffer;
+    SendOptions options;
+  };
+
+  bool SendInternal(std::shared_ptr<Buffer> buffer, SendOptions options);
 
   char data_[ZNET_MAX_BUFFER_SIZE]{};
   int read_offset_ = 0;
@@ -44,6 +55,7 @@ class TCPTransportLayer : public TransportLayer {
   SocketHandle socket_;
   bool has_more_;
   bool is_closed_ = false;
+  std::deque<QueuedPacket> outbound_;
 
 };
 

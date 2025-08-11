@@ -150,9 +150,6 @@ std::shared_ptr<PeerSession> PunchSync(const std::shared_ptr<InetAddress>& local
       }
     }
   }
-
-  *out_result = Result::Failure;
-  return nullptr;
 }
 
 }

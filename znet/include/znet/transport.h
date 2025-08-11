@@ -31,6 +31,8 @@ class TransportLayer {
 
   virtual bool IsClosed() = 0;
 
+  virtual void Update() = 0;
+
 };
 
 }

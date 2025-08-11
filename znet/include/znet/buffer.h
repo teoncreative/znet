@@ -19,10 +19,35 @@
 
 namespace znet {
 
+enum class BufferError {
+  None,
+  WriteAfterSeal,
+  CannotAllocate,
+  ReadOutOfBounds,
+  CorruptedFormat,
+};
+
+inline std::string GetBufferErrorString(BufferError error) {
+  switch (error) {
+    case BufferError::None:
+      return "NoError";
+    case BufferError::WriteAfterSeal:
+      return "WriteAfterSeal";
+    case BufferError::CannotAllocate:
+      return "CannotAllocate";
+    case BufferError::ReadOutOfBounds:
+      return "ReadOutOfBounds";
+    case BufferError::CorruptedFormat:
+      return "CorruptedFormat";
+    default:
+      return "Unknown";
+  }
+}
+
 class Buffer {
  public:
   explicit Buffer(Endianness endianness = Endianness::LittleEndian) {
-    failed_to_read_ = false;
+    last_error_ = BufferError::None;
     endianness_ = endianness;
     read_cursor_ = 0;
     write_cursor_ = 0;
@@ -35,7 +60,7 @@ class Buffer {
 
   Buffer(const char* data, int data_size,
          Endianness endianness = Endianness::LittleEndian) {
-    failed_to_read_ = false;
+    last_error_ = BufferError::None;
     endianness_ = endianness;
     read_cursor_ = 0;
     write_cursor_ = data_size;
@@ -45,7 +70,7 @@ class Buffer {
 #endif
     data_ = new (std::nothrow) char[allocated_size_];
     if (!data_) {
-      failed_to_alloc_ = true;
+      last_error_ = BufferError::CannotAllocate;
       allocated_size_ = 0;
       return;
     }
@@ -65,14 +90,14 @@ class Buffer {
     allocated_size_ = buffer.allocated_size_;
     write_cursor_ = 0;
     read_cursor_ = 0;
-    failed_to_read_ = false;
+    last_error_ = BufferError::None;
 #ifdef ZNET_BUFFER_COUNT_MEMORY_ALLOCATIONS
     mem_allocations_ = 0;
 #endif
     // todo safe errors
     data_ = new (std::nothrow) char[allocated_size_];
     if (!data_) {
-      failed_to_alloc_ = true;
+      last_error_ = BufferError::CannotAllocate;
       allocated_size_ = 0;
       return;
     }
@@ -83,13 +108,13 @@ class Buffer {
   template<typename T, typename std::enable_if<std::is_arithmetic<T>::value && (sizeof(T) <= 8), int>::type = 0>
   void Read(T* arr, size_t size) {
     if (size > std::numeric_limits<size_t>::max() / sizeof(T)) {
-      failed_to_read_ = true;
+      last_error_ = BufferError::CorruptedFormat;
       return;
     }
     char* pt = reinterpret_cast<char*>(arr);
     size_t calculated_size = sizeof(T) * size;
     if (!CheckReadableBytes(size)) {
-      failed_to_read_ = true;
+      last_error_ = BufferError::ReadOutOfBounds;
       return;
     }
     std::memcpy(pt, data_ + read_cursor_, calculated_size);
@@ -116,12 +141,11 @@ class Buffer {
     size_t size = sizeof(T);
     std::unique_ptr<char[]> data(new (std::nothrow) char[size]);
     if (!data) {
-      failed_to_read_ = true;
-      failed_to_alloc_ = true;
+      last_error_ = BufferError::CannotAllocate;
       return 0;
     }
     if (!CheckReadableBytes(size)) {
-      failed_to_read_ = true;
+      last_error_ = BufferError::ReadOutOfBounds;
       return 0;
     }
     if (GetSystemEndianness() == endianness_) {
@@ -166,7 +190,7 @@ class Buffer {
     }
     ZNET_LOG_WARN("Invalid internet protocol version {}!", ver);
     // unknown version
-    failed_to_read_ = true;
+    last_error_ = BufferError::CorruptedFormat;
     return nullptr;
   }
 
@@ -193,18 +217,17 @@ class Buffer {
     uint8_t size = sizeof(T);
     char* data = new (std::nothrow) char[size];
     if (!data) {
-      failed_to_alloc_ = true;
-      failed_to_read_ = true;
+      last_error_ = BufferError::CannotAllocate;
       return 0;
     }
     std::memset(data, 0, size);
     if (!CheckReadableBytes(1)) {
-      failed_to_read_ = true;
+      last_error_ = BufferError::ReadOutOfBounds;
       return 0;
     }
     uint8_t actual_size = ReadChar();
     if (!CheckReadableBytes(actual_size)) {
-      failed_to_read_ = true;
+      last_error_ = BufferError::ReadOutOfBounds;
       return 0;
     }
     if (GetSystemEndianness() == endianness_) {
@@ -225,13 +248,12 @@ class Buffer {
   std::string ReadString() {
     size_t size = ReadVarInt<size_t>();
     if (!CheckReadableBytes(size)) {
-      failed_to_read_ = true;
+      last_error_ = BufferError::ReadOutOfBounds;
       return "";
     }
     char* data = new (std::nothrow) char[size];
     if (!data) {
-      failed_to_alloc_ = true;
-      failed_to_read_ = true; 
+      last_error_ = BufferError::CannotAllocate;
       return "";
     }
     for (size_t i = 0; i < size; i++) {
@@ -268,12 +290,12 @@ class Buffer {
     size_t size = ReadVarInt<size_t>();
     size_t size_bytes = size * sizeof(T);
     if (!CheckReadableBytes(size_bytes)) {
-      failed_to_read_ = true;
+      last_error_ = BufferError::ReadOutOfBounds;
       return nullptr;
     }
     T* ptr = new T[size];
     if (!ptr) {
-      failed_to_alloc_ = true;
+      last_error_ = BufferError::CannotAllocate;
       return nullptr;
     }
     std::unique_ptr<T[]> array(ptr);
@@ -289,12 +311,12 @@ class Buffer {
     if (size_r != size) {
       ZNET_LOG_ERROR("Array size mismatch. Expected: {}, Actual: {}", size,
                      size_r);
-      failed_to_read_ = true;
+      last_error_ = BufferError::CorruptedFormat;
       return {};
     }
     size_t size_bytes = size * sizeof(T);
     if (!CheckReadableBytes(size_bytes)) {
-      failed_to_read_ = true;
+      last_error_ = BufferError::ReadOutOfBounds;
       return {};
     }
     std::array<T, size> array;
@@ -305,6 +327,9 @@ class Buffer {
   }
 
   void WriteString(const std::string& str) {
+    if (!CheckSeal()) {
+      return;
+    }
     size_t size = str.size();
     const char* data = str.data();
     ReserveIncremental(size + sizeof(size));
@@ -331,6 +356,9 @@ class Buffer {
 
   template<typename T, typename std::enable_if<std::is_arithmetic<T>::value && (sizeof(T) <= 16), int>::type = 0>
   void WriteNumber(T c) {
+    if (!CheckSeal()) {
+      return;
+    }
     char* pt = reinterpret_cast<char*>(&c);
     size_t size = sizeof(c);
     ReserveIncremental(size);
@@ -348,11 +376,16 @@ class Buffer {
 
   template<typename T, typename = void_t<decltype(T::Write())>>
   T WriteCustom() {
-    return T::Write();
+    if (!CheckSeal()) {
+      return;
+    }
+    return T::Write(*this);
   }
 
-
   void WriteInetAddress(InetAddress& address) {
+    if (!CheckSeal()) {
+      return;
+    }
     if (address.ipv() == InetProtocolVersion::IPv4) {
       WriteInt<uint8_t>(4);
       // raw IPv4 (network‐order) + port (network‐order)
@@ -365,6 +398,8 @@ class Buffer {
       // raw IPv6 (16 bytes) + port
       Write(addr->sin6_addr.s6_addr, 16);
       Write(reinterpret_cast<const uint16_t*>(&addr->sin6_port), 1);
+    } else {
+      WriteInt<uint8_t>(0);
     }
   }
 
@@ -376,6 +411,9 @@ class Buffer {
   // write a std::bitset<N> (little‑endian bit order)
   template<size_t N>
   void WriteBitset(const std::bitset<N>& bs) {
+    if (!CheckSeal()) {
+      return;
+    }
     constexpr size_t BYTES = (N + 7) / 8;
     uint8_t data[BYTES] = {};
     for (size_t i = 0; i < N; ++i) {
@@ -388,6 +426,9 @@ class Buffer {
 
   template<typename T, typename std::enable_if<std::is_arithmetic<T>::value && (sizeof(T) <= 8), int>::type = 0>
   void Write(T* arr, size_t size) {
+    if (!CheckSeal()) {
+      return;
+    }
     auto* pt = reinterpret_cast<const char*>(arr);
     size_t calculated_size = sizeof(T) * size;
     ReserveIncremental(calculated_size);
@@ -397,6 +438,9 @@ class Buffer {
 
   template<typename T, typename std::enable_if<std::is_arithmetic<T>::value && (sizeof(T) <= 8), int>::type = 0>
   void WriteVarInt(T c) {
+    if (!CheckSeal()) {
+      return;
+    }
     char* pt = reinterpret_cast<char*>(&c);
     uint8_t size = sizeof(c);  // assume 1 byte for the size
     uint8_t actual_size = 0;
@@ -421,6 +465,9 @@ class Buffer {
 
   template <typename KeyFunc, typename ValueFunc, typename Map>
   void WriteMap(Map& map, KeyFunc key_func, ValueFunc value_func) {
+    if (!CheckSeal()) {
+      return;
+    }
     WriteInt(map.size());
     for (auto& kv : map) {
       (this->*key_func)(kv.first);
@@ -430,6 +477,9 @@ class Buffer {
 
   template <typename ValueFunc, typename T>
   void WriteVector(std::vector<T>& v, ValueFunc value_func) {
+    if (!CheckSeal()) {
+      return;
+    }
     size_t size = v.size();
     WriteInt(size);
     for (auto& value : v) {
@@ -439,6 +489,9 @@ class Buffer {
 
   template <typename ValueFunc, typename T, size_t size>
   void WriteArray(T (&v)[size], ValueFunc value_func) {
+    if (!CheckSeal()) {
+      return;
+    }
     WriteInt(size);
     for (int i = 0; i < size; i++) {
       auto& value = v[i];
@@ -448,6 +501,9 @@ class Buffer {
 
   template <typename ValueFunc, typename T>
   void WriteArray(T* v, size_t size, ValueFunc value_func) {
+    if (!CheckSeal()) {
+      return;
+    }
     if (!v) {
       WriteInt(0);
       return;
@@ -461,6 +517,9 @@ class Buffer {
 
   template <typename ValueFunc, typename T>
   void WriteArray(std::shared_ptr<T[]>& v, size_t size, ValueFunc value_func) {
+    if (!CheckSeal()) {
+      return;
+    }
     WriteInt(size);
     for (int i = 0; i < size; i++) {
       auto& value = v[i];
@@ -487,9 +546,12 @@ class Buffer {
     if (write_cursor_ == allocated_size_) {
       return;
     }
+    if (!CheckSeal()) {
+      return;
+    }
     char* new_data = new (std::nothrow) char[write_cursor_];
     if (!new_data) {
-      failed_to_alloc_ = true;
+      last_error_ = BufferError::CannotAllocate;
       return;
     }
     std::memcpy(new_data, data_, write_cursor_);
@@ -499,9 +561,12 @@ class Buffer {
   }
 
   void Reset(bool deallocate = false) {
+    if (!CheckSeal()) {
+      return;
+    }
     write_cursor_ = 0;
     read_cursor_ = 0;
-    failed_to_read_ = false;
+    last_error_ = BufferError::None;
     if (deallocate) {
       allocated_size_ = 0;
       delete[] data_;
@@ -554,26 +619,21 @@ class Buffer {
   }
 
   void SkipWrite(size_t size) {
+    if (sealed_.load(std::memory_order_acquire)) {
+      last_error_ = BufferError::WriteAfterSeal;
+      return;
+    }
     ReserveIncremental(size);
     write_cursor_ += size;
   }
 
   /**
-   * @return true if previous read call was failed and clears the value.
+   * @return Returns the previous error and clears it
    */
-  ZNET_NODISCARD bool IsFailedToRead() {
-    bool failed_to_read = failed_to_read_;
-    failed_to_read_ = false;
-    return failed_to_read;
-  }
-
-  /**
-   * @return true if previous allocation was failed and clears the value
-   */
-  ZNET_NODISCARD bool IsFailedToAlloc() {
-    bool failed_to_alloc = failed_to_alloc_;
-    failed_to_alloc_ = false;
-    return failed_to_alloc;
+  ZNET_NODISCARD BufferError GetAndClearLastError() {
+    BufferError error = last_error_;
+    last_error_ = BufferError::None;
+    return error;
   }
 
   void ReserveIncremental(size_t additional_bytes) {
@@ -583,6 +643,9 @@ class Buffer {
   void ReserveExact(size_t size) { Reserve(size, true); }
 
   void Reserve(size_t size, bool exact = false) {
+    if (!CheckSeal()) {
+      return;
+    }
     if (!data_) {
       size_t target_size;
       if (exact) {
@@ -592,7 +655,7 @@ class Buffer {
       }
       data_ = new (std::nothrow) char[target_size];
       if (!data_) {
-        failed_to_alloc_ = true;
+        last_error_ = BufferError::CannotAllocate;
         return;
       }
       allocated_size_ = target_size;
@@ -607,7 +670,7 @@ class Buffer {
     size_t target_size_ = size * 2;
     char* tmp_data = new (std::nothrow) char[target_size_];
     if (!tmp_data) {
-      failed_to_alloc_ = true;
+      last_error_ = BufferError::CannotAllocate;
       return;
     }
     allocated_size_ = target_size_;
@@ -619,12 +682,24 @@ class Buffer {
 #endif
   }
 
+  void Seal() {
+    sealed_.store(true, std::memory_order_release);
+  }
+
  private:
   ZNET_NODISCARD bool CheckReadableBytes(size_t required) const {
 #if defined(DEBUG) && !defined(DISABLE_ASSERT_READABLE_BYTES)
     assert(std::min(write_cursor_, read_limit_) >= read_cursor_ + required);
 #endif
     return std::min(write_cursor_, read_limit_) >= read_cursor_ + required;
+  }
+  ZNET_NODISCARD inline bool CheckSeal() {
+    if (sealed_.load(std::memory_order_acquire)) {
+      ZNET_LOG_DEBUG("Tried to write to a sealed buffer.");
+      last_error_ = BufferError::WriteAfterSeal;
+      return false;
+    }
+    return true;
   }
 
   Endianness endianness_;
@@ -633,8 +708,8 @@ class Buffer {
   size_t read_cursor_;
   size_t read_limit_ = std::numeric_limits<size_t>::max();
   char* data_;
-  bool failed_to_read_;
-  bool failed_to_alloc_;
+  BufferError last_error_;
+  std::atomic_bool sealed_{false};
 #ifdef ZNET_BUFFER_COUNT_MEMORY_ALLOCATIONS
   size_t mem_allocations_;
 #endif
