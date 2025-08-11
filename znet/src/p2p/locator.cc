@@ -82,8 +82,10 @@ Result PeerLocator::Connect() {
       if (result == Result::Success) {
         PeerConnectedEvent event{session, punch_id_, peer_name_, target_peer_name_};
         event_callback_(event);
-        return;
+      } else {
+        ZNET_LOG_ERROR("Punch failed with reason: {}", GetResultString(result));
       }
+      return;
     }
     PeerLocatorCloseEvent event;
     event_callback_(event);

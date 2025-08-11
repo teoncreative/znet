@@ -22,7 +22,6 @@ namespace backends {
 
 
 TCPTransportLayer::TCPTransportLayer(SocketHandle socket) : socket_(socket) {
-
 }
 
 TCPTransportLayer::~TCPTransportLayer() {
@@ -93,11 +92,10 @@ std::shared_ptr<Buffer> TCPTransportLayer::Receive() {
 std::shared_ptr<Buffer> TCPTransportLayer::ReadBuffer() {
   if (buffer_ && buffer_->readable_bytes() > 0) {
     size_t cursor = buffer_->read_cursor();
-    auto size = buffer_->ReadVarInt<size_t>();
+    size_t size = buffer_->ReadVarInt<size_t>();
     if (buffer_->readable_bytes() < size) {
       if (!has_more_) {
-        ZNET_LOG_ERROR("Received malformed frame, closing connection!");
-        Close();
+        ZNET_LOG_ERROR("Received malformed frame, dropping buffer!");
         return nullptr;
       }
       buffer_->set_read_cursor(cursor);
@@ -111,6 +109,17 @@ std::shared_ptr<Buffer> TCPTransportLayer::ReadBuffer() {
   }
   buffer_ = nullptr;
   return nullptr;
+}
+
+bool TCPTransportLayer::SendInternal(std::shared_ptr<Buffer> buffer, SendOptions options) {
+  while (send(socket_, buffer->data(), buffer->size(), 0) < 0) {
+    if (errno == EWOULDBLOCK || errno == EAGAIN) {
+      continue;
+    }
+    ZNET_LOG_ERROR("Error sending packet to the server: {}", GetLastErrorInfo());
+    return false;
+  }
+  return true;
 }
 
 bool TCPTransportLayer::Send(std::shared_ptr<Buffer> buffer, SendOptions options) {
@@ -136,15 +145,16 @@ bool TCPTransportLayer::Send(std::shared_ptr<Buffer> buffer, SendOptions options
   new_buffer->WriteVarInt<size_t>(buffer->size());
   new_buffer->Write(buffer->data() + buffer->read_cursor(), buffer->size());
 
-  // todo check
-  while (send(socket_, new_buffer->data(), new_buffer->size(), 0) < 0) {
-    if (errno == EWOULDBLOCK || errno == EAGAIN) {
-      continue;
-    }
-    ZNET_LOG_ERROR("Error sending packet to the server: {}", GetLastErrorInfo());
-    return false;
-  }
+  outbound_.push_back(QueuedPacket{new_buffer, options});
   return true;
+}
+
+void TCPTransportLayer::Update() {
+  while (!outbound_.empty()) {
+    QueuedPacket& queued = outbound_.front();
+    SendInternal(queued.buffer, queued.options);
+    outbound_.pop_front();
+  }
 }
 
 Result TCPTransportLayer::Close(CloseOptions options) {

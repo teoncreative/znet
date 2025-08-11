@@ -51,6 +51,7 @@ void PeerSession::Process() {
     Close();
     return;
   }
+  transport_layer_->Update();
   std::shared_ptr<Buffer> buffer;
   if ((buffer = transport_layer_->Receive())) {
     buffer = compr::HandleInDynamic(buffer);
