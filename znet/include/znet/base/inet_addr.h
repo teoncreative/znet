@@ -24,6 +24,9 @@ IPv6Address ParseIPv6(const std::string& ip_str);
 
 int GetDomainByInetProtocolVersion(InetProtocolVersion version);
 
+std::string GetAnyBindAddress(InetProtocolVersion version);
+std::string GetLocalAddress(InetProtocolVersion version);
+
 bool IsIPv4(const std::string& ip);
 bool IsIPv6(const std::string& ip);
 

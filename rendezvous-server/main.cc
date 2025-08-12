@@ -197,15 +197,17 @@ int main(int argc, char* argv[]) {
       // handle ipv6 instead of hard coding the endpoint
       // allow lan connection if possible
       response->target_peer_ = other_data->peer_name_;
-      response->target_endpoint_ = other_data->session_->remote_address();
-      response->bind_endpoint_ = znet::InetAddress::from("0.0.0.0", session->remote_address()->port());
+      auto other_address = other_data->session_->remote_address();
+      auto local_address = session->remote_address();
+      response->target_endpoint_ = other_address;
+      response->bind_endpoint_ = znet::InetAddress::from(znet::GetAnyBindAddress(local_address->ipv()), local_address->port());
       response->punch_id_ = punch_id;
       session->SendPacket(response);
 
       response = std::make_shared<znet::p2p::StartPunchRequestPacket>();
       response->target_peer_ = data->peer_name_;
-      response->target_endpoint_ = session->remote_address();
-      response->bind_endpoint_ = znet::InetAddress::from("0.0.0.0", other_data->session_->remote_address()->port());
+      response->target_endpoint_ = local_address;
+      response->bind_endpoint_ = znet::InetAddress::from(znet::GetAnyBindAddress(other_address->ipv()), other_address->port());
       response->punch_id_ = punch_id;
       other_data->session_->SendPacket(response);
     }
