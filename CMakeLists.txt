@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.16.3)
 project(znet-parent)
 
 add_subdirectory(vendor/fmt)
-#add_subdirectory(vendor/zstd/build/cmake)
+add_subdirectory(vendor/zstd/build/cmake)
 add_subdirectory(znet)
 
 # rendezvous server
