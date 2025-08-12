@@ -41,6 +41,25 @@ int GetDomainByInetProtocolVersion(InetProtocolVersion version) {
   return 0;
 }
 
+std::string GetAnyBindAddress(InetProtocolVersion version) {
+  switch (version) {
+    case InetProtocolVersion::IPv4:
+      return "0.0.0.0";
+    case InetProtocolVersion::IPv6:
+      return "::";
+  }
+}
+
+
+std::string GetLocalAddress(InetProtocolVersion version) {
+  switch (version) {
+    case InetProtocolVersion::IPv4:
+      return "127.0.0.1";
+    case InetProtocolVersion::IPv6:
+      return "::1";
+  }
+}
+
 bool IsIPv4(const std::string& ip) {
   sockaddr_in sa;
   return inet_pton(AF_INET, ip.c_str(), &(sa.sin_addr)) == 1;
