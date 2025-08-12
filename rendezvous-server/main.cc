@@ -194,7 +194,6 @@ int main(int argc, char* argv[]) {
 
       auto response = std::make_shared<znet::p2p::StartPunchRequestPacket>();
       // add start_at
-      // handle ipv6 instead of hard coding the endpoint
       // allow lan connection if possible
       response->target_peer_ = other_data->peer_name_;
       auto other_address = other_data->session_->remote_address();
