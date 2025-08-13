@@ -124,7 +124,7 @@ int main(int argc, char* argv[]) {
   std::string target = result["target"].as<std::string>();
   ZNET_LOG_INFO("Starting relay on {}:{}...", target, port);
 
-  znet::ServerConfig config{target, port};
+  znet::ServerConfig config{target, port,std::chrono::seconds(5), znet::ConnectionType::TCP};
   znet::Server relay{config};
   relay.SetEventCallback(ZNET_BIND_GLOBAL_FN(OnEvent));
 
@@ -201,6 +201,7 @@ int main(int argc, char* argv[]) {
       response->target_endpoint_ = other_address;
       response->bind_endpoint_ = znet::InetAddress::from(znet::GetAnyBindAddress(local_address->ipv()), local_address->port());
       response->punch_id_ = punch_id;
+      response->connection_type_ = znet::ConnectionType::TCP;
       session->SendPacket(response);
 
       response = std::make_shared<znet::p2p::StartPunchRequestPacket>();
@@ -208,6 +209,7 @@ int main(int argc, char* argv[]) {
       response->target_endpoint_ = local_address;
       response->bind_endpoint_ = znet::InetAddress::from(znet::GetAnyBindAddress(other_address->ipv()), other_address->port());
       response->punch_id_ = punch_id;
+      response->connection_type_ = znet::ConnectionType::TCP;
       other_data->session_->SendPacket(response);
     }
   }

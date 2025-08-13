@@ -26,6 +26,7 @@ namespace p2p {
 struct PeerLocatorConfig {
   std::string server_ip;
   PortNumber server_port;
+  ConnectionType connection_type = ConnectionType::TCP;
 };
 
 class PeerLocatorReadyEvent : public Event {
@@ -126,6 +127,7 @@ class PeerLocator {
 
   std::shared_ptr<InetAddress> bind_endpoint_;
   std::shared_ptr<InetAddress> target_endpoint_;
+  ConnectionType connection_type_;
   std::string target_peer_name_;
   uint64_t punch_id_ = ~0;
 

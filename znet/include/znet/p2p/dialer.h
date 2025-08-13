@@ -50,6 +50,7 @@ std::shared_ptr<PeerSession> PunchSync(const std::shared_ptr<InetAddress>& local
                                        const std::shared_ptr<InetAddress>& peer,
                                        Result* out_result,
                                        bool is_initiator,
+                                       ConnectionType connection_type = ConnectionType::TCP,
                                        int timeout_ms = 5000);
 
 }  // namespace p2p

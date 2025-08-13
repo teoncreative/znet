@@ -28,6 +28,7 @@ set(ZNET_SOURCES
         src/pch.cc
         src/init.cc
         src/backend/tcp.cc
+        src/backend/backend.cc
         src/p2p/locator.cc
         src/p2p/dialer.cc
 )

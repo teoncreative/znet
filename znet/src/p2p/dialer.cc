@@ -35,7 +35,7 @@ bool WouldBlock(int e) {
 #endif
 }
 
-std::shared_ptr<PeerSession> PunchSync(const std::shared_ptr<InetAddress>& local,
+std::shared_ptr<PeerSession> PunchSyncTCP(const std::shared_ptr<InetAddress>& local,
                                        const std::shared_ptr<InetAddress>& peer,
                                        Result* out_result,
                                        bool is_initiator,
@@ -141,6 +141,7 @@ std::shared_ptr<PeerSession> PunchSync(const std::shared_ptr<InetAddress>& local
         *out_result = Result::Success;
         return std::make_shared<PeerSession>(local, peer,
                                              std::make_unique<backends::TCPTransportLayer>(socket_handle),
+                                             ConnectionType::TCP,
                                              is_initiator,
                                              true);
       } else {
@@ -150,6 +151,18 @@ std::shared_ptr<PeerSession> PunchSync(const std::shared_ptr<InetAddress>& local
       }
     }
   }
+}
+
+std::shared_ptr<PeerSession> PunchSync(const std::shared_ptr<InetAddress>& local,
+                                       const std::shared_ptr<InetAddress>& peer,
+                                       Result* out_result,
+                                       bool is_initiator,
+                                       ConnectionType connection_type,
+                                       int timeout_ms) {
+  if (connection_type == ConnectionType::TCP) {
+    return PunchSyncTCP(local, peer, out_result, is_initiator, timeout_ms);
+  }
+  return nullptr;
 }
 
 }
