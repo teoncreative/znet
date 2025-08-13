@@ -122,10 +122,9 @@ inline std::string GetResultString(Result result) {
 
 enum class ConnectionType {
   TCP,
-  RUDP,
-  //RakNet,
+  //RUDP,
   //ENet,
-  //WebSocket,
+  //QUIC
 };
 
 #if defined(TARGET_APPLE) || defined(TARGET_WEB) || defined(TARGET_LINUX)

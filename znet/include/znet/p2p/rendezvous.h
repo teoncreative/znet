@@ -72,6 +72,7 @@ class StartPunchRequestPacket : public Packet {
   std::string target_peer_;
   std::shared_ptr<InetAddress> bind_endpoint_;
   std::shared_ptr<InetAddress> target_endpoint_;
+  ConnectionType connection_type_;
   uint64_t punch_id_;
 };
 

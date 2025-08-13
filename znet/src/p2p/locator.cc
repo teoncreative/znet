@@ -34,6 +34,7 @@ class LocatorPacketHandler : public PacketHandler<LocatorPacketHandler, SetPeerN
     locator_.bind_endpoint_ = pk.bind_endpoint_;
     locator_.punch_id_ = pk.punch_id_;
     locator_.target_peer_name_ = pk.target_peer_;
+    locator_.connection_type_ = pk.connection_type_;
     CloseOptions options;
     options.Set<NoLingerKey>(true);
     locator_.client_.Disconnect(options);
@@ -77,7 +78,8 @@ Result PeerLocator::Connect() {
               bind_endpoint_,
               target_endpoint_,
               &result,
-              IsInitiator(punch_id_, peer_name_, target_peer_name_)
+              IsInitiator(punch_id_, peer_name_, target_peer_name_),
+              connection_type_
           );
       if (result == Result::Success) {
         PeerConnectedEvent event{session, punch_id_, peer_name_, target_peer_name_};

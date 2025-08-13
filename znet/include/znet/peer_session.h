@@ -36,7 +36,9 @@ class PeerSession {
  public:
   PeerSession(std::shared_ptr<InetAddress> local_address,
               std::shared_ptr<InetAddress> remote_address,
-              std::unique_ptr<TransportLayer> transport_layer, bool is_initiator = false,
+              std::unique_ptr<TransportLayer> transport_layer,
+              ConnectionType connection_type,
+              bool is_initiator = false,
               bool self_managed = false);
   PeerSession(const PeerSession&) = delete;
   PeerSession(PeerSession&&) = delete;
@@ -120,13 +122,21 @@ class PeerSession {
                time_since_connect()).count();
   }
 
-  CompressionType out_compression_type() const {
+  ZNET_NODISCARD CompressionType out_compression_type() const {
     return out_compression_type_;
   }
 
   void SetOutCompression(CompressionType type) {
     out_compression_type_ = type;
     ZNET_LOG_INFO("Set out compression to {} for {}", GetCompressionTypeName(type), id_);
+  }
+
+  ZNET_NODISCARD bool is_initiator() const {
+    return is_initiator_;
+  }
+
+  ZNET_NODISCARD ConnectionType connection_type() const {
+    return connection_type_;
   }
 
  protected:
@@ -146,6 +156,7 @@ class PeerSession {
   PortNumber local_port_;
   std::shared_ptr<InetAddress> remote_address_;
   PortNumber remote_port_;
+  ConnectionType connection_type_;
 
   std::shared_ptr<Codec> codec_;
   std::shared_ptr<PacketHandlerBase> handler_;

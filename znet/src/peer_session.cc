@@ -19,11 +19,14 @@ namespace znet {
 PeerSession::PeerSession(std::shared_ptr<InetAddress> local_address,
                          std::shared_ptr<InetAddress> remote_address,
                          std::unique_ptr<TransportLayer> transport_layer,
+                         ConnectionType connection_type,
                          bool is_initiator,
                          bool self_managed)
     : local_address_(std::move(local_address)),
       remote_address_(std::move(remote_address)),
-      transport_layer_(std::move(transport_layer)), is_initiator_(is_initiator),
+      transport_layer_(std::move(transport_layer)),
+      connection_type_(connection_type),
+      is_initiator_(is_initiator),
       encryption_layer_(*this),
       connect_time_(std::chrono::steady_clock::now()) {
   static SessionId sIdCount = 0;

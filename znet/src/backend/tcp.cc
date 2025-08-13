@@ -262,7 +262,7 @@ Result TCPClientBackend::Connect() {
 
   client_session_ =
       std::make_shared<PeerSession>(local_address_, server_address_,
-                                    std::make_unique<TCPTransportLayer>(client_socket_), true);
+                                    std::make_unique<TCPTransportLayer>(client_socket_), ConnectionType::TCP, true);
   return Result::Success;
 }
 
@@ -408,7 +408,7 @@ std::shared_ptr<PeerSession> TCPServerBackend::Accept() {
     return nullptr;
   }
   return std::make_shared<PeerSession>(bind_address_, remote_address,
-                                    std::make_unique<TCPTransportLayer>(client_socket));
+                                    std::make_unique<TCPTransportLayer>(client_socket), ConnectionType::TCP);
 }
 
 void TCPServerBackend::AcceptAndReject() {
@@ -421,22 +421,5 @@ void TCPServerBackend::AcceptAndReject() {
 bool TCPServerBackend::IsAlive() {
   return is_listening_;
 }
-
-std::unique_ptr<ClientBackend> CreateClientFromType(ConnectionType type,
-                                                    std::shared_ptr<InetAddress> server_address) {
-  if (type == ConnectionType::TCP) {
-    return std::make_unique<TCPClientBackend>(server_address);
-  }
-  return nullptr;
-}
-
-std::unique_ptr<ServerBackend> CreateServerFromType(ConnectionType type,
-                                                    std::shared_ptr<InetAddress> bind_address) {
-  if (type == ConnectionType::TCP) {
-    return std::make_unique<TCPServerBackend>(bind_address);
-  }
-  return nullptr;
-}
-
 }
 }
