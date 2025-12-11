@@ -35,3 +35,4 @@
 - [ ] Graceful Disconnects (?)
 - [ ] Version Negotiation (?)
 - [ ] Feature flag Negotiation (?)
+- [ ] Automatic serialization of non-complex types
