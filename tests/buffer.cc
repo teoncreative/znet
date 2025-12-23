@@ -9,8 +9,8 @@
 //
 
 #define ZNET_BUFFER_COUNT_MEMORY_ALLOCATIONS
-#include "znet/znet.h"
 
+#include "znet/buffer.h"
 #include "gtest/gtest.h"
 
 using namespace znet;

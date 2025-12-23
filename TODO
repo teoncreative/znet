@@ -36,3 +36,11 @@
 - [ ] Version Negotiation (?)
 - [ ] Feature flag Negotiation (?)
 - [ ] Automatic serialization of non-complex types
+- [ ] Fully asynchronous P2P hole punching using an event-driven I/O model.
+- [ ] Add `UDPTransportLayer` and UDP client/server backends, including UDP hole punching for P2P.
+- [ ] Enhance error events for P2P connection failures with granular, actionable reasons.
+- [ ] Check if PeerLocator's destructor automatically joins its internal thread.
+- [ ] Document thread-safety guarantees and concurrency model for all public APIs.
+- [ ] Comprehensive performance benchmarks and conduct memory usage profiling.
+- [ ] Security audit for the encryption layer
+- [x] Refactor znet.h into smaller, modular headers for specific functionalities.

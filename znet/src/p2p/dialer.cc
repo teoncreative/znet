@@ -13,8 +13,10 @@
 //
 
 #include "znet/p2p/dialer.h"
-#include "znet/transport.h"
+
 #include "znet/backends/tcp.h"
+#include "znet/error.h"
+#include "znet/transport.h"
 
 namespace znet {
 namespace p2p {
@@ -144,11 +146,10 @@ std::shared_ptr<PeerSession> PunchSyncTCP(const std::shared_ptr<InetAddress>& lo
                                              ConnectionType::TCP,
                                              is_initiator,
                                              true);
-      } else {
-        CloseSocket(socket_handle);
-        *out_result = Result::CannotConnect;
-        return nullptr;
       }
+      CloseSocket(socket_handle);
+      *out_result = Result::CannotConnect;
+      return nullptr;
     }
   }
 }

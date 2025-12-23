@@ -10,11 +10,11 @@
 
 #pragma once
 
-#include <utility>
-
-#include "znet/precompiled.h"
-#include "znet/base/event.h"
+#include "znet/event.h"
 #include "znet/packet_handler.h"
+#include "znet/precompiled.h"
+
+#include <utility>
 
 namespace znet {
 

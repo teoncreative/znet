@@ -10,7 +10,9 @@
 
 #pragma once
 
-#include "znet/znet.h"
+#include "znet/codec.h"
+#include "znet/packet_handler.h"
+#include "znet/types.h"
 #include "types.h"
 
 using namespace znet;

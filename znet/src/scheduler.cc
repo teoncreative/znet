@@ -8,7 +8,7 @@
 //        http://www.apache.org/licenses/LICENSE-2.0
 //
 
-#include "znet/base/scheduler.h"
+#include "znet/scheduler.h"
 
 Scheduler::Scheduler(int tps) {
   SetTicksPerSecond(tps);

@@ -1,5 +1,5 @@
 //
-//    Copyright 2023 Metehan Gezer
+//    Copyright 2025 Metehan Gezer
 //
 //    Licensed under the Apache License, Version 2.0 (the "License");
 //    you may not use this file except in compliance with the License.
@@ -24,7 +24,6 @@ namespace znet {
 // Use the server.bind_address() function to get the port on Server
 #define ZNET_PORT_AUTO 0
 
-using PacketId = uint64_t;
 using SessionId = uint64_t;
 
 enum class Endianness { LittleEndian, BigEndian };

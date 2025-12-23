@@ -36,7 +36,6 @@ namespace p2p {
 // StartPunchRequestPacket S -> C1
 // StartPunchRequestPacket S -> C2
 
-
 enum PacketType {
   PACKET_IDENTIFY,
   PACKET_SET_PEER_NAME,

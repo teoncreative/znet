@@ -11,12 +11,10 @@
 
 #pragma once
 
-#include "znet/logger.h"
-#include "znet/base/packet.h"
 #include "znet/precompiled.h"
-#include "znet/send_options.h"
 #include "znet/buffer.h"
 #include "znet/close_options.h"
+#include "znet/send_options.h"
 
 namespace znet {
 

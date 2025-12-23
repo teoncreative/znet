@@ -8,17 +8,17 @@
 //        http://www.apache.org/licenses/LICENSE-2.0
 //
 
-#include <iostream>
+#include "znet/packet_handler.h"
+#include "znet/peer_session.h"
+#include "znet/init.h"
+#include "znet/client_events.h"
+#include "znet/codec.h"
+#include "znet/client.h"
+
 #include "packets.h"
-#include "znet/znet.h"
-
-using namespace znet;
-
-
-#include <iostream>
-#include "packets.h"
-#include "znet/znet.h"
 #include "player.h"
+
+#include <iostream>
 
 using namespace znet;
 

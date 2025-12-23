@@ -10,10 +10,9 @@
 
 #pragma once
 
-#include "znet/precompiled.h"
-#include "znet/base/packet.h"
-#include "znet/logger.h"
+#include "znet/packet.h"
 #include "znet/packet_handler.h"
+#include "znet/precompiled.h"
 
 #include <openssl/dh.h>
 #include <openssl/engine.h>

@@ -10,7 +10,7 @@
 
 #pragma once
 
-#include <znet/backends/backend.h>
+#include "znet/backends/backend.h"
 #include "znet/interface.h"
 #include "znet/peer_session.h"
 #include "znet/precompiled.h"
@@ -34,8 +34,7 @@ class Client : public Interface {
  public:
   Client(const ClientConfig& config);
   Client(const Client&) = delete;
-
-  ~Client();
+  ~Client() override;
 
   /**
    * @brief Binds client to configured IP address and port. This function is not thread-safe.

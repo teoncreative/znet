@@ -10,9 +10,9 @@
 
 #pragma once
 
-#include "znet/precompiled.h"
+#include "znet/packet.h"
 #include "znet/buffer.h"
-#include "znet/base/packet.h"
+#include "znet/precompiled.h"
 
 namespace znet {
 

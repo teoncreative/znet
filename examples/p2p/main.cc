@@ -8,12 +8,14 @@
 //        http://www.apache.org/licenses/LICENSE-2.0
 //
 
-#include <utility>
+#include "znet/p2p.h"
+#include "znet/packet_handler.h"
+#include "znet/peer_session.h"
+#include "znet/init.h"
 
+#include <utility>
 #include <deque>
 #include "cxxopts.h"
-#include "znet/znet.h"
-#include "znet/base/inet_addr.h"
 
 using namespace znet;
 

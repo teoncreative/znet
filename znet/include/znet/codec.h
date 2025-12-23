@@ -12,10 +12,10 @@
 #define ZNET_PARENT_CODEC_H
 
 #include "znet/precompiled.h"
-#include "znet/base/packet.h"
-#include "znet/packet_serializer.h"
-#include "znet/packet_handler.h"
+#include "znet/packet.h"
 #include "znet/buffer.h"
+#include "znet/packet_handler.h"
+#include "znet/packet_serializer.h"
 
 namespace znet {
 

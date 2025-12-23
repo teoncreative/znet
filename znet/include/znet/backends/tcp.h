@@ -27,7 +27,7 @@ namespace backends {
 class TCPTransportLayer : public TransportLayer {
  public:
   TCPTransportLayer(SocketHandle socket);
-  ~TCPTransportLayer();
+  ~TCPTransportLayer() override;
 
   std::shared_ptr<Buffer> Receive() override;
   bool Send(std::shared_ptr<Buffer> buffer, SendOptions options = {}) override;

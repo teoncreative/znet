@@ -15,7 +15,6 @@
 #ifndef ZNET_PARENT_SEND_OPTIONS_H
 #define ZNET_PARENT_SEND_OPTIONS_H
 
-
 #include "znet/precompiled.h"
 #include <cstdint>
 #include <type_traits>

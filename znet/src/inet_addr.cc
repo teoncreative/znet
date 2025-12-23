@@ -8,10 +8,10 @@
 //        http://www.apache.org/licenses/LICENSE-2.0
 //
 
-#include "znet/base/inet_addr.h"
+#include "znet/inet_addr.h"
 #include "znet/logger.h"
-
 #include "znet/init.h"
+
 #include <regex>
 
 namespace znet {

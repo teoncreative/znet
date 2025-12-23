@@ -15,10 +15,9 @@
 #ifndef ZNET_PARENT_PUNCH_H
 #define ZNET_PARENT_PUNCH_H
 
-#include "znet/base/inet_addr.h"
+#include "znet/inet_addr.h"
 #include "znet/peer_session.h"
 #include "znet/precompiled.h"
-#include "znet/error.h"
 
 namespace znet {
 namespace p2p {

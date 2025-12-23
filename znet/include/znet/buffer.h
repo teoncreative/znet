@@ -10,11 +10,12 @@
 
 #pragma once
 
-#include "znet/precompiled.h"
-#include "znet/base/types.h"
+#include "znet/inet_addr.h"
+#include "znet/types.h"
+#include "znet/util.h"
 #include "znet/logger.h"
-#include "znet/base/util.h"
-#include "znet/base/inet_addr.h"
+#include "znet/precompiled.h"
+
 #include <bitset>
 
 namespace znet {

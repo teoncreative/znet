@@ -8,11 +8,11 @@
 //        http://www.apache.org/licenses/LICENSE-2.0
 //
 
-#include "znet/base/util.h"
+#include "znet/util.h"
 
+#include <random>
 #include <string>
 #include <vector>
-#include <random>
 
 namespace znet {
 

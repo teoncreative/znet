@@ -8,12 +8,14 @@
 //        http://www.apache.org/licenses/LICENSE-2.0
 //
 
-#ifndef ZNET_PARENT_ERROR_H
-#define ZNET_PARENT_ERROR_H
+//
+// Created by Metehan Gezer on 22.12.2025.
+//
 
-#include "znet/precompiled.h"
+#ifndef ZNET_PARENT_P2P_H
+#define ZNET_PARENT_P2P_H
 
-std::string GetLastErrorInfo();
+#include "znet/p2p/dialer.h"
+#include "znet/p2p/locator.h"
 
-#endif
-
+#endif  //ZNET_PARENT_P2P_H

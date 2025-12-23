@@ -15,7 +15,7 @@
 #ifndef ZNET_PARENT_LOCATOR_H
 #define ZNET_PARENT_LOCATOR_H
 
-#include "znet/base/event.h"
+#include "znet/event.h"
 #include "znet/client.h"
 #include "znet/client_events.h"
 #include "znet/precompiled.h"

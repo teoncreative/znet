@@ -11,11 +11,11 @@
 
 #pragma once
 
+#include "znet/precompiled.h"
+#include "znet/types.h"
+
 #include <thread>
 #include <utility>
-
-#include "znet/precompiled.h"
-#include "znet/base/types.h"
 
 namespace znet {
 class Task {

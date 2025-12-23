@@ -8,13 +8,18 @@
 //        http://www.apache.org/licenses/LICENSE-2.0
 //
 
-#include <utility>
+#include "znet/p2p.h"
+#include "znet/p2p/rendezvous.h"
+#include "znet/packet_handler.h"
+#include "znet/peer_session.h"
+#include "znet/server_events.h"
+#include "znet/init.h"
 
+#include "cxxopts.h"
+
+#include <utility>
 #include <deque>
 #include <random>
-#include "cxxopts.h"
-#include "znet/p2p/rendezvous.h"
-#include "znet/znet.h"
 
 struct UserData {
   std::shared_ptr<znet::PeerSession> session_;

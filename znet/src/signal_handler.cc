@@ -8,7 +8,7 @@
 //        http://www.apache.org/licenses/LICENSE-2.0
 //
 
-#include "znet/base/signal_handler.h"
+#include "znet/signal_handler.h"
 
 #include <utility>
 

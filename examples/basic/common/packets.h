@@ -10,7 +10,7 @@
 
 #pragma once
 
-#include "znet/znet.h"
+#include "../../../znet/include/znet/packet.h"
 
 using namespace znet;
 

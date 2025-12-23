@@ -16,7 +16,7 @@
 #define ZNET_PARENT_SOCKET_GUARD_H
 
 #include "znet/precompiled.h"
-#include "znet/base/types.h"
+#include "znet/types.h"
 
 namespace znet {
 
