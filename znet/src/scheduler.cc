@@ -9,6 +9,7 @@
 //
 
 #include "znet/scheduler.h"
+#include <thread>
 
 Scheduler::Scheduler(int tps) {
   SetTicksPerSecond(tps);
