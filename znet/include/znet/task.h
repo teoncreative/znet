@@ -14,9 +14,9 @@
 #include "znet/precompiled.h"
 #include "znet/types.h"
 
+#include <atomic>
 #include <thread>
 #include <utility>
-#include <stop_token>
 
 namespace znet {
 
@@ -24,51 +24,56 @@ class Task {
  public:
   Task() = default;
 
-  // Destructor automatically requests stop and joins (std::jthread feature)
-  ~Task() = default;
+  ~Task() {
+    RequestStop();
+    Wait();
+  }
 
   Task(const Task&) = delete;
   Task& operator=(const Task&) = delete;
 
-  // Move operations allowed
-  Task(Task&&) noexcept = default;
-  Task& operator=(Task&&) noexcept = default;
+  Task(Task&& other) noexcept
+      : thread_(std::move(other.thread_)),
+        stop_requested_(other.stop_requested_.load()) {}
+
+  Task& operator=(Task&& other) noexcept {
+    if (this != &other) {
+      RequestStop();
+      Wait();
+      thread_ = std::move(other.thread_);
+      stop_requested_.store(other.stop_requested_.load());
+    }
+    return *this;
+  }
 
   ZNET_NODISCARD bool IsRunning() const {
     return thread_.joinable();
   }
 
-  // Run function without stop_token (backward compatible)
+  ZNET_NODISCARD bool IsStopRequested() const {
+    return stop_requested_.load(std::memory_order_acquire);
+  }
+
   void Run(std::function<void()> run) {
-    thread_ = std::jthread([run = std::move(run)](std::stop_token) {
-      run();
-    });
+    RequestStop();
+    Wait();
+    stop_requested_.store(false, std::memory_order_release);
+    thread_ = std::thread(std::move(run));
   }
 
-  // Run function with stop_token for cooperative cancellation
-  void Run(std::function<void(std::stop_token)> run) {
-    thread_ = std::jthread(std::move(run));
-  }
-
-  // Request cooperative cancellation
   void RequestStop() {
-    thread_.request_stop();
+    stop_requested_.store(true, std::memory_order_release);
   }
 
-  // Wait for thread to complete (blocks until done)
   void Wait() {
     if (thread_.joinable()) {
       thread_.join();
     }
   }
 
-  // Get stop token for external use
-  ZNET_NODISCARD std::stop_token GetStopToken() const {
-    return thread_.get_stop_token();
-  }
-
  private:
-  std::jthread thread_;
+  std::thread thread_;
+  std::atomic<bool> stop_requested_{false};
 };
 
 }

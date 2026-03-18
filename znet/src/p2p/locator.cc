@@ -67,12 +67,11 @@ Result PeerLocator::Connect() {
   target_endpoint_ = nullptr;
   punch_id_ = kInvalidPunchId;
 
-  task_.Run([this](std::stop_token stop_token) {
+  task_.Run([this]() {
     std::unique_lock<std::mutex> lock(mutex_);
-    // Wait for notification or stop (MSVC doesn't support cv.wait with stop_token yet)
-    cv_.wait(lock, [&stop_token]() { return stop_token.stop_requested(); });
+    cv_.wait(lock, [this]() { return task_.IsStopRequested(); });
     is_running_ = false;
-    if (stop_token.stop_requested()) {
+    if (task_.IsStopRequested()) {
       PeerLocatorCloseEvent event;
       event_callback_(event);
       return;

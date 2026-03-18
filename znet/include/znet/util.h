@@ -65,7 +65,7 @@ inline bool CloseSocket(SocketHandle socket) {
 
 inline void SetTCPNoDelay(SocketHandle socket) {
   int one = 1;
-  setsockopt(socket, IPPROTO_TCP, TCP_NODELAY, (char*)&one, sizeof(one));
+  setsockopt(socket, IPPROTO_TCP, TCP_NODELAY, reinterpret_cast<const char*>(&one), sizeof(one));
 }
 
 inline bool SetSocketBlocking(SocketHandle socket, bool blocking) {

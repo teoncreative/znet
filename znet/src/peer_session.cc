@@ -33,8 +33,8 @@ PeerSession::PeerSession(std::shared_ptr<InetAddress> local_address,
   id_ = sIdCount++;
   encryption_layer_.Initialize(is_initiator);
   if (self_managed) {
-    task_.Run([this](std::stop_token stop_token) {
-      while (IsAlive() && !stop_token.stop_requested()) {
+    task_.Run([this]() {
+      while (IsAlive() && !task_.IsStopRequested()) {
         Process();
       }
     });

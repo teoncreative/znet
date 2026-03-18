@@ -65,22 +65,22 @@ Result Client::Connect() {
   client_session_ = backend_->client_session();
 
   // Connected to the server
-  task_.Run([this](std::stop_token stop_token) {
+  task_.Run([this]() {
     // setup
-    while (!client_session_->IsReady() && client_session_->IsAlive() && !stop_token.stop_requested()) {
+    while (!client_session_->IsReady() && client_session_->IsAlive() && !task_.IsStopRequested()) {
       client_session_->Process();
       if (config_.connection_timeout.count() > 0 && client_session_->time_since_connect() > config_.connection_timeout) {
         ZNET_LOG_DEBUG("Connection to {} timed-out.", server_address_->readable());
         client_session_->Close();
       }
     }
-    if (!client_session_->IsAlive() || stop_token.stop_requested()) {
+    if (!client_session_->IsAlive() || task_.IsStopRequested()) {
       return;
     }
     ZNET_LOG_DEBUG("Connected to the server.");
     ClientConnectedToServerEvent connected_event{client_session_};
     event_callback()(connected_event);
-    while (client_session_->IsAlive() && !stop_token.stop_requested()) {
+    while (client_session_->IsAlive() && !task_.IsStopRequested()) {
       client_session_->Process();
     }
     ZNET_LOG_DEBUG("Disconnected from the server.");

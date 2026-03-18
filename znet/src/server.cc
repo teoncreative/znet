@@ -26,14 +26,14 @@ Server::Server(const ServerConfig& config) : Interface(), config_(config) {
   tasks_.resize(core_count);
   for (TaskData& data : tasks_) {
     data.task_ = std::make_unique<Task>();
-    data.task_->Run([this, &data](std::stop_token stop_token) {
+    data.task_->Run([this, &data]() {
       std::unique_lock<std::mutex> lock(data.mutex_);
-      while (!stop_token.stop_requested()) {
+      while (!data.task_->IsStopRequested()) {
         if (data.sessions_.empty() || !backend_->IsAlive()) {
           data.cv_.wait(lock, [&]() {
-            return !data.sessions_.empty() || stop_token.stop_requested();
+            return !data.sessions_.empty() || data.task_->IsStopRequested();
           });
-          if (stop_token.stop_requested()) {
+          if (data.task_->IsStopRequested()) {
             break;
           }
         }
@@ -81,8 +81,8 @@ Result Server::Listen() {
 
   shutdown_complete_ = false;
 
-  task_.Run([this](std::stop_token stop_token) {
-    MainProcessor(stop_token);
+   task_.Run([this]() {
+    MainProcessor();
   });
   return Result::Success;
 }
@@ -104,13 +104,12 @@ bool Server::IsAlive() const {
   return backend_->IsAlive();
 }
 
-void Server::MainProcessor(std::stop_token stop_token) {
+void Server::MainProcessor() {
   ZNET_LOG_DEBUG("Listening connections from: {}", bind_address_->readable());
   ServerStartupEvent startup_event{*this};
   event_callback()(startup_event);
 
-  // Check both backend state and stop_token
-  while (backend_->IsAlive() && !stop_token.stop_requested()) {
+  while (backend_->IsAlive() && !task_.IsStopRequested()) {
     std::lock_guard<std::mutex> lock(backend_->mutex());
     scheduler_.Start();
     CheckNetwork();

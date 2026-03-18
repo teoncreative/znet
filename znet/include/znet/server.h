@@ -146,7 +146,7 @@ class Server : public Interface {
     TaskData& operator=(const TaskData&) = delete;
   };
 
-  void MainProcessor(std::stop_token stop_token);
+  void MainProcessor();
 
   void CheckNetwork();
   void ProcessSessions();
