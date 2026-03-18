@@ -157,7 +157,7 @@ inline std::shared_ptr<Codec> BuildCodec() {
   codec->Add(PACKET_SET_PEER_NAME, std::make_unique<SetPeerNameSerializer>());
   codec->Add(PACKET_CONNECT_PEER, std::make_unique<ConnectPeerSerializer>());
   codec->Add(PACKET_START_PUNCH_REQUEST, std::make_unique<StartPunchRequestSerializer>());
-  return std::move(codec);
+  return codec;
 }
 
 }

@@ -63,10 +63,10 @@ std::shared_ptr<PeerSession> PunchSyncTCP(const std::shared_ptr<InetAddress>& lo
   }
 
   int option = 1;
-  setsockopt(socket_handle, SOL_SOCKET, SO_REUSEADDR, (char*)&option, sizeof(option));
+  setsockopt(socket_handle, SOL_SOCKET, SO_REUSEADDR, reinterpret_cast<const char*>(&option), sizeof(option));
 
   if (local->ipv() == InetProtocolVersion::IPv6) {
-    setsockopt(socket_handle, IPPROTO_IPV6, IPV6_V6ONLY, (char*)&option, sizeof(option));
+    setsockopt(socket_handle, IPPROTO_IPV6, IPV6_V6ONLY, reinterpret_cast<const char*>(&option), sizeof(option));
   }
 
   if (bind(socket_handle, local->handle_ptr(), local->addr_size()) != 0) {
@@ -144,7 +144,7 @@ std::shared_ptr<PeerSession> PunchSyncTCP(const std::shared_ptr<InetAddress>& lo
     if (FD_ISSET(socket_handle, &write_set) || FD_ISSET(socket_handle, &error_set)) {
       int socket_error = 0;
       socklen_t length = sizeof(socket_error);
-      getsockopt(socket_handle, SOL_SOCKET, SO_ERROR, (char*)&socket_error, &length);
+      getsockopt(socket_handle, SOL_SOCKET, SO_ERROR, reinterpret_cast<char*>(&socket_error), &length);
       if (socket_error == 0) {
         SetSocketBlocking(socket_handle, true);
         *out_result = Result::Success;

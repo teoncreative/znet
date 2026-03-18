@@ -35,7 +35,12 @@ std::shared_ptr<Buffer> TCPTransportLayer::Receive() {
   }
 
   data_size_ = recv(socket_, data_ + read_offset_,
-                    static_cast<int>(sizeof(data_) - read_offset_), 0);
+#ifdef TARGET_WIN
+                    static_cast<int>(sizeof(data_) - static_cast<size_t>(read_offset_)),
+#else
+                    sizeof(data_) - static_cast<size_t>(read_offset_),
+#endif
+                    0);
 
   if (data_size_ > ZNET_MAX_BUFFER_SIZE) {
     Close();
@@ -52,7 +57,7 @@ std::shared_ptr<Buffer> TCPTransportLayer::Receive() {
   }
 
   if (data_size_ > 0) {
-    size_t full_size = data_size_ + read_offset_;
+    size_t full_size = static_cast<size_t>(data_size_) + static_cast<size_t>(read_offset_);
     if (full_size == ZNET_MAX_BUFFER_SIZE) {
       has_more_ = true;
     } else {
@@ -100,8 +105,8 @@ std::shared_ptr<Buffer> TCPTransportLayer::ReadBuffer() {
         return nullptr;
       }
       buffer_->set_read_cursor(cursor);
-      read_offset_ = buffer_->readable_bytes();
-      memcpy(data_, buffer_->data() + cursor, read_offset_);
+      read_offset_ = static_cast<ssize_t>(buffer_->readable_bytes());
+      memcpy(data_, buffer_->data() + cursor, static_cast<size_t>(read_offset_));
       return nullptr;
     }
     const char* data_ptr = buffer_->read_cursor_data();
@@ -114,7 +119,11 @@ std::shared_ptr<Buffer> TCPTransportLayer::ReadBuffer() {
 
 bool TCPTransportLayer::SendInternal(std::shared_ptr<Buffer> buffer, SendOptions options) {
   (void)options; // shutup compiler
+#ifdef TARGET_WIN
   while (send(socket_, buffer->data(), static_cast<int>(buffer->size()), 0) < 0) {
+#else
+  while (send(socket_, buffer->data(), buffer->size(), 0) < 0) {
+#endif
     if (errno == EWOULDBLOCK || errno == EAGAIN) {
       continue;
     }

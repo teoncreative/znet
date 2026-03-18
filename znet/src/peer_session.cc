@@ -24,10 +24,10 @@ PeerSession::PeerSession(std::shared_ptr<InetAddress> local_address,
                          bool self_managed)
     : local_address_(std::move(local_address)),
       remote_address_(std::move(remote_address)),
-      transport_layer_(std::move(transport_layer)),
       connection_type_(connection_type),
-      is_initiator_(is_initiator),
+      transport_layer_(std::move(transport_layer)),
       encryption_layer_(*this),
+      is_initiator_(is_initiator),
       connect_time_(std::chrono::steady_clock::now()) {
   static SessionId sIdCount = 0;
   id_ = sIdCount++;

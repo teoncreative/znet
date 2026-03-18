@@ -36,14 +36,15 @@ unsigned char* SerializePublicKey(EVP_PKEY* pkey, uint32_t* len) {
   }
 
   unsigned char* der = nullptr;
-  *len = i2d_PUBKEY(pkey, &der);  // Serialize the public key to DER format
-  if (*len <= 0) {
+  int der_len = i2d_PUBKEY(pkey, &der);  // Serialize the public key to DER format
+  if (der_len <= 0) {
     fprintf(stderr, "Failed to serialize public key\n");
     if (der) {
       OPENSSL_free(der);
     }
     return nullptr;
   }
+  *len = static_cast<uint32_t>(der_len);
 
   return der;  // The caller must free this memory using OPENSSL_free
 }
@@ -211,10 +212,10 @@ bool DeriveKeyFromSharedSecret(const unsigned char* shared_secret,
   size_t out_len = key_len;  // EVP_PKEY_derive needs size_t*
   if (EVP_PKEY_derive_init(pctx) <= 0 ||
       EVP_PKEY_CTX_set_hkdf_md(pctx, EVP_sha256()) <= 0 ||
-      EVP_PKEY_CTX_set1_hkdf_salt(pctx, (unsigned char*)"salt", 4) <= 0 ||
+      EVP_PKEY_CTX_set1_hkdf_salt(pctx, reinterpret_cast<const unsigned char*>("salt"), 4) <= 0 ||
       EVP_PKEY_CTX_set1_hkdf_key(pctx, shared_secret,
                                  static_cast<int>(secret_len)) <= 0 ||
-      EVP_PKEY_CTX_add1_hkdf_info(pctx, (unsigned char*)"info", 4) <= 0 ||
+      EVP_PKEY_CTX_add1_hkdf_info(pctx, reinterpret_cast<const unsigned char*>("info"), 4) <= 0 ||
       EVP_PKEY_derive(pctx, key, &out_len) <= 0) {  // THIS WAS MISSING!
     ZNET_LOG_ERROR("Failed to derive key using HKDF.");
     EVP_PKEY_CTX_free(pctx);
@@ -351,12 +352,12 @@ std::shared_ptr<Buffer> EncryptionLayer::HandleDecrypt(
   auto* iv = new unsigned char[16];
   //memset(iv, 0, 16);
   buffer->Read(iv, 16);
-  int cipher_len = static_cast<int>(buffer->readable_bytes());
-  auto* actual = new unsigned char[cipher_len];
+  auto cipher_len = static_cast<int>(buffer->readable_bytes());
+  auto* actual = new unsigned char[static_cast<size_t>(cipher_len)];
   const char* data_ptr = buffer->data() + buffer->read_cursor();
   int actual_len = DecryptData(reinterpret_cast<const unsigned char*>(data_ptr),
                                cipher_len, key_, iv, actual);
-  buffer->SkipRead(cipher_len);
+  buffer->SkipRead(static_cast<size_t>(cipher_len));
   return std::make_shared<Buffer>(reinterpret_cast<char*>(actual), actual_len);
 }
 
@@ -383,7 +384,7 @@ std::shared_ptr<Buffer> EncryptionLayer::HandleOut(
   std::shared_ptr<Buffer> new_buffer = std::make_shared<Buffer>();
   if (enable_encryption_) {
     auto* ciphertext =
-        new unsigned char[CalculateCipherTextLength(buffer_len)];
+        new unsigned char[static_cast<size_t>(CalculateCipherTextLength(buffer_len))];
     auto* iv = new unsigned char[16];
     if (!GenerateIV(iv, 16)) {
       ZNET_LOG_ERROR("Failed to generate random IV, will use zeros!");
@@ -395,18 +396,18 @@ std::shared_ptr<Buffer> EncryptionLayer::HandleOut(
         EncryptData(reinterpret_cast<const unsigned char*>(buffer->data()),
                     buffer_len, key_, iv, ciphertext);
 
-    new_buffer->ReserveExact(ciphertext_len + 2 + 8 + 16 + 8);
+    new_buffer->ReserveExact(static_cast<size_t>(ciphertext_len) + 2 + 8 + 16 + 8);
     new_buffer->WriteInt<uint8_t>(1);  // encryption enabled
     new_buffer->Write(iv, 16);
-    new_buffer->Write(ciphertext, ciphertext_len);
+    new_buffer->Write(ciphertext, static_cast<size_t>(ciphertext_len));
 
-    auto* actual = new unsigned char[buffer_len];
+    auto* actual = new unsigned char[static_cast<size_t>(buffer_len)];
     DecryptData(ciphertext, ciphertext_len, key_, iv, actual);
     return new_buffer;
   }
-  new_buffer->ReserveExact(buffer_len + 2);
+  new_buffer->ReserveExact(static_cast<size_t>(buffer_len) + 2);
   new_buffer->WriteInt<uint8_t>(0);  // no encryption
-  new_buffer->Write(buffer->data(), buffer_len);
+  new_buffer->Write(buffer->data(), static_cast<size_t>(buffer_len));
   return new_buffer;
 }
 

@@ -57,7 +57,6 @@ class Initializer {
   Result result() const { return result_; }
 
  private:
-  bool sockets_initialized_ = false;
   Result result_ = Result::NotInitialized;
 };
 
