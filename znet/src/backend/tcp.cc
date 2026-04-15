@@ -42,6 +42,10 @@ std::shared_ptr<Buffer> TCPTransportLayer::Receive() {
 #endif
                     0);
 
+  //if (data_size_ != -1 || (errno != EWOULDBLOCK && errno != EAGAIN)) {
+  //  ZNET_LOG_DEBUG("recv: socket={}, data_size={}, errno={}", socket_, data_size_, errno);
+  //}
+
   if (data_size_ > ZNET_MAX_BUFFER_SIZE) {
     Close();
     ZNET_LOG_ERROR(
@@ -161,9 +165,15 @@ bool TCPTransportLayer::Send(std::shared_ptr<Buffer> buffer, SendOptions options
 }
 
 void TCPTransportLayer::Update() {
+  if (!outbound_.empty()) {
+    ZNET_LOG_DEBUG("TCPTransport::Update flushing {} packets, socket={}", outbound_.size(), socket_);
+  }
   while (!outbound_.empty()) {
     QueuedPacket& queued = outbound_.front();
-    SendInternal(queued.buffer, queued.options);
+    bool ok = SendInternal(queued.buffer, queued.options);
+    if (!ok) {
+      ZNET_LOG_ERROR("TCPTransport::SendInternal failed, socket={}", socket_);
+    }
     outbound_.pop_front();
   }
 }

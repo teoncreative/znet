@@ -58,7 +58,15 @@ void PeerSession::Process() {
   std::shared_ptr<Buffer> buffer;
   if ((buffer = transport_layer_->Receive())) {
     buffer = compr::HandleInDynamic(buffer);
+    if (!buffer) {
+      ZNET_LOG_ERROR("Session {} decompression returned null!", id_);
+      return;
+    }
     buffer = encryption_layer_.HandleIn(buffer);
+    if (!buffer) {
+      ZNET_LOG_ERROR("Session {} decryption returned null!", id_);
+      return;
+    }
     if (buffer && handler_ && codec_) {
       codec_->Deserialize(buffer, *handler_);
     }

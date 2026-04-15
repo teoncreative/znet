@@ -413,14 +413,25 @@ std::shared_ptr<Buffer> EncryptionLayer::HandleOut(
 
 void EncryptionLayer::OnHandshakePacket(
     std::shared_ptr<HandshakePacket> packet) {
+  //ZNET_LOG_DEBUG("OnHandshakePacket: initiator={}, has_peer_key={}, key_filled={}, sent_handshake={}", session_.is_initiator(), (bool)peer_pkey_, key_filled_, sent_handshake_);
   if (peer_pkey_ || key_filled_) {
     ZNET_LOG_ERROR("Received handshake packet twice, closing the connection!");
     session_.Close();
     return;
   }
   peer_pkey_ = std::move(packet->pub_key_);
+  if (!peer_pkey_) {
+    ZNET_LOG_ERROR("Received handshake packet with null public key!");
+    session_.Close();
+    return;
+  }
   shared_secret_ = ComputeSharedSecret(pub_key_.get(), peer_pkey_.get(),
                                        &shared_secret_len_);
+  if (!shared_secret_ || shared_secret_len_ == 0) {
+    ZNET_LOG_ERROR("ComputeSharedSecret failed! secret={}, len={}", (void*)shared_secret_, shared_secret_len_);
+    session_.Close();
+    return;
+  }
   if (!DeriveKeyFromSharedSecret(shared_secret_, shared_secret_len_, key_,
                                  key_len_)) {
     ZNET_LOG_ERROR(
@@ -429,6 +440,7 @@ void EncryptionLayer::OnHandshakePacket(
     return;
   }
   key_filled_ = true;
+  ZNET_LOG_DEBUG("Handshake key exchange complete, initiator={}", session_.is_initiator());
 
   if (!sent_handshake_) {
     SendHandshake();
@@ -439,6 +451,7 @@ void EncryptionLayer::OnHandshakePacket(
 
 void EncryptionLayer::OnAcknowledgePacket(
     std::shared_ptr<ConnectionReadyPacket> packet) {
+  ZNET_LOG_DEBUG("OnAcknowledgePacket: initiator={}", session_.is_initiator());
   if (!peer_pkey_ || !key_filled_) {
     ZNET_LOG_ERROR(
         "Received connection complete packet it wasn't expected, closing the "
@@ -448,8 +461,8 @@ void EncryptionLayer::OnAcknowledgePacket(
   }
   if (packet->magic_ != "343693b5-2b04-4d56-a3b5-48582ca37c7d") {
     ZNET_LOG_ERROR(
-        "Received connection complete packet has invalid magic, closing the "
-        "connection!");
+        "Received connection complete packet has invalid magic '{}', closing the "
+        "connection!", packet->magic_);
     session_.Close();
     return;
   }
@@ -462,6 +475,7 @@ void EncryptionLayer::OnAcknowledgePacket(
 }
 
 void EncryptionLayer::SendHandshake() {
+  ZNET_LOG_DEBUG("SendHandshake: initiator={}, has_key={}", session_.is_initiator(), (bool)pub_key_);
   auto packet = std::make_shared<HandshakePacket>();
   if (pub_key_) {
     packet->pub_key_ = CloneKey(pub_key_);

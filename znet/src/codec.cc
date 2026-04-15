@@ -21,6 +21,7 @@ void Codec::Deserialize(std::shared_ptr<Buffer> buffer, PacketHandlerBase& handl
     auto packet_id = buffer->ReadVarInt<PacketId>();
     auto size = buffer->ReadInt<size_t>();
     BufferError error = buffer->GetAndClearLastError();
+    //ZNET_LOG_DEBUG("Codec::Deserialize packet_id={}, size={}, error={}", packet_id, size, static_cast<int>(error));
     if (error != BufferError::None) {
       ZNET_LOG_DEBUG("Reading packet header failed, dropping buffer!");
       break;
@@ -28,7 +29,7 @@ void Codec::Deserialize(std::shared_ptr<Buffer> buffer, PacketHandlerBase& handl
     size_t read_cursor = buffer->read_cursor();
     auto it = serializers_.find(packet_id);
     if (it == serializers_.end()) {
-      ZNET_LOG_WARN("Serializer for packet {} does not exist!", packet_id);
+      ZNET_LOG_WARN("Serializer for packet {} does not exist! (have {} serializers)", packet_id, serializers_.size());
       buffer->SkipRead(size);
       continue;
     }

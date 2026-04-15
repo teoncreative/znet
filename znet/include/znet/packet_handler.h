@@ -42,7 +42,7 @@ class PacketHandler : public PacketHandlerBase {
  public:
   void Handle(std::shared_ptr<Packet> p) override {
     auto& m = table();
-    auto it = m.find(std::type_index(typeid(decltype(*p))));
+    auto it = m.find(std::type_index(typeid(*p)));
     if (it != m.end()) {
       it->second(static_cast<Derived*>(this), p);
     }
@@ -100,7 +100,7 @@ class CallbackPacketHandler : public PacketHandlerBase {
   }
 
   void Handle(std::shared_ptr<Packet> p) override {
-    auto type = std::type_index(typeid(decltype(*p)));
+    auto type = std::type_index(typeid(*p));
 
     auto sharedIt = sharedHandlers.find(type);
     if (sharedIt != sharedHandlers.end()) {
