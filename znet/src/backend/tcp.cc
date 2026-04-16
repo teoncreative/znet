@@ -165,9 +165,6 @@ bool TCPTransportLayer::Send(std::shared_ptr<Buffer> buffer, SendOptions options
 }
 
 void TCPTransportLayer::Update() {
-  if (!outbound_.empty()) {
-    ZNET_LOG_DEBUG("TCPTransport::Update flushing {} packets, socket={}", outbound_.size(), socket_);
-  }
   while (!outbound_.empty()) {
     QueuedPacket& queued = outbound_.front();
     bool ok = SendInternal(queued.buffer, queued.options);
