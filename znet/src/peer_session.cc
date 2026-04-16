@@ -29,7 +29,7 @@ PeerSession::PeerSession(std::shared_ptr<InetAddress> local_address,
       encryption_layer_(*this),
       is_initiator_(is_initiator),
       connect_time_(std::chrono::steady_clock::now()) {
-  static SessionId sIdCount = 0;
+  static SessionId sIdCount = 1;
   id_ = sIdCount++;
   encryption_layer_.Initialize(is_initiator);
   if (self_managed) {

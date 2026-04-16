@@ -25,6 +25,7 @@ namespace znet {
 // Use the server.bind_address() function to get the port on Server
 #define ZNET_PORT_AUTO 0
 
+// 64 bits might be an overkill here but meh
 using SessionId = uint64_t;
 
 enum class Endianness { LittleEndian, BigEndian };

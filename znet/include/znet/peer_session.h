@@ -52,6 +52,7 @@ class PeerSession {
 
   bool IsReady() { return is_ready_; }
 
+  // Starts from 1 and increments for each peer constructed.
   ZNET_NODISCARD SessionId id() const {
     return id_;
   }
