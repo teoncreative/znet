@@ -183,8 +183,8 @@ Result TCPTransportLayer::Close(CloseOptions options) {
     linger l; l.l_onoff = 1; l.l_linger = 0;
     setsockopt(socket_, SOL_SOCKET, SO_LINGER, reinterpret_cast<const char*>(&l), sizeof(l));
   }
-  // Close the socket
   is_closed_ = true;
+  ShutdownSocket(socket_);
   CloseSocket(socket_);
   socket_ = INVALID_SOCKET;
   return Result::Success;

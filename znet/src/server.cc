@@ -110,11 +110,13 @@ void Server::MainProcessor() {
   event_callback()(startup_event);
 
   while (backend_->IsAlive() && !task_.IsStopRequested()) {
-    std::lock_guard<std::mutex> lock(backend_->mutex());
-    scheduler_.Start();
-    CheckNetwork();
-    ProcessSessions();
-    scheduler_.End();
+    {
+      std::lock_guard<std::mutex> lock(backend_->mutex());
+      scheduler_.Start();
+      CheckNetwork();
+      ProcessSessions();
+      scheduler_.End();
+    }
     scheduler_.Wait();
   }
 
@@ -122,6 +124,17 @@ void Server::MainProcessor() {
   ServerShutdownEvent shutdown_event{*this};
   event_callback()(shutdown_event);
 
+  // Worker tasks may be parked on data.cv_.wait(), which only checks the
+  // predicate on notify. Set the stop flag and wake them explicitly before
+  // destroying the TaskData, otherwise ~Task() joins a thread that never
+  // wakes and the caller hangs on Server::Wait().
+  for (TaskData& data : tasks_) {
+    data.task_->RequestStop();
+    {
+      std::lock_guard<std::mutex> lock(data.mutex_);
+    }
+    data.cv_.notify_all();
+  }
   tasks_.clear();
   DisconnectPending();
   backend_->Close();

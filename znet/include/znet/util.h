@@ -63,6 +63,20 @@ inline bool CloseSocket(SocketHandle socket) {
   return false;
 }
 
+// Half-closes both directions on the socket. Used to wake a blocked recv()
+// that is being torn down from another thread - plain CloseSocket() does not
+// interrupt an in-progress recv on POSIX, which stalls graceful shutdown.
+inline bool ShutdownSocket(SocketHandle socket) {
+  if (!IsValidSocketHandle(socket)) {
+    return false;
+  }
+#ifdef TARGET_WIN
+  return shutdown(socket, SD_BOTH) == 0;
+#else
+  return shutdown(socket, SHUT_RDWR) == 0;
+#endif
+}
+
 inline void SetTCPNoDelay(SocketHandle socket) {
   int one = 1;
   setsockopt(socket, IPPROTO_TCP, TCP_NODELAY, reinterpret_cast<const char*>(&one), sizeof(one));

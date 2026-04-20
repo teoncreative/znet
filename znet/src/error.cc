@@ -24,8 +24,20 @@ std::string GetLastErrorInfo() {
                 nullptr);
   return {buf};
 #else
+  // glibc ships two signatures for strerror_r:
+  //   * XSI:  int  strerror_r(int, char*, size_t)  - fills buf, returns 0/errno
+  //   * GNU:  char* strerror_r(int, char*, size_t) - may return a static string
+  //     WITHOUT touching buf. Using buf directly prints uninitialized stack
+  //     bytes (the "garbage on failure" symptom). Dispatch at compile time.
+  int saved_errno = errno;
   char buf[256];
-  strerror_r(errno, buf, 256);
+  buf[0] = '\0';
+#if ((_POSIX_C_SOURCE >= 200112L) && !_GNU_SOURCE)
+  strerror_r(saved_errno, buf, sizeof(buf));
   return {buf};
+#else
+  const char* msg = strerror_r(saved_errno, buf, sizeof(buf));
+  return std::string(msg ? msg : "unknown error");
+#endif
 #endif
 }
