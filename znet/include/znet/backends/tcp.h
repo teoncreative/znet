@@ -16,6 +16,7 @@
 #define ZNET_PARENT_TCP_H
 
 #include "znet/backends/backend.h"
+#include "znet/options.h"
 #include "znet/peer_session.h"
 #include "znet/precompiled.h"
 
@@ -38,6 +39,8 @@ class TCPTransportLayer : public TransportLayer {
 
   void Update() override;
 
+  void FillMetrics(SessionMetrics& out) const override;
+
  private:
   std::shared_ptr<Buffer> ReadBuffer();
 
@@ -56,12 +59,16 @@ class TCPTransportLayer : public TransportLayer {
   bool has_more_;
   bool is_closed_ = false;
   std::deque<QueuedPacket> outbound_;
+#if ZNET_ENABLE_METRICS
+  SessionMetrics metrics_;
+#endif
 
 };
 
 class TCPClientBackend : public ClientBackend {
  public:
-  TCPClientBackend(std::shared_ptr<InetAddress> server_address);
+  explicit TCPClientBackend(std::shared_ptr<InetAddress> server_address,
+                            const SessionOptions& options = {});
   ~TCPClientBackend() override;
   TCPClientBackend(const TCPClientBackend&) = delete;
 
@@ -85,6 +92,7 @@ class TCPClientBackend : public ClientBackend {
   void CleanupSocket();
  private:
   std::mutex mutex_;
+  SessionOptions options_;
   std::shared_ptr<InetAddress> server_address_;
   std::shared_ptr<InetAddress> local_address_;
   std::shared_ptr<PeerSession> client_session_;
@@ -94,7 +102,8 @@ class TCPClientBackend : public ClientBackend {
 
 class TCPServerBackend : public ServerBackend {
  public:
-  TCPServerBackend(std::shared_ptr<InetAddress> bind_address);
+  explicit TCPServerBackend(std::shared_ptr<InetAddress> bind_address,
+                            const SessionOptions& child_options = {});
   ~TCPServerBackend() override;
   TCPServerBackend(const TCPServerBackend&) = delete;
 
@@ -111,8 +120,13 @@ class TCPServerBackend : public ServerBackend {
 
   std::mutex& mutex() override { return mutex_; }
 
+  std::shared_ptr<InetAddress> bind_address() const override {
+    return bind_address_;
+  }
+
  private:
   std::mutex mutex_;
+  SessionOptions child_options_;
   std::shared_ptr<InetAddress> bind_address_;
   bool is_bind_ = false;
   bool is_listening_ = false;

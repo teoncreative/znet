@@ -11,17 +11,14 @@
 #include "znet/scheduler.h"
 #include <thread>
 
-Scheduler::Scheduler(int tps) {
+Scheduler::Scheduler(uint16_t tps) {
   SetTicksPerSecond(tps);
 }
 
 Scheduler::~Scheduler() {}
 
-void Scheduler::SetTicksPerSecond(int tps) {
-  if (tps == tps_) {
-    return;
-  }
-  tps_ = tps;
+void Scheduler::SetTicksPerSecond(uint16_t tps) {
+  tps_ = std::max(tps, static_cast<uint16_t>(1));
   target_delta_time_ = std::chrono::duration_cast<Duration>(
       std::chrono::seconds(1) / static_cast<float>(tps));
 }
@@ -39,7 +36,7 @@ void Scheduler::Wait() {
   if (delta_time_ < target_delta_time_) {
     auto sleep =
         std::chrono::duration_cast<Duration>(target_delta_time_ - delta_time_);
-#ifndef ZNET_PREFER_STD_SLEEP
+#if !ZNET_PREFER_STD_SLEEP
     PreciseSleep(sleep);
 #else
     std::this_thread::sleep_for(sleep);

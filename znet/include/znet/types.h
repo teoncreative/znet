@@ -67,7 +67,10 @@ enum class Result {
   InvalidTransport,
   Timeout,
   CannotConnect,
-  NotConnected
+  NotConnected,
+  IncompatibleVersion,
+  ConnectionRefused,
+  ServerFull
 };
 
 constexpr auto operator<=>(Result lhs, Result rhs) noexcept {
@@ -120,6 +123,12 @@ inline std::string GetResultString(Result result) {
       return "CannotConnect";
     case Result::NotConnected:
       return "NotConnected";
+    case Result::IncompatibleVersion:
+      return "IncompatibleVersion";
+    case Result::ConnectionRefused:
+      return "ConnectionRefused";
+    case Result::ServerFull:
+      return "ServerFull";
     default:
       return "Unknown";
   }
@@ -127,7 +136,7 @@ inline std::string GetResultString(Result result) {
 
 enum class ConnectionType {
   TCP,
-  //RUDP,
+  ZDT,  // znet Datagram Transport (reliable UDP with channels)
   //ENet,
   //QUIC
 };

@@ -13,6 +13,7 @@
 #include "znet/scheduler.h"
 #include "znet/backends/backend.h"
 #include "znet/interface.h"
+#include "znet/options.h"
 #include "znet/logger.h"
 #include "znet/peer_session.h"
 #include "znet/precompiled.h"
@@ -25,6 +26,8 @@ struct ServerConfig {
   PortNumber bind_port;
   std::chrono::steady_clock::duration connection_timeout;
   ConnectionType connection_type = ConnectionType::TCP;
+  ServerOptions options;         // the listener itself
+  SessionOptions child_options;  // every session the listener accepts
 };
 
 /**
@@ -100,13 +103,24 @@ class Server : public Interface {
    *
    * @param tps The desired ticks per second, must be greater than or equal to 1.
    */
-  void SetTicksPerSecond(int tps);
+  void SetTicksPerSecond(uint16_t tps);
 
   ZNET_NODISCARD bool shutdown_complete() const { return shutdown_complete_; }
 
  std::shared_ptr<InetAddress> bind_address() const { return bind_address_; }
 
   bool IsAlive() const;
+
+  /**
+   * @brief Returns a snapshot of the server's counters.
+   *
+   * Backend-level totals (accepted, rejected, rate-limited, ...). Per-connection
+   * numbers live on PeerSession::metrics(). Zeroed when built with
+   * ZNET_ENABLE_METRICS=0, or on a backend that tracks none.
+   */
+  ZNET_NODISCARD ServerMetrics metrics() const {
+    return backend_ ? backend_->metrics() : ServerMetrics{};
+  }
 
  private:
   struct TaskData {

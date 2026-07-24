@@ -13,6 +13,10 @@
 #include "znet/precompiled.h"
 #include "znet/types.h"
 
+#ifndef ZNET_PREFER_IPV4
+#define ZNET_PREFER_IPV4 0
+#endif
+
 namespace znet {
 
 enum class InetProtocolVersion { IPv4, IPv6 };

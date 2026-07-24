@@ -48,7 +48,7 @@ class HandshakePacketSerializerV1 : public PacketSerializer<HandshakePacket> {
   ~HandshakePacketSerializerV1() = default;
 
   std::shared_ptr<Buffer> SerializeTyped(std::shared_ptr<HandshakePacket> packet, std::shared_ptr<Buffer> buffer) override {
-    uint32_t len;
+    uint32_t len = 0;
     auto* data = SerializePublicKey(packet->pub_key_.get(), &len);
 
     buffer->WriteInt<uint32_t>(len);

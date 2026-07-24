@@ -38,7 +38,7 @@ unsigned char* SerializePublicKey(EVP_PKEY* pkey, uint32_t* len) {
   unsigned char* der = nullptr;
   int der_len = i2d_PUBKEY(pkey, &der);  // Serialize the public key to DER format
   if (der_len <= 0) {
-    fprintf(stderr, "Failed to serialize public key\n");
+    ZNET_LOG_ERROR("Failed to serialize public key.");
     if (der) {
       OPENSSL_free(der);
     }
@@ -57,7 +57,7 @@ UniquePKey DeserializePublicKey(const unsigned char* der, uint32_t len) {
   const unsigned char* p = der;
   EVP_PKEY* raw = d2i_PUBKEY(nullptr, &p, len);
   if (!raw) {
-    fprintf(stderr, "Failed to deserialize public key\n");
+    ZNET_LOG_ERROR("Failed to deserialize public key.");
     return nullptr;
   }
 
@@ -146,45 +146,45 @@ bool GenerateIV(unsigned char* iv, int iv_length) {
 unsigned char* ComputeSharedSecret(EVP_PKEY* pkey, EVP_PKEY* peer_pkey,
                                    size_t* secret_len) {
   if (!pkey || !peer_pkey || !secret_len) {
-    std::cerr << "Invalid input to derive_shared_secret." << std::endl;
+    ZNET_LOG_ERROR("Invalid input to ComputeSharedSecret.");
     return nullptr;
   }
 
   EVP_PKEY_CTX* ctx = EVP_PKEY_CTX_new(pkey, nullptr);
   if (!ctx) {
-    std::cerr << "Failed to create EVP_PKEY_CTX." << std::endl;
+    ZNET_LOG_ERROR("Failed to create EVP_PKEY_CTX.");
     return nullptr;
   }
 
   if (EVP_PKEY_derive_init(ctx) <= 0) {
-    std::cerr << "Failed to initialize derive context." << std::endl;
+    ZNET_LOG_ERROR("Failed to initialize derive context.");
     EVP_PKEY_CTX_free(ctx);
     return nullptr;
   }
 
   if (EVP_PKEY_derive_set_peer(ctx, peer_pkey) <= 0) {
-    std::cerr << "Failed to set peer key." << std::endl;
+    ZNET_LOG_ERROR("Failed to set peer key.");
     EVP_PKEY_CTX_free(ctx);
     return nullptr;
   }
 
   // Determine buffer length
   if (EVP_PKEY_derive(ctx, nullptr, secret_len) <= 0) {
-    std::cerr << "Failed to determine shared secret length." << std::endl;
+    ZNET_LOG_ERROR("Failed to determine shared secret length.");
     EVP_PKEY_CTX_free(ctx);
     return nullptr;
   }
 
   unsigned char* secret = new unsigned char[*secret_len];
   if (!secret) {
-    std::cerr << "Failed to allocate memory for shared secret." << std::endl;
+    ZNET_LOG_ERROR("Failed to allocate memory for shared secret.");
     EVP_PKEY_CTX_free(ctx);
     return nullptr;
   }
 
   // Derive the shared secret
   if (EVP_PKEY_derive(ctx, secret, secret_len) <= 0) {
-    std::cerr << "Failed to derive shared secret." << std::endl;
+    ZNET_LOG_ERROR("Failed to derive shared secret.");
     delete[] secret;
     EVP_PKEY_CTX_free(ctx);
     return nullptr;
@@ -231,12 +231,12 @@ int EncryptData(const unsigned char* plaintext, int plaintext_len,
                 unsigned char* ciphertext) {
   EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();
   if (!ctx) {
-    std::cerr << "Failed to create EVP_CIPHER_CTX" << std::endl;
+    ZNET_LOG_ERROR("Failed to create EVP_CIPHER_CTX.");
     return false;
   }
 
   if (1 != EVP_EncryptInit_ex(ctx, EVP_aes_256_cbc(), nullptr, key, iv)) {
-    std::cerr << "Failed to initialize encryption" << std::endl;
+    ZNET_LOG_ERROR("Failed to initialize encryption.");
     EVP_CIPHER_CTX_free(ctx);
     return false;
   }
@@ -244,14 +244,14 @@ int EncryptData(const unsigned char* plaintext, int plaintext_len,
   int ciphertext_len = 0;
   if (1 != EVP_EncryptUpdate(ctx, ciphertext, &ciphertext_len, plaintext,
                              plaintext_len)) {
-    std::cerr << "Failed to encrypt data" << std::endl;
+    ZNET_LOG_ERROR("Failed to encrypt data.");
     EVP_CIPHER_CTX_free(ctx);
     return false;
   }
 
   int len;
   if (1 != EVP_EncryptFinal_ex(ctx, ciphertext + ciphertext_len, &len)) {
-    std::cerr << "Failed to finalize encryption" << std::endl;
+    ZNET_LOG_ERROR("Failed to finalize encryption.");
     EVP_CIPHER_CTX_free(ctx);
     return false;
   }
@@ -428,7 +428,7 @@ void EncryptionLayer::OnHandshakePacket(
   shared_secret_ = ComputeSharedSecret(pub_key_.get(), peer_pkey_.get(),
                                        &shared_secret_len_);
   if (!shared_secret_ || shared_secret_len_ == 0) {
-    ZNET_LOG_ERROR("ComputeSharedSecret failed! secret={}, len={}", (void*)shared_secret_, shared_secret_len_);
+    ZNET_LOG_ERROR("ComputeSharedSecret failed! secret={}, len={}", static_cast<void*>(shared_secret_), shared_secret_len_);
     session_.Close();
     return;
   }
@@ -475,7 +475,7 @@ void EncryptionLayer::OnAcknowledgePacket(
 }
 
 void EncryptionLayer::SendHandshake() {
-  ZNET_LOG_DEBUG("SendHandshake: initiator={}, has_key={}", session_.is_initiator(), (bool)pub_key_);
+  ZNET_LOG_DEBUG("SendHandshake: initiator={}, has_key={}", session_.is_initiator(), static_cast<bool>(pub_key_));
   auto packet = std::make_shared<HandshakePacket>();
   if (pub_key_) {
     packet->pub_key_ = CloneKey(pub_key_);

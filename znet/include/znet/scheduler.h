@@ -14,6 +14,10 @@
 #include "znet/precompiled.h"
 #include <chrono>
 
+#ifndef ZNET_PREFER_STD_SLEEP
+#define ZNET_PREFER_STD_SLEEP 0
+#endif
+
 /*
  * By default, this class will use precise sleep; this could result in more
  * CPU usage but much more precise timing. To disable precise sleep, enable
@@ -25,10 +29,10 @@ class Scheduler {
   using TimePoint = std::chrono::time_point<Clock>;
   using Duration = std::chrono::microseconds;
 
-  Scheduler(int tps);
+  Scheduler(uint16_t tps);
   ~Scheduler();
 
-  void SetTicksPerSecond(int tps);
+  void SetTicksPerSecond(uint16_t tps);
 
   void Start();
   void End();
@@ -42,5 +46,5 @@ class Scheduler {
   TimePoint end_time_;
   Duration delta_time_;
   Duration target_delta_time_;
-  int tps_;
+  uint16_t tps_{};
 };

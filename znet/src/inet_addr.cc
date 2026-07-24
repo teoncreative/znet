@@ -100,7 +100,7 @@ std::string ResolveHostnameToIP(const std::string& hostname) {
   char ip_str[INET6_ADDRSTRLEN] = {};
   const addrinfo* selected = nullptr;
 
-#ifdef ZNET_PREFER_IPV4
+#if ZNET_PREFER_IPV4
   // look for first AF_INET (IPv4)
   for (addrinfo* p = res; p != nullptr; p = p->ai_next) {
     if (p->ai_family == AF_INET) {

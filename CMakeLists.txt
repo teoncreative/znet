@@ -14,6 +14,8 @@ add_subdirectory(rendezvous-server)
 # examples
 add_subdirectory(examples/basic/server)
 add_subdirectory(examples/basic/client)
+add_subdirectory(examples/zdt/server)
+add_subdirectory(examples/zdt/client)
 add_subdirectory(examples/p2p)
 add_subdirectory(examples/multiversion/server)
 add_subdirectory(examples/multiversion/client-v2)

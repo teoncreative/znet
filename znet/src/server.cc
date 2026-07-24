@@ -20,8 +20,8 @@ Server::Server() : Interface() {}
 
 Server::Server(const ServerConfig& config) : Interface(), config_(config) {
   bind_address_ = InetAddress::from(config_.bind_ip, config_.bind_port);
-  backend_ = backends::CreateServerFromType(config.connection_type, bind_address_);
-
+  backend_ = backends::CreateServerFromType(config.connection_type, bind_address_,
+                                            config.child_options);
   unsigned int core_count = std::thread::hardware_concurrency();
   tasks_.resize(core_count);
   for (TaskData& data : tasks_) {
@@ -63,7 +63,12 @@ Result Server::Bind() {
     ZNET_LOG_ERROR("Cannot bind because initialization of znet had failed with reason: {}", GetResultString(init_result));
     return init_result;
   }
-  return backend_->Bind();
+  Result result = backend_->Bind();
+  if (result == Result::Success) {
+    // the backend may have resolved an auto-assigned port
+    bind_address_ = backend_->bind_address();
+  }
+  return result;
 }
 
 void Server::Wait() {
@@ -91,9 +96,7 @@ Result Server::Stop() {
   return backend_->Close();
 }
 
-void Server::SetTicksPerSecond(int tps) {
-  std::lock_guard<std::mutex> lock(backend_->mutex());
-  tps = std::max(tps, 1);
+void Server::SetTicksPerSecond(uint16_t tps) {
   //scheduler_.SetTicksPerSecond(tps);
   for (TaskData& data : tasks_) {
     data.scheduler_.SetTicksPerSecond(tps);
@@ -111,6 +114,8 @@ void Server::MainProcessor() {
 
   while (backend_->IsAlive() && !task_.IsStopRequested()) {
     {
+      // hold the backend lock only while touching backend/session state, not
+      // across the pacing wait below.
       std::lock_guard<std::mutex> lock(backend_->mutex());
       scheduler_.Start();
       CheckNetwork();
@@ -124,7 +129,7 @@ void Server::MainProcessor() {
   ServerShutdownEvent shutdown_event{*this};
   event_callback()(shutdown_event);
 
-  // Worker tasks may be parked on data.cv_.wait(), which only checks the
+  // worker tasks may be parked on data.cv_.wait(), which only checks the
   // predicate on notify. Set the stop flag and wake them explicitly before
   // destroying the TaskData, otherwise ~Task() joins a thread that never
   // wakes and the caller hangs on Server::Wait().
@@ -144,8 +149,10 @@ void Server::MainProcessor() {
 }
 
 void Server::CheckNetwork() {
-  auto session = backend_->Accept();
-  if (session != nullptr) {
+  // drain the accept queue each tick. For TCP this clears the listen backlog
+  // faster; for ZDT, Accept() also pumps the shared UDP socket's demux, so it
+  // must be called until it is drained.
+  while (auto session = backend_->Accept()) {
     ZNET_LOG_DEBUG("Accepted new connection from: {}", session->remote_address()->readable());
     pending_sessions_[session->remote_address()] = session;
   }

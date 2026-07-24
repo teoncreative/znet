@@ -18,8 +18,8 @@ SignalHandlerFn handler_fn_;
 
 void RegisterSignalHandler(SignalHandlerFn fn, Signal sig) {
   handler_fn_ = std::move(fn);
-  signal(sig, [](int sig) {
-    if (handler_fn_(static_cast<Signal>(sig))) {
+  signal(sig, [](int raw_sig) {
+    if (handler_fn_(static_cast<Signal>(raw_sig))) {
       exit(0);
     }
   });

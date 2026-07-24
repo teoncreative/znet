@@ -14,22 +14,31 @@
 
 #include "znet/backends/backend.h"
 #include "znet/backends/tcp.h"
+#include "znet/backends/zdt.h"
 
 namespace znet {
 namespace backends {
 
-std::unique_ptr<ClientBackend> CreateClientFromType(ConnectionType type,
-                                                    std::shared_ptr<InetAddress> server_address) {
+std::unique_ptr<ClientBackend> CreateClientFromType(
+    ConnectionType type, std::shared_ptr<InetAddress> server_address,
+    const SessionOptions& options) {
   if (type == ConnectionType::TCP) {
-    return std::make_unique<TCPClientBackend>(server_address);
+    return std::make_unique<TCPClientBackend>(server_address, options);
+  }
+  if (type == ConnectionType::ZDT) {
+    return std::make_unique<ZDTClientBackend>(server_address, options);
   }
   return nullptr;
 }
 
-std::unique_ptr<ServerBackend> CreateServerFromType(ConnectionType type,
-                                                    std::shared_ptr<InetAddress> bind_address) {
+std::unique_ptr<ServerBackend> CreateServerFromType(
+    ConnectionType type, std::shared_ptr<InetAddress> bind_address,
+    const SessionOptions& child_options) {
   if (type == ConnectionType::TCP) {
-    return std::make_unique<TCPServerBackend>(bind_address);
+    return std::make_unique<TCPServerBackend>(bind_address, child_options);
+  }
+  if (type == ConnectionType::ZDT) {
+    return std::make_unique<ZDTServerBackend>(bind_address, child_options);
   }
   return nullptr;
 }

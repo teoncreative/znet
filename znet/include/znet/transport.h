@@ -14,6 +14,7 @@
 #include "znet/precompiled.h"
 #include "znet/buffer.h"
 #include "znet/close_options.h"
+#include "znet/metrics.h"
 #include "znet/send_options.h"
 
 namespace znet {
@@ -31,6 +32,9 @@ class TransportLayer {
 
   virtual void Update() = 0;
 
+  // Copies this transport's counters into `out`, leaving fields it does not
+  // track alone. Called on demand, never on the send/receive path.
+  virtual void FillMetrics(SessionMetrics& out) const { (void)out; }
 };
 
 }
