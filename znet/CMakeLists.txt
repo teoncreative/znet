@@ -9,6 +9,7 @@ project(znet
 option(ZNET_PREFER_STD_SLEEP "Prefers thread sleep to wait between ticks, this results in less precision of the timings but reduces CPU usage." OFF)
 option(ZNET_PREFER_IPV4 "Prefers IPv4 addresses." OFF)
 option(ZNET_ENABLE_STRICT_WARNINGS "Enable strict compiler warnings" ON)
+option(ZNET_ENABLE_METRICS "Collect per-session and per-server counters" ON)
 
 set(ZNET_SOURCES
         src/scheduler.cc
@@ -25,10 +26,13 @@ set(ZNET_SOURCES
         src/util.cc
         src/pch.cc
         src/init.cc
-        src/backend/tcp.cc
         src/backend/backend.cc
+        src/backend/tcp.cc
+        src/backend/zdt.cc
         src/p2p/locator.cc
         src/p2p/dialer.cc
+        src/p2p/dialer_tcp.cc
+        src/p2p/dialer_zdt.cc
 )
 
 add_library(znet STATIC
@@ -146,8 +150,25 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
 endif()
 
 # Defines
+# All feature flags carry an explicit 0/1 so that -DFLAG=0 disables rather than
+# enables (which is what bare #ifdef would do), and so a build that never sets
+# them still gets the documented default from the header.
 if(ZNET_PREFER_STD_SLEEP)
-    target_compile_definitions(znet PUBLIC ZNET_PREFER_STD_SLEEP)
+    target_compile_definitions(znet PUBLIC ZNET_PREFER_STD_SLEEP=1)
+else()
+    target_compile_definitions(znet PUBLIC ZNET_PREFER_STD_SLEEP=0)
+endif()
+
+if(ZNET_PREFER_IPV4)
+    target_compile_definitions(znet PUBLIC ZNET_PREFER_IPV4=1)
+else()
+    target_compile_definitions(znet PUBLIC ZNET_PREFER_IPV4=0)
+endif()
+
+if(ZNET_ENABLE_METRICS)
+    target_compile_definitions(znet PUBLIC ZNET_ENABLE_METRICS=1)
+else()
+    target_compile_definitions(znet PUBLIC ZNET_ENABLE_METRICS=0)
 endif()
 
 ## Dependencies

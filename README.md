@@ -81,6 +81,37 @@ client.Bind();
 client.Connect(); // Async connect
 ```
 
+**Options:**
+Options are scoped like Netty's: `options` configure the thing you created,
+`child_options` configure each session a server accepts.
+
+```cpp
+ServerConfig config{"0.0.0.0", 25000, std::chrono::seconds(10),
+                    ConnectionType::ZDT};      // reliable UDP instead of TCP
+config.options.max_connections = 4096;         // the listener
+config.child_options.tcp.no_delay = true;      // every accepted session
+config.child_options.zdt.cwnd = 128;
+```
+
+**Metrics:**
+Counters are pull-based, so sample them on a timer rather than per packet.
+Build with `-DZNET_ENABLE_METRICS=OFF` to compile them out entirely.
+
+Counters are grouped like options are: what every transport has lives in
+`common`, and each transport gets its own group. `transport` says which group is
+populated.
+
+```cpp
+SessionMetrics m = session->metrics();
+m.common.messages_sent;   // any transport
+m.tcp.writes;             // TCP only
+m.zdt.retransmits;        // ZDT only
+
+ServerMetrics s = server.metrics();
+s.connections_accepted;
+s.zdt.cookies_rejected;   // ZDT only
+```
+
 **Packets:**
 Implement `Packet` and `PacketSerializer` to define your messages.
 

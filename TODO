@@ -22,8 +22,8 @@
 - [ ] Unix socket support
 - [ ] Limit array/vector/string read sizes
 - [ ] Connection throttling (IP / CIDR)
-- [ ] Max concurrent connections
-- [ ] Peer to peer TCP hole-punching
+- [x] Max concurrent connections (ZDT: config max_connections + NoFreeConnections)
+- [x] Peer to peer TCP hole-punching (also UDP/ZDT via PunchSyncZDT)
 - [x] Validate IP addresses
 - [ ] Public key authentication
 - [ ] Allowlists and denylists
@@ -33,11 +33,11 @@
 - [ ] Fuzz testing
 - [ ] Metrics
 - [ ] Graceful Disconnects (?)
-- [ ] Version Negotiation (?)
+- [x] Version Negotiation (ZDT handshake, strict-equality + IncompatibleProtocolVersion)
 - [ ] Feature flag Negotiation (?)
 - [ ] Automatic serialization of non-complex types
 - [ ] Fully asynchronous P2P hole punching using an event-driven I/O model.
-- [ ] Add `UDPTransportLayer` and UDP client/server backends, including UDP hole punching for P2P.
+- [x] Add UDP transport (ZDT) and UDP client/server backends, including UDP hole punching for P2P (PunchSyncZDT).
 - [ ] Enhance error events for P2P connection failures with granular, actionable reasons.
 - [ ] Check if PeerLocator's destructor automatically joins its internal thread.
 - [ ] Document thread-safety guarantees and concurrency model for all public APIs.

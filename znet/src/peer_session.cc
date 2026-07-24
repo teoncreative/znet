@@ -68,6 +68,8 @@ void PeerSession::Process() {
       return;
     }
     if (buffer && handler_ && codec_) {
+      ZNET_METRIC(metrics_.common.messages_received++);
+      ZNET_METRIC(metrics_.common.message_bytes_received += buffer->size());
       codec_->Deserialize(buffer, *handler_);
     }
   }
@@ -111,14 +113,26 @@ bool PeerSession::SendPacket(std::shared_ptr<Packet> packet, SendOptions options
   if (!buffer) {
     return false;
   }
-  return transport_layer_->Send(buffer, options);
+  ZNET_METRIC(metrics_.common.message_bytes_sent += buffer->size());
+  if (!transport_layer_->Send(buffer, options)) {
+    ZNET_METRIC(metrics_.common.send_failures++);
+    return false;
+  }
+  ZNET_METRIC(metrics_.common.messages_sent++);
+  return true;
 }
 
 bool PeerSession::SendRaw(std::shared_ptr<Buffer> buffer, SendOptions options) {
   if (!buffer || !IsAlive()) {
     return false;
   }
-  return transport_layer_->Send(buffer, options);
+  ZNET_METRIC(metrics_.common.message_bytes_sent += buffer->size());
+  if (!transport_layer_->Send(buffer, options)) {
+    ZNET_METRIC(metrics_.common.send_failures++);
+    return false;
+  }
+  ZNET_METRIC(metrics_.common.messages_sent++);
+  return true;
 }
 
 }

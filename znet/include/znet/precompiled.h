@@ -10,7 +10,7 @@
 
 #pragma once
 
-//#define ZNET_PREFER_STD_SLEEP
+//#define ZNET_PREFER_STD_SLEEP 1
 #define OPENSSL_SUPPRESS_DEPRECATED
 
 #include <cassert>

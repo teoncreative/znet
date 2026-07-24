@@ -11,6 +11,7 @@
 #pragma once
 
 #include "znet/backends/backend.h"
+#include "znet/options.h"
 #include "znet/interface.h"
 #include "znet/peer_session.h"
 #include "znet/precompiled.h"
@@ -23,6 +24,7 @@ struct ClientConfig {
   PortNumber server_port;
   std::chrono::steady_clock::duration connection_timeout;
   ConnectionType connection_type = ConnectionType::TCP;
+  SessionOptions options;
 };
 
 /**

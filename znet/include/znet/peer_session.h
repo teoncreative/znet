@@ -141,6 +141,27 @@ class PeerSession {
     return connection_type_;
   }
 
+  /**
+   * @brief Returns a snapshot of this session's counters.
+   *
+   * Combines the session's own message counters with the transport's. Cheap but
+   * not free (it copies the struct and queries the transport), so sample it on a
+   * timer rather than per packet. Returns a zeroed struct when znet is built
+   * with ZNET_ENABLE_METRICS=0.
+   */
+  ZNET_NODISCARD SessionMetrics metrics() const {
+#if ZNET_ENABLE_METRICS
+    SessionMetrics out = metrics_;
+    out.transport = connection_type_;
+    if (transport_layer_) {
+      transport_layer_->FillMetrics(out);
+    }
+    return out;
+#else
+    return {};
+#endif
+  }
+
  protected:
   friend class EncryptionLayer;
 
@@ -172,5 +193,9 @@ class PeerSession {
   bool has_expiry_ = false;
   std::shared_ptr<void> user_ptr_;
   Task task_;
+#if ZNET_ENABLE_METRICS
+  // touched only by the thread that drives this session
+  SessionMetrics metrics_;
+#endif
 };
 }  // namespace znet

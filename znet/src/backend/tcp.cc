@@ -61,6 +61,8 @@ std::shared_ptr<Buffer> TCPTransportLayer::Receive() {
   }
 
   if (data_size_ > 0) {
+    ZNET_METRIC(metrics_.tcp.reads++);
+    ZNET_METRIC(metrics_.common.wire_bytes_received += static_cast<uint64_t>(data_size_));
     size_t full_size = static_cast<size_t>(data_size_) + static_cast<size_t>(read_offset_);
     if (full_size == ZNET_MAX_BUFFER_SIZE) {
       has_more_ = true;
@@ -134,6 +136,8 @@ bool TCPTransportLayer::SendInternal(std::shared_ptr<Buffer> buffer, SendOptions
     ZNET_LOG_ERROR("Error sending packet to the server: {}", GetLastErrorInfo());
     return false;
   }
+  ZNET_METRIC(metrics_.tcp.writes++);
+  ZNET_METRIC(metrics_.common.wire_bytes_sent += buffer->size());
   return true;
 }
 
@@ -175,6 +179,17 @@ void TCPTransportLayer::Update() {
   }
 }
 
+void TCPTransportLayer::FillMetrics(SessionMetrics& out) const {
+#if ZNET_ENABLE_METRICS
+  out.tcp = metrics_.tcp;
+  out.common.wire_bytes_sent = metrics_.common.wire_bytes_sent;
+  out.common.wire_bytes_received = metrics_.common.wire_bytes_received;
+  out.common.outbound_queued = static_cast<uint32_t>(outbound_.size());
+#else
+  (void)out;
+#endif
+}
+
 Result TCPTransportLayer::Close(CloseOptions options) {
   if (is_closed_) {
     return Result::AlreadyDisconnected;
@@ -205,8 +220,9 @@ Result TCPTransportLayer::Close(CloseOptions options) {
 #endif
 }*/
 
-TCPClientBackend::TCPClientBackend(std::shared_ptr<InetAddress> server_address)
-    : server_address_(server_address) {
+TCPClientBackend::TCPClientBackend(std::shared_ptr<InetAddress> server_address,
+                                   const SessionOptions& options)
+    : options_(options), server_address_(server_address) {
 
 }
 
@@ -309,9 +325,9 @@ void TCPClientBackend::CleanupSocket() {
   }
 }
 
-TCPServerBackend::TCPServerBackend(std::shared_ptr<InetAddress> bind_address)
-    : bind_address_(bind_address) {
-}
+TCPServerBackend::TCPServerBackend(std::shared_ptr<InetAddress> bind_address,
+                                   const SessionOptions& child_options)
+    : child_options_(child_options), bind_address_(bind_address) {}
 
 TCPServerBackend::~TCPServerBackend() {
   ZNET_LOG_DEBUG("Destructor of the TCP server backend is called.");

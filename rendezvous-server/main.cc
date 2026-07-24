@@ -117,6 +117,8 @@ int main(int argc, char* argv[]) {
                      cxxopts::value<uint16_t>()->default_value("5001"))
           ("t,target", "Host to listen on",
            cxxopts::value<std::string>()->default_value("0.0.0.0"))
+              ("c,conn", "Punch connection type: tcp or zdt",
+               cxxopts::value<std::string>()->default_value("tcp"))
               ("h,help", "Print usage");
 
   auto result = opts.parse(argc, argv);
@@ -127,9 +129,15 @@ int main(int argc, char* argv[]) {
 
   uint16_t port = result["port"].as<uint16_t>();
   std::string target = result["target"].as<std::string>();
-  ZNET_LOG_INFO("Starting relay on {}:{}...", target, port);
+  std::string conn = result["conn"].as<std::string>();
+  znet::ConnectionType punch_conn_type = conn == "zdt"
+                                             ? znet::ConnectionType::ZDT
+                                             : znet::ConnectionType::TCP;
+  ZNET_LOG_INFO("Starting relay on {}:{}... (punch type: {})", target, port,
+                conn == "zdt" ? "zdt" : "tcp");
 
-  znet::ServerConfig config{target, port,std::chrono::seconds(5), znet::ConnectionType::TCP};
+  znet::ServerConfig config{target, port, std::chrono::seconds(5),
+                            znet::ConnectionType::TCP};
   znet::Server relay{config};
   relay.SetEventCallback(ZNET_BIND_GLOBAL_FN(OnEvent));
 
@@ -206,7 +214,7 @@ int main(int argc, char* argv[]) {
       response->target_endpoint_ = other_address;
       response->bind_endpoint_ = znet::InetAddress::from(znet::GetAnyBindAddress(local_address->ipv()), local_address->port());
       response->punch_id_ = punch_id;
-      response->connection_type_ = znet::ConnectionType::TCP;
+      response->connection_type_ = punch_conn_type;
       session->SendPacket(response);
 
       response = std::make_shared<znet::p2p::StartPunchRequestPacket>();
@@ -214,7 +222,7 @@ int main(int argc, char* argv[]) {
       response->target_endpoint_ = local_address;
       response->bind_endpoint_ = znet::InetAddress::from(znet::GetAnyBindAddress(other_address->ipv()), other_address->port());
       response->punch_id_ = punch_id;
-      response->connection_type_ = znet::ConnectionType::TCP;
+      response->connection_type_ = punch_conn_type;
       other_data->session_->SendPacket(response);
     }
   }

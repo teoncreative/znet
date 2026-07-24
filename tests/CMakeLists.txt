@@ -25,3 +25,13 @@ set_target_properties(znet-tests-buffer PROPERTIES
 target_link_libraries(znet-tests-buffer PRIVATE gtest_main znet)
 
 add_test(NAME buffer-tests COMMAND znet-tests-buffer)
+
+add_executable(znet-tests-zdt zdt.cc)
+set_target_properties(znet-tests-zdt PROPERTIES
+    CXX_STANDARD 20
+    CXX_STANDARD_REQUIRED ON
+    CXX_EXTENSIONS OFF
+)
+target_link_libraries(znet-tests-zdt PRIVATE gtest_main znet)
+
+add_test(NAME zdt-tests COMMAND znet-tests-zdt)

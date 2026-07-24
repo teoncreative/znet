@@ -15,6 +15,8 @@
 #ifndef ZNET_PARENT_BACKEND_H
 #define ZNET_PARENT_BACKEND_H
 
+#include "znet/metrics.h"
+#include "znet/options.h"
 #include "znet/peer_session.h"
 
 namespace znet {
@@ -54,13 +56,22 @@ class ServerBackend {
   virtual bool IsAlive() = 0;
 
   virtual std::mutex& mutex() = 0;
+
+  // The address actually bound, which may differ from the one requested when the
+  // port was auto-assigned.
+  virtual std::shared_ptr<InetAddress> bind_address() const = 0;
+
+  // Backend-level counters; backends that track none return a zeroed struct.
+  virtual ServerMetrics metrics() const { return {}; }
 };
 
-std::unique_ptr<ClientBackend> CreateClientFromType(ConnectionType type,
-                                                    std::shared_ptr<InetAddress> server_address);
+std::unique_ptr<ClientBackend> CreateClientFromType(
+    ConnectionType type, std::shared_ptr<InetAddress> server_address,
+    const SessionOptions& options = {});
 
-std::unique_ptr<ServerBackend> CreateServerFromType(ConnectionType type,
-                                                    std::shared_ptr<InetAddress> bind_address);
+std::unique_ptr<ServerBackend> CreateServerFromType(
+    ConnectionType type, std::shared_ptr<InetAddress> bind_address,
+    const SessionOptions& child_options = {});
 
 }
 }
