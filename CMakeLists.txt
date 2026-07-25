@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.29)
+
 project(znet-parent
-    VERSION 3.0.0
-    DESCRIPTION "Modern C++20 networking library"
+    DESCRIPTION "Build for the znet library, its examples and its tests"
     LANGUAGES CXX
 )
 

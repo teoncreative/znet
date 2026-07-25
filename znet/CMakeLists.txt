@@ -1,9 +1,21 @@
 cmake_minimum_required(VERSION 3.29)
+
+# include/znet/version.h is the single source of truth; parse it so the CMake
+# project version and the one compiled into the library cannot disagree.
+file(READ "${CMAKE_CURRENT_LIST_DIR}/include/znet/version.h" ZNET_VERSION_HEADER)
+foreach(part MAJOR MINOR PATCH)
+    if(NOT ZNET_VERSION_HEADER MATCHES "#define ZNET_VERSION_${part} ([0-9]+)")
+        message(FATAL_ERROR "Could not read ZNET_VERSION_${part} from version.h")
+    endif()
+    set(ZNET_VERSION_${part} "${CMAKE_MATCH_1}")
+endforeach()
+
 project(znet
-    VERSION 2.0.0
+    VERSION ${ZNET_VERSION_MAJOR}.${ZNET_VERSION_MINOR}.${ZNET_VERSION_PATCH}
     DESCRIPTION "Modern C++20 networking library"
     LANGUAGES CXX
 )
+message(STATUS "znet version ${PROJECT_VERSION}")
 
 # Options
 option(ZNET_PREFER_STD_SLEEP "Prefers thread sleep to wait between ticks, this results in less precision of the timings but reduces CPU usage." OFF)
@@ -26,6 +38,7 @@ set(ZNET_SOURCES
         src/util.cc
         src/pch.cc
         src/init.cc
+        src/version.cc
         src/backend/backend.cc
         src/backend/tcp.cc
         src/backend/zdt.cc

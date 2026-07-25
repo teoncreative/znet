@@ -14,6 +14,7 @@
 
 #include "znet/init.h"
 #include "znet/logger.h"
+#include "znet/version.h"
 
 #ifdef ZNET_USE_ZSTD
 #define ZSTD_ENABLED_STR "true"
@@ -26,7 +27,7 @@ namespace znet {
 class Initializer {
  public:
   Initializer() {
-    ZNET_LOG_INFO("Initializing znet...");
+    ZNET_LOG_INFO("Initializing znet {}...", VersionString());
     ZNET_LOG_INFO(" - compression_zstd: {}", ZSTD_ENABLED_STR);
 
 #ifdef TARGET_WIN
