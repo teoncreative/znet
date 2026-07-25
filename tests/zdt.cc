@@ -30,6 +30,7 @@
 #include "znet/packet_handler.h"
 #include "znet/server.h"
 #include "znet/server_events.h"
+#include "znet/version.h"
 
 using namespace znet;
 using namespace znet::backends;
@@ -141,6 +142,31 @@ TEST(ZDTHeader, RejectsOfflineMessage) {
   }
   ZDTHeader out;
   EXPECT_FALSE(ReadZDTHeader(buffer, out));
+}
+
+// --- Version ------------------------------------------------------------------
+
+// The macros describe the headers, the functions describe the linked library.
+// A mismatch means the two came from different builds.
+TEST(ZnetVersion, HeadersAndLibraryAgree) {
+  EXPECT_EQ(VersionNumber(), ZNET_VERSION);
+  EXPECT_STREQ(VersionString(), ZNET_VERSION_STRING);
+}
+
+TEST(ZnetVersion, ComparesAsExpected) {
+  static_assert(ZNET_MAKE_VERSION(3, 1, 0) > ZNET_MAKE_VERSION(3, 0, 9),
+                "minor must outrank patch");
+  static_assert(ZNET_MAKE_VERSION(3, 0, 0) > ZNET_MAKE_VERSION(2, 999, 999),
+                "major must outrank minor");
+  // Derived from the macros rather than a literal, so bumping the version does
+  // not mean editing this test.
+  EXPECT_EQ(ZNET_VERSION, ZNET_MAKE_VERSION(ZNET_VERSION_MAJOR,
+                                            ZNET_VERSION_MINOR,
+                                            ZNET_VERSION_PATCH));
+  EXPECT_EQ(std::string(ZNET_VERSION_STRING),
+            std::to_string(ZNET_VERSION_MAJOR) + "." +
+                std::to_string(ZNET_VERSION_MINOR) + "." +
+                std::to_string(ZNET_VERSION_PATCH));
 }
 
 // --- Shared helpers -----------------------------------------------------------
