@@ -24,3 +24,9 @@ add_subdirectory(examples/multiversion/client-v1)
 # tests
 enable_testing()
 add_subdirectory(tests)
+
+# benchmarks (off by default; they are slow and can download comparison libraries)
+option(ZNET_BUILD_BENCHMARKS "Build the benchmark suite" OFF)
+if(ZNET_BUILD_BENCHMARKS)
+    add_subdirectory(benchmarks)
+endif()

@@ -39,6 +39,8 @@ class TCPTransportLayer : public TransportLayer {
 
   void Update() override;
 
+  void Flush() override;
+
   void FillMetrics(SessionMetrics& out) const override;
 
  private:
@@ -56,8 +58,11 @@ class TCPTransportLayer : public TransportLayer {
   ssize_t data_size_ = 0;
   std::shared_ptr<Buffer> buffer_;
   SocketHandle socket_;
-  bool has_more_;
   bool is_closed_ = false;
+  // Send() may be called from any thread, Update() only from the session's
+  // worker, so the queue itself needs a lock. It is never held across a socket
+  // write: Update() swaps the queue out and drains the copy.
+  mutable std::mutex outbound_mutex_;
   std::deque<QueuedPacket> outbound_;
 #if ZNET_ENABLE_METRICS
   SessionMetrics metrics_;

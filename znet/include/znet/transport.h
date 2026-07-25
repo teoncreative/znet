@@ -32,8 +32,23 @@ class TransportLayer {
 
   virtual void Update() = 0;
 
-  // Copies this transport's counters into `out`, leaving fields it does not
-  // track alone. Called on demand, never on the send/receive path.
+  /**
+   * @brief Pushes everything Send() has queued out to the wire.
+   *
+   * Unlike Update() this skips the per-tick protocol work (timers,
+   * retransmits, reassembly pruning). The session calls it after dispatching
+   * received messages so a handler's reply leaves in the same tick.
+   */
+  virtual void Flush() = 0;
+
+  /**
+   * @brief Copies this transport's counters into `out`.
+   *
+   * Fields it does not track are left alone. Called on demand, never on the
+   * send or receive path.
+   *
+   * @param out Destination, which the caller may have pre-filled.
+   */
   virtual void FillMetrics(SessionMetrics& out) const { (void)out; }
 };
 

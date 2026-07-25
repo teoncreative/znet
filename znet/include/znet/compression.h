@@ -25,7 +25,33 @@ using CompressionTypeRaw = uint8_t;
 enum class CompressionType {
   None,
   Zstandard,
+  /**
+   * @brief Resolved at session start to whatever the build supports.
+   *
+   * Never appears on the wire; see ResolveCompressionType().
+   */
+  Default = 0xFF,
 };
+
+/**
+ * @brief Resolves CompressionType::Default to a concrete type for this build.
+ *
+ * Anything else passes through unchanged, so an explicit Zstandard on a build
+ * without zstd still warns at the codec instead of being silently rewritten.
+ *
+ * @param type The configured compression type.
+ * @return Zstandard or None for Default; otherwise `type`.
+ */
+constexpr CompressionType ResolveCompressionType(CompressionType type) {
+  if (type != CompressionType::Default) {
+    return type;
+  }
+#ifdef ZNET_USE_ZSTD
+  return CompressionType::Zstandard;
+#else
+  return CompressionType::None;
+#endif
+}
 
 constexpr auto operator<=>(CompressionType lhs, CompressionType rhs) noexcept {
   return static_cast<int>(lhs) <=> static_cast<int>(rhs);

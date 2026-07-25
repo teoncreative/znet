@@ -14,6 +14,7 @@
 #include "znet/codec.h"
 #include "znet/compression.h"
 #include "znet/encryption.h"
+#include "znet/options.h"
 #include "znet/packet_handler.h"
 #include "znet/precompiled.h"
 #include "znet/send_options.h"
@@ -39,7 +40,8 @@ class PeerSession {
               std::unique_ptr<TransportLayer> transport_layer,
               ConnectionType connection_type,
               bool is_initiator = false,
-              bool self_managed = false);
+              bool self_managed = false,
+              const SessionOptions& options = {});
   PeerSession(const PeerSession&) = delete;
   PeerSession(PeerSession&&) = delete;
   ~PeerSession();
@@ -52,7 +54,7 @@ class PeerSession {
 
   bool IsReady() { return is_ready_; }
 
-  // Starts from 1 and increments for each peer constructed.
+  /** @brief Starts from 1 and increments for each peer constructed. */
   ZNET_NODISCARD SessionId id() const {
     return id_;
   }
@@ -141,6 +143,10 @@ class PeerSession {
     return connection_type_;
   }
 
+  ZNET_NODISCARD const SessionOptions& options() const {
+    return options_;
+  }
+
   /**
    * @brief Returns a snapshot of this session's counters.
    *
@@ -167,12 +173,26 @@ class PeerSession {
 
   void Ready();
 
+  // the compression both directions will use. On an accepting session this is
+  // the configured option; on an initiating one it is whatever the server
+  // announced in its ready packet.
+  ZNET_NODISCARD CompressionType negotiated_compression() const {
+    return negotiated_compression_;
+  }
+  void SetNegotiatedCompression(CompressionType type) {
+    negotiated_compression_ = type;
+  }
+
   bool IsExpired() const {
     if (!has_expiry_) {
       return false;
     }
     return std::chrono::steady_clock::now() > expire_at_;
   }
+
+  // how many messages one Process() call will deliver before yielding, so a
+  // session under load cannot monopolize the worker it shares with others.
+  static constexpr uint32_t kMaxReceivesPerProcess = 256;
 
   SessionId id_;
   std::shared_ptr<InetAddress> local_address_;
@@ -185,6 +205,8 @@ class PeerSession {
   std::shared_ptr<PacketHandlerBase> handler_;
   std::unique_ptr<TransportLayer> transport_layer_;
   EncryptionLayer encryption_layer_;
+  SessionOptions options_;
+  CompressionType negotiated_compression_ = CompressionType::None;
   CompressionType out_compression_type_ = CompressionType::None;
   bool is_initiator_;
   bool is_ready_ = false;

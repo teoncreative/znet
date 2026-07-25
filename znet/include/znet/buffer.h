@@ -252,18 +252,20 @@ class Buffer {
 
   template<Arithmetic8Byte T>
   T ReadVarInt() {
-    uint8_t size = sizeof(T);
-    char* data = new (std::nothrow) char[size];
-    if (!data) [[unlikely]] {
-      last_error_ = BufferError::CannotAllocate;
-      return 0;
-    }
+    constexpr uint8_t size = sizeof(T);
+    char data[size];
     std::memset(data, 0, size);
     if (!CheckReadableBytes(1)) [[unlikely]] {
       last_error_ = BufferError::ReadOutOfBounds;
       return 0;
     }
     unsigned char actual_size = ReadUnsignedChar();
+    // the count comes off the wire, so a peer could claim more bytes than T
+    // holds and walk past the destination.
+    if (actual_size > size) [[unlikely]] {
+      last_error_ = BufferError::CorruptedFormat;
+      return 0;
+    }
     if (!CheckReadableBytes(actual_size)) [[unlikely]] {
       last_error_ = BufferError::ReadOutOfBounds;
       return 0;

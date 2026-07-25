@@ -95,12 +95,10 @@ class ClientReplyHandler : public PacketHandler<ClientReplyHandler, DemoPacket> 
 
 TEST(ZDTHeader, RoundTrip) {
   ZDTHeader header;
-  header.flags = kFlagOnline | kFlagData | kFlagReliable | kFlagOrdered;
-  header.channel = 7;
+  header.flags = kFlagOnline;
   header.packet_seq = 0xBEEF;
   header.ack = 0x1234;
   header.ack_bits = 0xDEADBEEF;
-  header.message_seq = 0xCAFE;
 
   Buffer buffer(Endianness::BigEndian);
   WriteZDTHeader(buffer, header);
@@ -109,27 +107,95 @@ TEST(ZDTHeader, RoundTrip) {
   ZDTHeader out;
   ASSERT_TRUE(ReadZDTHeader(buffer, out));
   EXPECT_EQ(out.flags, header.flags);
-  EXPECT_EQ(out.channel, header.channel);
   EXPECT_EQ(out.packet_seq, header.packet_seq);
   EXPECT_EQ(out.ack, header.ack);
   EXPECT_EQ(out.ack_bits, header.ack_bits);
-  EXPECT_EQ(out.message_seq, header.message_seq);
 }
 
-TEST(ZDTHeader, FragmentFields) {
-  ZDTHeader header;
-  header.flags = kFlagOnline | kFlagData | kFlagFragment;
-  header.frag_index = 3;
-  header.frag_count = 5;
+TEST(ZDTHeader, RecordRoundTrip) {
+  ZDTRecord record;
+  record.flags = kRecReliable | kRecOrdered;
+  record.channel = 7;
+  record.message_seq = 0xCAFE;
+  record.length = 4;
 
   Buffer buffer(Endianness::BigEndian);
-  WriteZDTHeader(buffer, header);
-  EXPECT_EQ(buffer.size(), kZDTFragHeaderSize);
+  WriteZDTRecord(buffer, record);
+  EXPECT_EQ(buffer.size(), kZDTRecordHeaderSize);
+  buffer.Write("abcd", 4);
 
-  ZDTHeader out;
-  ASSERT_TRUE(ReadZDTHeader(buffer, out));
+  ZDTRecord out;
+  ASSERT_TRUE(ReadZDTRecord(buffer, out));
+  EXPECT_EQ(out.flags, record.flags);
+  EXPECT_EQ(out.channel, record.channel);
+  EXPECT_EQ(out.message_seq, record.message_seq);
+  EXPECT_EQ(out.length, record.length);
+}
+
+TEST(ZDTHeader, RecordFragmentFields) {
+  ZDTRecord record;
+  record.flags = kRecFragment;
+  record.frag_index = 3;
+  record.frag_count = 5;
+  record.length = 0;
+
+  Buffer buffer(Endianness::BigEndian);
+  WriteZDTRecord(buffer, record);
+  EXPECT_EQ(buffer.size(), kZDTFragRecordHeaderSize);
+
+  ZDTRecord out;
+  ASSERT_TRUE(ReadZDTRecord(buffer, out));
   EXPECT_EQ(out.frag_index, 3);
   EXPECT_EQ(out.frag_count, 5);
+}
+
+// A length longer than the bytes actually present must be refused rather than
+// letting the reader walk off the end of the datagram.
+TEST(ZDTHeader, RecordRejectsOverlongLength) {
+  ZDTRecord record;
+  record.flags = 0;
+  record.length = 64;
+
+  Buffer buffer(Endianness::BigEndian);
+  WriteZDTRecord(buffer, record);
+  buffer.Write("short", 5);
+
+  ZDTRecord out;
+  EXPECT_FALSE(ReadZDTRecord(buffer, out));
+}
+
+// Several messages in one datagram must come back out individually.
+TEST(ZDTHeader, MultipleRecordsInOneDatagram) {
+  Buffer buffer(Endianness::BigEndian);
+  ZDTHeader header;
+  header.flags = kFlagOnline;
+  header.packet_seq = 9;
+  WriteZDTHeader(buffer, header);
+
+  const char* bodies[] = {"first", "second!!", "third"};
+  for (uint16_t i = 0; i < 3; i++) {
+    ZDTRecord record;
+    record.flags = kRecReliable | kRecOrdered;
+    record.channel = 0;
+    record.message_seq = i;
+    record.length = static_cast<uint16_t>(std::strlen(bodies[i]));
+    WriteZDTRecord(buffer, record);
+    buffer.Write(bodies[i], record.length);
+  }
+
+  ZDTHeader out_header;
+  ASSERT_TRUE(ReadZDTHeader(buffer, out_header));
+  EXPECT_EQ(out_header.packet_seq, 9);
+
+  for (uint16_t i = 0; i < 3; i++) {
+    ZDTRecord out;
+    ASSERT_TRUE(ReadZDTRecord(buffer, out)) << "record " << i;
+    EXPECT_EQ(out.message_seq, i);
+    std::string body(buffer.read_cursor_data(), out.length);
+    buffer.SkipRead(out.length);
+    EXPECT_EQ(body, bodies[i]);
+  }
+  EXPECT_EQ(buffer.readable_bytes(), 0u);
 }
 
 TEST(ZDTHeader, RejectsOfflineMessage) {
@@ -204,6 +270,31 @@ static std::vector<std::vector<uint8_t>> CollectDatagrams(UDPSocket& socket) {
     out.emplace_back(buf, buf + len);
   }
   return out;
+}
+
+// Moves every queued datagram from `from` into `to`. `drop` decides which are
+// lost, letting a test simulate a lossy link.
+template <typename DropFn>
+static void Pump(UDPSocket& from, ZDTTransportLayer& to, DropFn drop) {
+  for (auto& datagram : CollectDatagrams(from)) {
+    if (!drop()) {
+      to.OnDatagram(datagram.data(), datagram.size());
+    }
+  }
+}
+
+static void Pump(UDPSocket& from, ZDTTransportLayer& to) {
+  Pump(from, to, []() { return false; });
+}
+
+// A non-blocking UDP socket bound to an ephemeral loopback port.
+static std::shared_ptr<UDPSocket> OpenBoundSocket() {
+  auto socket = std::make_shared<UDPSocket>();
+  socket->Open(InetProtocolVersion::IPv4);
+  socket->SetBlocking(false);
+  auto any = InetAddress::from("127.0.0.1", 0);
+  socket->Bind(*any);
+  return socket;
 }
 
 // Unless a test passes explicit SendOptions, Send() uses the library defaults:
@@ -311,7 +402,7 @@ TEST(ZDTOffline, HeaderRoundTrip) {
 
 TEST(ZDTOffline, RejectsOnlineDatagram) {
   Buffer buffer(Endianness::BigEndian);
-  buffer.WriteInt<uint8_t>(kFlagOnline | kFlagData);
+  buffer.WriteInt<uint8_t>(kFlagOnline);
   for (int i = 0; i < 12; i++) {
     buffer.WriteInt<uint8_t>(0);
   }
@@ -463,16 +554,8 @@ TEST(ZDTIntegration, RejectsIncompatibleVersion) {
 TEST(ZDTReliability, ReliableOrderedDeliversInOrderUnderLoss) {
   ASSERT_EQ(Init(), Result::Success);
 
-  auto open_bound = []() {
-    auto s = std::make_shared<UDPSocket>();
-    s->Open(InetProtocolVersion::IPv4);
-    s->SetBlocking(false);
-    auto any = InetAddress::from("127.0.0.1", 0);
-    s->Bind(*any);
-    return s;
-  };
-  auto server_socket = open_bound();
-  auto client_socket = open_bound();
+  auto server_socket = OpenBoundSocket();
+  auto client_socket = OpenBoundSocket();
   auto server_addr = server_socket->local_address();
   auto client_addr = client_socket->local_address();
 
@@ -498,16 +581,7 @@ TEST(ZDTReliability, ReliableOrderedDeliversInOrderUnderLoss) {
   std::mt19937 rng(0xC0FFEE);  // fixed seed -> deterministic
   auto drop = [&]() { return (rng() % 100) < 30; };  // 30% loss both directions
 
-  auto pump = [&](UDPSocket& from, ZDTTransportLayer& to) {
-    uint8_t buf[ZNET_MAX_BUFFER_SIZE];
-    size_t len = 0;
-    std::shared_ptr<InetAddress> src;
-    while (from.RecvFrom(buf, sizeof(buf), len, src) == RecvResult::Received) {
-      if (!drop()) {
-        to.OnDatagram(buf, len);
-      }
-    }
-  };
+  auto pump = [&](UDPSocket& from, ZDTTransportLayer& to) { Pump(from, to, drop); };
 
   std::vector<uint32_t> received;
   auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(15);
@@ -524,6 +598,87 @@ TEST(ZDTReliability, ReliableOrderedDeliversInOrderUnderLoss) {
   }
 
   ASSERT_EQ(received.size(), kMessages) << "not all reliable messages delivered";
+  for (uint32_t i = 0; i < kMessages; i++) {
+    EXPECT_EQ(received[i], i) << "out-of-order delivery at index " << i;
+  }
+
+  // Under real loss the receiver should be telling the sender which packets are
+  // missing, not leaving it to time each one out.
+  SessionMetrics server_metrics;
+  server.FillMetrics(server_metrics);
+  EXPECT_GT(server_metrics.zdt.naks_sent, 0u)
+      << "receiver never reported a gap despite 30% loss";
+  SessionMetrics client_metrics;
+  client.FillMetrics(client_metrics);
+  EXPECT_GT(client_metrics.zdt.naks_received, 0u)
+      << "sender never acted on a reported gap";
+}
+
+// Large fragmented messages over default options, with the receiver acking on
+// its own slower tick.
+//
+// Note this does not reproduce the ack-window bug it was written for: two
+// in-process transports converge even with the datagram window disabled, where
+// the full session pipeline does not. It is kept as coverage that fragmented
+// reliable traffic survives a receiver that acks less often than the sender
+// sends; the evidence for that fix is the end-to-end measurement, not this.
+TEST(ZDTReliability, FragmentedMessagesStayWithinTheAckWindow) {
+  ASSERT_EQ(Init(), Result::Success);
+
+  auto server_socket = OpenBoundSocket();
+  auto client_socket = OpenBoundSocket();
+
+  ZDTOptions config;  // defaults: this is what the fix has to hold for
+  config.rto_min = std::chrono::milliseconds(5);
+  config.rto_max = std::chrono::milliseconds(60);
+  config.keepalive_interval = std::chrono::hours(1);
+
+  ZDTConnection connection;
+  ZDTTransportLayer client(client_socket, server_socket->local_address(), config,
+                           false, nullptr, connection);
+  ZDTTransportLayer server(server_socket, client_socket->local_address(), config,
+                           false, nullptr, connection);
+
+  // Each message spans several datagrams once fragmented, which is what used to
+  // push the outstanding count past what an ack can report.
+  const uint32_t kMessages = 60;
+  const size_t kPayload = 8192;
+  for (uint32_t i = 0; i < kMessages; i++) {
+    auto payload = std::make_shared<Buffer>();
+    payload->WriteInt<uint32_t>(i);
+    std::string filler(kPayload, 'x');
+    payload->Write(filler.data(), filler.size());
+    ASSERT_TRUE(client.Send(payload));
+  }
+
+  auto pump = [&](UDPSocket& from, ZDTTransportLayer& to) { Pump(from, to); };
+
+  // The receiver acks on its own tick, far less often than the sender can put
+  // datagrams on the wire. That is what lets the outstanding count run past the
+  // ack window; acking after every single send would hide the bug entirely.
+  const int kTicksPerAck = 10;
+  std::vector<uint32_t> received;
+  auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(20);
+  for (int tick = 0; received.size() < kMessages &&
+                     std::chrono::steady_clock::now() < deadline &&
+                     !client.IsClosed();
+       tick++) {
+    client.Update();
+    pump(*server_socket, server);
+    if (tick % kTicksPerAck == 0) {
+      server.Update();
+      pump(*client_socket, client);
+      while (auto buffer = server.Receive()) {
+        received.push_back(buffer->ReadInt<uint32_t>());
+      }
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  }
+
+  EXPECT_FALSE(client.IsClosed())
+      << "connection torn down by retries instead of delivering";
+  ASSERT_EQ(received.size(), kMessages)
+      << "fragmented reliable messages were lost";
   for (uint32_t i = 0; i < kMessages; i++) {
     EXPECT_EQ(received[i], i) << "out-of-order delivery at index " << i;
   }
@@ -677,7 +832,14 @@ TEST(ZDTOptionsPlumbing, ChildOptionsReachTheSession) {
 
 TEST(ZDTOptionsPlumbing, DefaultsMatchZDTOptions) {
   ZDTOptions defaults;
-  EXPECT_EQ(defaults.cwnd, 64);
+  EXPECT_EQ(defaults.cwnd, 4096);
+  // The congestion window is the datagram one, and an acknowledgement can only
+  // describe one packet_seq plus 32 history bits. Anything past that is
+  // outstanding with no way to be acked, so it is resent for nothing.
+  EXPECT_LE(defaults.max_datagrams_in_flight, 33);
+  // The message limit is a memory bound and must stay well above the datagram
+  // window, otherwise it throttles coalesced small messages instead.
+  EXPECT_GT(defaults.cwnd, defaults.max_datagrams_in_flight);
   EXPECT_EQ(defaults.max_retries, 10);
   EXPECT_EQ(defaults.mtu_ladder.front(), 1492);
   EXPECT_EQ(defaults.mtu_ladder.back(), 576);
@@ -897,13 +1059,7 @@ TEST(ZDTMetrics, CountsRetransmitsAndDuplicates) {
 
   std::mt19937 rng(5);
   auto drop = [&]() { return (rng() % 100) < 40; };
-  auto pump = [&](UDPSocket& from, ZDTTransportLayer& to) {
-    for (auto& d : CollectDatagrams(from)) {
-      if (!drop()) {
-        to.OnDatagram(d.data(), d.size());
-      }
-    }
-  };
+  auto pump = [&](UDPSocket& from, ZDTTransportLayer& to) { Pump(from, to, drop); };
 
   size_t delivered = 0;
   auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(15);
@@ -1014,13 +1170,7 @@ TEST(ZDTChannels, ReliableUnorderedDeliversAllExactlyOnce) {
 
   std::mt19937 rng(7);
   auto drop = [&]() { return (rng() % 100) < 30; };
-  auto pump = [&](UDPSocket& from, ZDTTransportLayer& to) {
-    for (auto& datagram : CollectDatagrams(from)) {
-      if (!drop()) {
-        to.OnDatagram(datagram.data(), datagram.size());
-      }
-    }
-  };
+  auto pump = [&](UDPSocket& from, ZDTTransportLayer& to) { Pump(from, to, drop); };
 
   std::set<uint32_t> unique;
   size_t total = 0;
@@ -1148,13 +1298,7 @@ TEST(ZDTChannels, ReliableAndUnreliableCoexistOnOneChannel) {
 
   std::mt19937 rng(21);
   auto drop = [&]() { return (rng() % 100) < 30; };
-  auto pump = [&](UDPSocket& from, ZDTTransportLayer& to) {
-    for (auto& datagram : CollectDatagrams(from)) {
-      if (!drop()) {
-        to.OnDatagram(datagram.data(), datagram.size());
-      }
-    }
-  };
+  auto pump = [&](UDPSocket& from, ZDTTransportLayer& to) { Pump(from, to, drop); };
 
   std::vector<uint32_t> reliable_received;
   auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(15);
@@ -1254,13 +1398,7 @@ TEST(ZDTFragmentation, LargeMessagesReassembleInOrderUnderLoss) {
 
   std::mt19937 rng(42);
   auto drop = [&]() { return (rng() % 100) < 30; };
-  auto pump = [&](UDPSocket& from, ZDTTransportLayer& to) {
-    for (auto& d : CollectDatagrams(from)) {
-      if (!drop()) {
-        to.OnDatagram(d.data(), d.size());
-      }
-    }
-  };
+  auto pump = [&](UDPSocket& from, ZDTTransportLayer& to) { Pump(from, to, drop); };
 
   std::vector<std::vector<uint8_t>> received;
   auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(20);

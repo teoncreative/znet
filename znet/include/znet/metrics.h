@@ -45,53 +45,69 @@
 
 namespace znet {
 
-// Meaningful on every transport.
+/** @brief Counters meaningful on every transport. */
 struct CommonMetrics {
   uint64_t messages_sent = 0;
   uint64_t messages_received = 0;
-  uint64_t message_bytes_sent = 0;      // after encode, before transport framing
+  uint64_t message_bytes_sent = 0;  /**< After encode, before transport framing. */
   uint64_t message_bytes_received = 0;
-  uint64_t send_failures = 0;           // Send() refused, e.g. queue full
-  uint64_t wire_bytes_sent = 0;         // including transport framing
+  uint64_t send_failures = 0;  /**< Send() refused, e.g. queue full. */
+  uint64_t wire_bytes_sent = 0;  /**< Including transport framing. */
   uint64_t wire_bytes_received = 0;
-  uint32_t outbound_queued = 0;         // sampled, not accumulated
+  uint32_t outbound_queued = 0;  /**< Sampled, not accumulated. */
 };
 
+/** @brief Counters only a TCP session reports. */
 struct TCPSessionMetrics {
-  uint64_t writes = 0;  // send() calls that succeeded
-  uint64_t reads = 0;   // recv() calls that returned data
+  uint64_t writes = 0;  /**< Send() calls that succeeded. */
+  uint64_t reads = 0;  /**< Recv() calls that returned data. */
 };
 
+/** @brief Counters only a ZDT session reports. */
 struct ZDTSessionMetrics {
   uint64_t datagrams_sent = 0;
   uint64_t datagrams_received = 0;
   uint64_t retransmits = 0;
-  uint64_t duplicates_dropped = 0;      // deduped by the receiver
-  uint64_t inbound_dropped = 0;         // inbox full
-  uint64_t reassemblies_dropped = 0;    // incomplete, timed out or over cap
-  // live state, sampled rather than accumulated
+  uint64_t naks_sent = 0;  /**< Gaps we reported to the peer. */
+  uint64_t naks_received = 0;  /**< Gaps the peer reported to us. */
+  uint64_t duplicates_dropped = 0;  /**< Deduped by the receiver. */
+  uint64_t inbound_dropped = 0;  /**< Inbox full. */
+  uint64_t reassemblies_dropped = 0;  /**< Incomplete, timed out or over cap. */
+  /** @brief Smoothed round-trip estimate. Sampled, not accumulated. */
   uint32_t srtt_us = 0;
+  /** @brief Current retransmit timeout. Sampled, not accumulated. */
   uint32_t rto_us = 0;
-  uint32_t in_flight = 0;               // unacked reliable datagrams
+  uint32_t in_flight = 0;  /**< Unacked reliable datagrams. */
+  /** @brief MTU the handshake settled on. Sampled, not accumulated. */
   uint32_t mtu = 0;
 };
 
+/**
+ * @brief Everything a session reports. Read `transport` to know which of the
+ * per-transport groups carries meaningful values.
+ */
 struct SessionMetrics {
-  ConnectionType transport = ConnectionType::TCP;  // which group below is live
+  ConnectionType transport = ConnectionType::TCP;  /**< Which group below is live. */
   CommonMetrics common;
   TCPSessionMetrics tcp;
   ZDTSessionMetrics zdt;
 };
 
-// ZDT rejects connections before a session exists, so these are listener-scope.
+/**
+ * @brief Listener-scope ZDT counters.
+ *
+ * ZDT rejects connections before a session exists, so these cannot live on a
+ * session the way the others do.
+ */
 struct ZDTServerMetrics {
-  uint64_t handshakes_started = 0;    // first contact from a new address
-  uint64_t handshakes_rejected = 0;   // version mismatch, server full, banned
-  uint64_t cookies_rejected = 0;      // failed return-routability check
-  uint64_t rate_limited = 0;          // per-source handshake cap hit
-  uint64_t datagrams_unroutable = 0;  // online datagram from an unknown peer
+  uint64_t handshakes_started = 0;  /**< First contact from a new address. */
+  uint64_t handshakes_rejected = 0;  /**< Version mismatch, server full, banned. */
+  uint64_t cookies_rejected = 0;  /**< Failed return-routability check. */
+  uint64_t rate_limited = 0;  /**< Per-source handshake cap hit. */
+  uint64_t datagrams_unroutable = 0;  /**< Online datagram from an unknown peer. */
 };
 
+/** @brief Listener-scope counters, across every session it accepted. */
 struct ServerMetrics {
   ConnectionType transport = ConnectionType::TCP;
   uint64_t connections_accepted = 0;
