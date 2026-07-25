@@ -331,7 +331,8 @@ EncryptionLayer::EncryptionLayer(PeerSession& session) : session_(session) {
   session_.SetCodec(std::move(codec));
 }
 
-void EncryptionLayer::Initialize(bool send) {
+void EncryptionLayer::Initialize(bool send, bool want_encryption) {
+  want_encryption_ = want_encryption;
   if (send) {
     SendHandshake();
   }
@@ -364,14 +365,6 @@ std::shared_ptr<Buffer> EncryptionLayer::HandleDecrypt(
 std::shared_ptr<Buffer> EncryptionLayer::HandleIn(
     std::shared_ptr<Buffer> buffer) {
   return HandleDecrypt(buffer);
-}
-
-bool EncryptionLayer::SendPacket(std::shared_ptr<Packet> packet) {
-  auto buffer = session_.codec_->Serialize(std::move(packet));
-  if (!buffer) {
-    return false;
-  }
-  return session_.transport_layer_->Send(buffer);
 }
 
 std::shared_ptr<Buffer> EncryptionLayer::HandleOut(
@@ -419,12 +412,47 @@ void EncryptionLayer::OnHandshakePacket(
     session_.Close();
     return;
   }
-  peer_pkey_ = std::move(packet->pub_key_);
-  if (!peer_pkey_) {
-    ZNET_LOG_ERROR("Received handshake packet with null public key!");
-    session_.Close();
-    return;
+  if (session_.is_initiator()) {
+    // The server states the parameters outright; adopt them.
+    session_.SetNegotiatedCompression(
+        static_cast<CompressionType>(packet->compression_));
+    if (!packet->encryption_) {
+      negotiated_ = true;
+      ZNET_LOG_DEBUG("Server selected an unencrypted session.");
+      if (!sent_ready_) {
+        SendReady();
+      }
+      return;
+    }
+    if (!packet->pub_key_) {
+      ZNET_LOG_ERROR(
+          "Server selected an encrypted session but sent no public key, "
+          "closing the connection!");
+      session_.Close();
+      return;
+    }
+  } else {
+    // Accepting side: our own policy decides, the client only supplies a key.
+    if (!want_encryption_) {
+      negotiated_ = true;
+      ZNET_LOG_DEBUG("Server selected an unencrypted session.");
+      if (!sent_handshake_) {
+        SendHandshake();
+      } else if (!sent_ready_) {
+        SendReady();
+      }
+      return;
+    }
+    if (!packet->pub_key_) {
+      ZNET_LOG_ERROR(
+          "Client offered no public key but this server requires encryption, "
+          "closing the connection!");
+      session_.Close();
+      return;
+    }
   }
+
+  peer_pkey_ = std::move(packet->pub_key_);
   shared_secret_ = ComputeSharedSecret(pub_key_.get(), peer_pkey_.get(),
                                        &shared_secret_len_);
   if (!shared_secret_ || shared_secret_len_ == 0) {
@@ -440,6 +468,7 @@ void EncryptionLayer::OnHandshakePacket(
     return;
   }
   key_filled_ = true;
+  negotiated_ = true;
   ZNET_LOG_DEBUG("Handshake key exchange complete, initiator={}", session_.is_initiator());
 
   if (!sent_handshake_) {
@@ -452,7 +481,7 @@ void EncryptionLayer::OnHandshakePacket(
 void EncryptionLayer::OnAcknowledgePacket(
     std::shared_ptr<ConnectionReadyPacket> packet) {
   ZNET_LOG_DEBUG("OnAcknowledgePacket: initiator={}", session_.is_initiator());
-  if (!peer_pkey_ || !key_filled_) {
+  if (!negotiated_) {
     ZNET_LOG_ERROR(
         "Received connection complete packet it wasn't expected, closing the "
         "connection!");
@@ -475,17 +504,26 @@ void EncryptionLayer::OnAcknowledgePacket(
 }
 
 void EncryptionLayer::SendHandshake() {
-  ZNET_LOG_DEBUG("SendHandshake: initiator={}, has_key={}", session_.is_initiator(), static_cast<bool>(pub_key_));
+  ZNET_LOG_DEBUG("SendHandshake: initiator={}, want_encryption={}, has_key={}",
+                 session_.is_initiator(), want_encryption_,
+                 static_cast<bool>(pub_key_));
   auto packet = std::make_shared<HandshakePacket>();
-  if (pub_key_) {
+  // the initiator always offers a key so the server may pick either mode. The
+  // server states its decision and includes a key only when it encrypts.
+  bool offer_key = session_.is_initiator() || want_encryption_;
+  if (offer_key && pub_key_) {
     packet->pub_key_ = CloneKey(pub_key_);
   }
+  packet->encryption_ = want_encryption_;
+  packet->compression_ =
+      GetCompressionTypeRaw(session_.negotiated_compression());
   session_.SendPacket(packet);
   sent_handshake_ = true;
 }
 
 void EncryptionLayer::SendReady() {
-  enable_encryption_ = true;
+  // the negotiated outcome, not what this side asked for
+  enable_encryption_ = key_filled_;
   auto packet = std::make_shared<ConnectionReadyPacket>();
   packet->magic_ = "343693b5-2b04-4d56-a3b5-48582ca37c7d";
   session_.SendPacket(packet);

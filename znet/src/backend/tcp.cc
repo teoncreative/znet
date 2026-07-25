@@ -64,11 +64,6 @@ std::shared_ptr<Buffer> TCPTransportLayer::Receive() {
     ZNET_METRIC(metrics_.tcp.reads++);
     ZNET_METRIC(metrics_.common.wire_bytes_received += static_cast<uint64_t>(data_size_));
     size_t full_size = static_cast<size_t>(data_size_) + static_cast<size_t>(read_offset_);
-    if (full_size == ZNET_MAX_BUFFER_SIZE) {
-      has_more_ = true;
-    } else {
-      has_more_ = false;
-    }
     buffer_ = std::make_shared<Buffer>(data_, full_size);
     read_offset_ = 0;
     return ReadBuffer();
@@ -102,36 +97,67 @@ std::shared_ptr<Buffer> TCPTransportLayer::Receive() {
 }
 
 std::shared_ptr<Buffer> TCPTransportLayer::ReadBuffer() {
-  if (buffer_ && buffer_->readable_bytes() > 0) {
-    size_t cursor = buffer_->read_cursor();
-    size_t size = buffer_->ReadVarInt<size_t>();
-    if (buffer_->readable_bytes() < size) {
-      if (!has_more_) {
-        ZNET_LOG_ERROR("Received malformed frame, dropping buffer!");
-        return nullptr;
-      }
-      buffer_->set_read_cursor(cursor);
-      read_offset_ = static_cast<ssize_t>(buffer_->readable_bytes());
-      memcpy(data_, buffer_->data() + cursor, static_cast<size_t>(read_offset_));
+  if (!buffer_ || buffer_->readable_bytes() == 0) {
+    buffer_ = nullptr;
+    return nullptr;
+  }
+  size_t cursor = buffer_->read_cursor();
+  size_t size = buffer_->ReadVarInt<size_t>();
+  BufferError error = buffer_->GetAndClearLastError();
+  if (error == BufferError::CorruptedFormat) {
+    // the prefix itself is not a valid length, so the stream cannot be resynced.
+    ZNET_LOG_ERROR("Received a corrupt frame length, closing connection!");
+    Close();
+    buffer_ = nullptr;
+    read_offset_ = 0;
+    return nullptr;
+  }
+  // A read can end anywhere in the stream, so either the length prefix or the
+  // body may still be in flight. Both cases stash the tail and wait, they are
+  // not framing errors.
+  if (error == BufferError::ReadOutOfBounds || buffer_->readable_bytes() < size) {
+    buffer_->set_read_cursor(cursor);
+    size_t carry = buffer_->readable_bytes();
+    // == is already unrecoverable: the next recv would have no room, and Send()
+    // refuses frames that large anyway.
+    if (carry >= sizeof(data_)) {
+      ZNET_LOG_ERROR("Frame carry-over {} exceeds the buffer, closing!", carry);
+      Close();
+      buffer_ = nullptr;
+      read_offset_ = 0;
       return nullptr;
     }
-    const char* data_ptr = buffer_->read_cursor_data();
-    buffer_->SkipRead(size);
-    return std::make_shared<Buffer>(data_ptr, size);
+    memmove(data_, buffer_->data() + cursor, carry);
+    read_offset_ = static_cast<ssize_t>(carry);
+    buffer_ = nullptr;
+    return nullptr;
   }
-  buffer_ = nullptr;
-  return nullptr;
+  const char* data_ptr = buffer_->read_cursor_data();
+  buffer_->SkipRead(size);
+  return std::make_shared<Buffer>(data_ptr, size);
 }
 
 bool TCPTransportLayer::SendInternal(std::shared_ptr<Buffer> buffer, SendOptions options) {
   (void)options; // shutup compiler
+  // send() may accept only part of the frame once the socket buffer fills, and
+  // a length-prefixed stream cannot survive a dropped tail: the peer would read
+  // the next frame's bytes as this one's body. Loop until it is all gone.
+  const char* data = buffer->data();
+  size_t remaining = buffer->size();
+  size_t offset = 0;
+  while (remaining > 0) {
 #ifdef TARGET_WIN
-  while (send(socket_, buffer->data(), static_cast<int>(buffer->size()), 0) < 0) {
+    int written = send(socket_, data + offset, static_cast<int>(remaining), 0);
 #else
-  while (send(socket_, buffer->data(), buffer->size(), 0) < 0) {
+    ssize_t written = send(socket_, data + offset, remaining, 0);
 #endif
-    if (errno == EWOULDBLOCK || errno == EAGAIN) {
+    if (written > 0) {
+      offset += static_cast<size_t>(written);
+      remaining -= static_cast<size_t>(written);
       continue;
+    }
+    if (written < 0 && (errno == EWOULDBLOCK || errno == EAGAIN)) {
+      continue;  // socket buffer is full, spin until it drains
     }
     ZNET_LOG_ERROR("Error sending packet to the server: {}", GetLastErrorInfo());
     return false;
@@ -164,19 +190,32 @@ bool TCPTransportLayer::Send(std::shared_ptr<Buffer> buffer, SendOptions options
   new_buffer->WriteVarInt<size_t>(buffer->size());
   new_buffer->Write(buffer->data() + buffer->read_cursor(), buffer->size());
 
-  outbound_.push_back(QueuedPacket{new_buffer, options});
+  {
+    std::lock_guard<std::mutex> lock(outbound_mutex_);
+    outbound_.push_back(QueuedPacket{new_buffer, options});
+  }
   return true;
 }
 
-void TCPTransportLayer::Update() {
-  while (!outbound_.empty()) {
-    QueuedPacket& queued = outbound_.front();
-    bool ok = SendInternal(queued.buffer, queued.options);
-    if (!ok) {
+void TCPTransportLayer::Flush() {
+  std::deque<QueuedPacket> pending;
+  {
+    std::lock_guard<std::mutex> lock(outbound_mutex_);
+    pending.swap(outbound_);
+  }
+  while (!pending.empty()) {
+    QueuedPacket& queued = pending.front();
+    if (!SendInternal(queued.buffer, queued.options)) {
       ZNET_LOG_ERROR("TCPTransport::SendInternal failed, socket={}", socket_);
     }
-    outbound_.pop_front();
+    pending.pop_front();
   }
+}
+
+// TCP has no per-tick protocol work of its own, the kernel owns retransmit and
+// pacing, so a tick is just a flush.
+void TCPTransportLayer::Update() {
+  Flush();
 }
 
 void TCPTransportLayer::FillMetrics(SessionMetrics& out) const {
@@ -184,7 +223,10 @@ void TCPTransportLayer::FillMetrics(SessionMetrics& out) const {
   out.tcp = metrics_.tcp;
   out.common.wire_bytes_sent = metrics_.common.wire_bytes_sent;
   out.common.wire_bytes_received = metrics_.common.wire_bytes_received;
-  out.common.outbound_queued = static_cast<uint32_t>(outbound_.size());
+  {
+    std::lock_guard<std::mutex> lock(outbound_mutex_);
+    out.common.outbound_queued = static_cast<uint32_t>(outbound_.size());
+  }
 #else
   (void)out;
 #endif
@@ -286,6 +328,17 @@ Result TCPClientBackend::Connect() {
     return Result::Failure;
   }
 
+  // The session's loop interleaves Update() (flush) with Receive(), so a
+  // blocking socket would park the thread in recv() and strand everything
+  // queued by Send() until the peer happened to send something back. The
+  // accepted server-side sockets are already non-blocking for the same reason.
+  if (!SetSocketBlocking(client_socket_, false)) {
+    ZNET_LOG_ERROR("Failed to set the client socket to non-blocking: {}",
+                   GetLastErrorInfo());
+    CleanupSocket();
+    return Result::Failure;
+  }
+
   sockaddr_storage local_ss{};
   socklen_t local_len = sizeof(local_ss);
   if (getsockname(client_socket_, reinterpret_cast<sockaddr*>(&local_ss), &local_len) == 0) {
@@ -296,7 +349,8 @@ Result TCPClientBackend::Connect() {
 
   client_session_ =
       std::make_shared<PeerSession>(local_address_, server_address_,
-                                    std::make_unique<TCPTransportLayer>(client_socket_), ConnectionType::TCP, true);
+                                    std::make_unique<TCPTransportLayer>(client_socket_), ConnectionType::TCP, true,
+                                    /*self_managed=*/false, options_);
   return Result::Success;
 }
 
@@ -442,7 +496,9 @@ std::shared_ptr<PeerSession> TCPServerBackend::Accept() {
     return nullptr;
   }
   return std::make_shared<PeerSession>(bind_address_, remote_address,
-                                    std::make_unique<TCPTransportLayer>(client_socket), ConnectionType::TCP);
+                                    std::make_unique<TCPTransportLayer>(client_socket), ConnectionType::TCP,
+                                    /*is_initiator=*/false,
+                                    /*self_managed=*/false, child_options_);
 }
 
 void TCPServerBackend::AcceptAndReject() {

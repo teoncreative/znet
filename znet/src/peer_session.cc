@@ -12,6 +12,7 @@
 #include "znet/scheduler.h"
 #include "znet/error.h"
 
+#include <atomic>
 #include <utility>
 
 namespace znet {
@@ -21,17 +22,26 @@ PeerSession::PeerSession(std::shared_ptr<InetAddress> local_address,
                          std::unique_ptr<TransportLayer> transport_layer,
                          ConnectionType connection_type,
                          bool is_initiator,
-                         bool self_managed)
+                         bool self_managed,
+                         const SessionOptions& options)
     : local_address_(std::move(local_address)),
       remote_address_(std::move(remote_address)),
       connection_type_(connection_type),
       transport_layer_(std::move(transport_layer)),
       encryption_layer_(*this),
+      options_(options),
       is_initiator_(is_initiator),
       connect_time_(std::chrono::steady_clock::now()) {
-  static SessionId sIdCount = 1;
-  id_ = sIdCount++;
-  encryption_layer_.Initialize(is_initiator);
+  // sessions are minted on whichever thread accepted or dialed them, so this
+  // counter is shared across threads.
+  static std::atomic<SessionId> sIdCount{1};
+  id_ = sIdCount.fetch_add(1, std::memory_order_relaxed);
+  // only the accepting side's options count; an initiator adopts whatever the
+  // server announces at handshake
+  negotiated_compression_ =
+      is_initiator ? CompressionType::None
+                   : ResolveCompressionType(options_.common.compression);
+  encryption_layer_.Initialize(is_initiator, options_.common.encryption);
   if (self_managed) {
     task_.Run([this]() {
       while (IsAlive() && !task_.IsStopRequested()) {
@@ -55,23 +65,37 @@ void PeerSession::Process() {
     return;
   }
   transport_layer_->Update();
+  // Drain what is already buffered rather than one message per tick, otherwise
+  // throughput is capped at the caller's tick rate. The bound keeps one busy
+  // session from starving the others sharing this worker.
   std::shared_ptr<Buffer> buffer;
-  if ((buffer = transport_layer_->Receive())) {
-    buffer = compr::HandleInDynamic(buffer);
+  for (uint32_t i = 0; i < kMaxReceivesPerProcess; i++) {
+    buffer = transport_layer_->Receive();
     if (!buffer) {
-      ZNET_LOG_ERROR("Session {} decompression returned null!", id_);
-      return;
+      break;
     }
+    // mirror of the send path: decrypt, then decompress
     buffer = encryption_layer_.HandleIn(buffer);
     if (!buffer) {
       ZNET_LOG_ERROR("Session {} decryption returned null!", id_);
-      return;
+      continue;
     }
-    if (buffer && handler_ && codec_) {
+    buffer = compr::HandleInDynamic(buffer);
+    if (!buffer) {
+      ZNET_LOG_ERROR("Session {} decompression returned null!", id_);
+      continue;
+    }
+    if (handler_ && codec_) {
       ZNET_METRIC(metrics_.common.messages_received++);
       ZNET_METRIC(metrics_.common.message_bytes_received += buffer->size());
       codec_->Deserialize(buffer, *handler_);
     }
+  }
+  // Handlers above almost always answer, and Update() already ran, so without
+  // this their replies would sit in the queue until the next tick and every
+  // round trip would cost two.
+  if (IsAlive()) {
+    transport_layer_->Flush();
   }
 }
 
@@ -92,9 +116,9 @@ void PeerSession::Ready() {
   }
   is_ready_ = true;
   connect_time_ = std::chrono::steady_clock::now();
-#ifdef ZNET_USE_ZSTD
-  SetOutCompression(CompressionType::Zstandard);
-#endif
+  if (negotiated_compression_ != CompressionType::None) {
+    SetOutCompression(negotiated_compression_);
+  }
 }
 
 bool PeerSession::SendPacket(std::shared_ptr<Packet> packet, SendOptions options) {
@@ -105,11 +129,18 @@ bool PeerSession::SendPacket(std::shared_ptr<Packet> packet, SendOptions options
   if (!buffer) {
     return false;
   }
-  buffer = encryption_layer_.HandleOut(std::move(buffer));
+  // Compress before encrypting; ciphertext is incompressible, so the other
+  // order costs a full pass and saves nothing. Small messages skip it: the
+  // coder tables cost more than they can ever save back.
+  CompressionType compression = out_compression_type_;
+  if (buffer->size() < options_.common.compression_threshold) {
+    compression = CompressionType::None;
+  }
+  buffer = compr::HandleOutWithType(compression, std::move(buffer));
   if (!buffer) {
     return false;
   }
-  buffer = compr::HandleOutWithType(out_compression_type_, std::move(buffer));
+  buffer = encryption_layer_.HandleOut(std::move(buffer));
   if (!buffer) {
     return false;
   }

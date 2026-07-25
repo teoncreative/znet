@@ -57,12 +57,38 @@ class ServerBackend {
 
   virtual std::mutex& mutex() = 0;
 
-  // The address actually bound, which may differ from the one requested when the
-  // port was auto-assigned.
+  /**
+   * @brief The address actually bound.
+   *
+   * Differs from the one requested when the port was auto-assigned.
+   */
   virtual std::shared_ptr<InetAddress> bind_address() const = 0;
 
-  // Backend-level counters; backends that track none return a zeroed struct.
+  /** @brief Backend-level counters. Backends that track none return zeroes. */
   virtual ServerMetrics metrics() const { return {}; }
+
+  /**
+   * @brief Installs a callback fired when inbound data arrives.
+   *
+   * Called from whichever thread noticed the data, to cut short a session
+   * worker that would otherwise sleep out the rest of its tick. Must be cheap
+   * and must not call back into the backend. Backends that read on the
+   * caller's thread ignore it.
+   *
+   * @param on_data Invoked on arrival; pass nothing to leave the default no-op.
+   */
+  virtual void SetWakeCallback(std::function<void()> on_data) {
+    (void)on_data;
+  }
+
+  /**
+   * @brief Joins any receive thread the backend runs, leaving the socket open.
+   *
+   * Call before destroying anything the wake callback touches. The socket
+   * stays usable so sessions can still send their goodbyes; Close() releases
+   * it. Idempotent, and a no-op for backends without their own thread.
+   */
+  virtual void StopReceiving() {}
 };
 
 std::unique_ptr<ClientBackend> CreateClientFromType(

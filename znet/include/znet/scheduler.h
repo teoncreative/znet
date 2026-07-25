@@ -39,6 +39,13 @@ class Scheduler {
 
   void Wait();
 
+  // How much of the tick is left after the last Start()/End() pair. Callers that
+  // can be woken early wait on this themselves instead of calling Wait().
+  ZNET_NODISCARD Duration remaining() const {
+    return delta_time_ < target_delta_time_ ? target_delta_time_ - delta_time_
+                                            : Duration::zero();
+  }
+
   static void PreciseSleep(Duration duration);
  private:
 

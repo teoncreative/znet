@@ -25,6 +25,7 @@ Server::Server(const ServerConfig& config) : Interface(), config_(config) {
   unsigned int core_count = std::thread::hardware_concurrency();
   tasks_.resize(core_count);
   for (TaskData& data : tasks_) {
+    data.woken_ = false;
     data.task_ = std::make_unique<Task>();
     data.task_->Run([this, &data]() {
       std::unique_lock<std::mutex> lock(data.mutex_);
@@ -38,12 +39,22 @@ Server::Server(const ServerConfig& config) : Interface(), config_(config) {
           }
         }
 
-        scheduler_.Start();
+        // per-task scheduler: Scheduler holds tick state, so workers cannot
+        // share one instance.
+        data.scheduler_.Start();
         CleanupAndProcessSessions(data.sessions_);
-        scheduler_.End();
-        lock.unlock();
-        scheduler_.Wait();
-        lock.lock();
+        data.scheduler_.End();
+        // sit out the rest of the tick, but return early when a backend with
+        // its own receive thread reports work; otherwise an arriving datagram
+        // is not looked at, let alone acked, until the next tick
+        auto remaining = data.scheduler_.remaining();
+        if (remaining > Scheduler::Duration::zero()) {
+          data.cv_.wait_for(lock, remaining, [&]() {
+            return data.woken_.load(std::memory_order_relaxed) ||
+                   data.task_->IsStopRequested();
+          });
+        }
+        data.woken_.store(false, std::memory_order_relaxed);
       }
       for (auto&& item : data.sessions_) {
         item.second->Close();
@@ -55,6 +66,7 @@ Server::Server(const ServerConfig& config) : Interface(), config_(config) {
 Server::~Server() {
   ZNET_LOG_DEBUG("Destructor of the server is called.");
   Stop();
+  task_.Wait();
 }
 
 Result Server::Bind() {
@@ -67,6 +79,15 @@ Result Server::Bind() {
   if (result == Result::Success) {
     // the backend may have resolved an auto-assigned port
     bind_address_ = backend_->bind_address();
+    // registered before Listen() starts any receive thread. which worker owns
+    // the session is not known here and a spurious wake costs one early tick,
+    // so every worker is nudged.
+    backend_->SetWakeCallback([this]() {
+      for (TaskData& data : tasks_) {
+        data.woken_.store(true, std::memory_order_relaxed);
+        data.cv_.notify_one();
+      }
+    });
   }
   return result;
 }
@@ -97,7 +118,6 @@ Result Server::Stop() {
 }
 
 void Server::SetTicksPerSecond(uint16_t tps) {
-  //scheduler_.SetTicksPerSecond(tps);
   for (TaskData& data : tasks_) {
     data.scheduler_.SetTicksPerSecond(tps);
   }
@@ -129,17 +149,10 @@ void Server::MainProcessor() {
   ServerShutdownEvent shutdown_event{*this};
   event_callback()(shutdown_event);
 
-  // worker tasks may be parked on data.cv_.wait(), which only checks the
-  // predicate on notify. Set the stop flag and wake them explicitly before
-  // destroying the TaskData, otherwise ~Task() joins a thread that never
-  // wakes and the caller hangs on Server::Wait().
-  for (TaskData& data : tasks_) {
-    data.task_->RequestStop();
-    {
-      std::lock_guard<std::mutex> lock(data.mutex_);
-    }
-    data.cv_.notify_all();
-  }
+  // the receive thread's wake callback reaches into tasks_, so it has to be
+  // joined before they are destroyed. the socket stays open until Close() so
+  // pending sessions can still send their FINs.
+  backend_->StopReceiving();
   tasks_.clear();
   DisconnectPending();
   backend_->Close();

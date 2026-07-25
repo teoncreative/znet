@@ -129,12 +129,19 @@ class Server : public Interface {
     std::unique_ptr<Task> task_;
     Scheduler scheduler_{120};
     std::condition_variable cv_;
+    // Set by a backend's receive thread to end this worker's tick sleep early.
+    std::atomic_bool woken_{false};
 
     TaskData() = default;
     ~TaskData() {
-      // Request stop via stop_token
       if (task_) {
-        task_->RequestStop();
+        // The stop flag is part of the wait predicate, so it has to be set with
+        // the mutex held. Signalling outside it lets a worker that is between
+        // testing the predicate and sleeping miss the wake and never return.
+        {
+          std::lock_guard<std::mutex> lock(mutex_);
+          task_->RequestStop();
+        }
         cv_.notify_all();
         task_->Wait();
       }
