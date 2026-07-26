@@ -71,7 +71,7 @@ Server::~Server() {
 
 Result Server::Bind() {
   Result init_result = Init();
-  if (init_result != Result::Success) [[unlikely]] {
+  if (ZNET_UNLIKELY(init_result != Result::Success)) ZNET_UNLIKELY_ATTR {
     ZNET_LOG_ERROR("Cannot bind because initialization of znet had failed with reason: {}", GetResultString(init_result));
     return init_result;
   }
@@ -101,7 +101,7 @@ Result Server::Listen() {
     return Result::AlreadyListening;
   }
   Result result = backend_->Listen();
-  if (result != Result::Success) [[unlikely]] {
+  if (ZNET_UNLIKELY(result != Result::Success)) ZNET_UNLIKELY_ATTR {
     return result;
   }
 

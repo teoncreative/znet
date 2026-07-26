@@ -10,7 +10,7 @@
 
 #include "znet/logger.h"
 
-constinit bool LoggerInitializer::s_Initialized = false;
+ZNET_CONSTINIT bool LoggerInitializer::s_Initialized = false;
 
 LoggerInitializer::LoggerInitializer() {
   if (s_Initialized) {

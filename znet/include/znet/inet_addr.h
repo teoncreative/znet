@@ -21,14 +21,6 @@ namespace znet {
 
 enum class InetProtocolVersion { IPv4, IPv6 };
 
-constexpr auto operator<=>(InetProtocolVersion lhs, InetProtocolVersion rhs) noexcept {
-  return static_cast<int>(lhs) <=> static_cast<int>(rhs);
-}
-
-constexpr bool operator==(InetProtocolVersion lhs, InetProtocolVersion rhs) noexcept {
-  return static_cast<int>(lhs) == static_cast<int>(rhs);
-}
-
 std::string ResolveHostnameToIP(const std::string& hostname);
 
 IPv4Address ParseIPv4(const std::string& ip_str);

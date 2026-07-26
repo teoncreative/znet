@@ -29,11 +29,11 @@ Client::~Client() {
 
 Result Client::Bind() {
   Result init_result = Init();
-  if (init_result != Result::Success) [[unlikely]] {
+  if (ZNET_UNLIKELY(init_result != Result::Success)) ZNET_UNLIKELY_ATTR {
     ZNET_LOG_ERROR("Cannot bind because initialization of znet had failed with reason: {}", GetResultString(init_result));
     return init_result;
   }
-  if (!backend_) [[unlikely]] {
+  if (ZNET_UNLIKELY(!backend_)) ZNET_UNLIKELY_ATTR {
     return Result::InvalidBackend;
   }
   return backend_->Bind();
@@ -41,11 +41,11 @@ Result Client::Bind() {
 
 Result Client::Bind(const std::string& ip, PortNumber port) {
   Result init_result = Init();
-  if (init_result != Result::Success) [[unlikely]] {
+  if (ZNET_UNLIKELY(init_result != Result::Success)) ZNET_UNLIKELY_ATTR {
     ZNET_LOG_ERROR("Cannot bind because initialization of znet had failed with reason: {}", GetResultString(init_result));
     return init_result;
   }
-  if (!backend_) [[unlikely]] {
+  if (ZNET_UNLIKELY(!backend_)) ZNET_UNLIKELY_ATTR {
     return Result::InvalidBackend;
   }
   return backend_->Bind(ip, port);
@@ -55,11 +55,11 @@ Result Client::Connect() {
   if (task_.IsRunning()) {
     return Result::AlreadyConnected;
   }
-  if (!backend_) [[unlikely]] {
+  if (ZNET_UNLIKELY(!backend_)) ZNET_UNLIKELY_ATTR {
     return Result::InvalidBackend;
   }
   Result result = backend_->Connect();
-  if (result != Result::Success) [[unlikely]] {
+  if (ZNET_UNLIKELY(result != Result::Success)) ZNET_UNLIKELY_ATTR {
     return result;
   }
 

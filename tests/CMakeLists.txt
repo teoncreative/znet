@@ -17,21 +17,13 @@ set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(googletest)
 
 add_executable(znet-tests-buffer buffer.cc)
-set_target_properties(znet-tests-buffer PROPERTIES
-    CXX_STANDARD 20
-    CXX_STANDARD_REQUIRED ON
-    CXX_EXTENSIONS OFF
-)
+znet_apply_cxx_standard(znet-tests-buffer)
 target_link_libraries(znet-tests-buffer PRIVATE gtest_main znet)
 
 add_test(NAME buffer-tests COMMAND znet-tests-buffer)
 
 add_executable(znet-tests-zdt zdt.cc)
-set_target_properties(znet-tests-zdt PROPERTIES
-    CXX_STANDARD 20
-    CXX_STANDARD_REQUIRED ON
-    CXX_EXTENSIONS OFF
-)
+znet_apply_cxx_standard(znet-tests-zdt)
 target_link_libraries(znet-tests-zdt PRIVATE gtest_main znet)
 
 add_test(NAME zdt-tests COMMAND znet-tests-zdt)

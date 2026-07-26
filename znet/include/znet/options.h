@@ -114,7 +114,7 @@ struct MTULadder {
   std::array<uint16_t, kCapacity> rungs{1492, 1200, 576, 0};
   uint8_t count = 3;
 
-  constexpr void Set(std::initializer_list<uint16_t> values) {
+  ZNET_CONSTEXPR17 void Set(std::initializer_list<uint16_t> values) {
     count = 0;
     for (uint16_t v : values) {
       if (count == kCapacity) {
@@ -123,8 +123,8 @@ struct MTULadder {
       rungs[count++] = v;
     }
   }
-  constexpr const uint16_t* begin() const { return rungs.data(); }
-  constexpr const uint16_t* end() const { return rungs.data() + count; }
+  constexpr const uint16_t* begin() const { return &rungs[0]; }
+  constexpr const uint16_t* end() const { return &rungs[0] + count; }
   constexpr uint16_t front() const { return rungs[0]; }
   constexpr uint16_t back() const { return rungs[count ? count - 1u : 0u]; }
   constexpr bool empty() const { return count == 0; }

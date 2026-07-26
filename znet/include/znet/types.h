@@ -11,7 +11,6 @@
 #pragma once
 
 #include "znet/precompiled.h"
-#include <bit>
 
 namespace znet {
 
@@ -30,21 +29,12 @@ using SessionId = uint64_t;
 
 enum class Endianness { LittleEndian, BigEndian };
 
-constexpr auto operator<=>(Endianness lhs, Endianness rhs) noexcept {
-  return static_cast<int>(lhs) <=> static_cast<int>(rhs);
-}
-
-constexpr bool operator==(Endianness lhs, Endianness rhs) noexcept {
-  return static_cast<int>(lhs) == static_cast<int>(rhs);
-}
-
-// must be evaluated at compile-time
-consteval Endianness GetSystemEndianness() {
-  if constexpr (std::endian::native == std::endian::big) {
-    return Endianness::BigEndian;
-  } else {
-    return Endianness::LittleEndian;
-  }
+// Evaluated at compile-time: consteval where the language has it, and a
+// constexpr returning a preprocessor-resolved constant otherwise, so the
+// endianness branches in Buffer still fold away in every mode.
+ZNET_CONSTEVAL Endianness GetSystemEndianness() {
+  return ZNET_SYSTEM_IS_BIG_ENDIAN ? Endianness::BigEndian
+                                   : Endianness::LittleEndian;
 }
 
 enum class Result {
@@ -72,14 +62,6 @@ enum class Result {
   ConnectionRefused,
   ServerFull
 };
-
-constexpr auto operator<=>(Result lhs, Result rhs) noexcept {
-  return static_cast<int>(lhs) <=> static_cast<int>(rhs);
-}
-
-constexpr bool operator==(Result lhs, Result rhs) noexcept {
-  return static_cast<int>(lhs) == static_cast<int>(rhs);
-}
 
 inline std::string GetResultString(Result result) {
   switch (result) {
@@ -140,14 +122,6 @@ enum class ConnectionType {
   //ENet,
   //QUIC
 };
-
-constexpr auto operator<=>(ConnectionType lhs, ConnectionType rhs) noexcept {
-  return static_cast<int>(lhs) <=> static_cast<int>(rhs);
-}
-
-constexpr bool operator==(ConnectionType lhs, ConnectionType rhs) noexcept {
-  return static_cast<int>(lhs) == static_cast<int>(rhs);
-}
 
 #if defined(TARGET_APPLE) || defined(TARGET_WEB) || defined(TARGET_LINUX)
 using SocketHandle = int;

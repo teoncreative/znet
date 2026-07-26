@@ -45,12 +45,12 @@ class LocatorPacketHandler : public PacketHandler<LocatorPacketHandler, SetPeerN
 };
 
 
-PeerLocator::PeerLocator(const znet::p2p::PeerLocatorConfig& config)
-    : client_(ClientConfig{.server_ip = config.server_ip,
-                           .server_port = config.server_port,
-                           .connection_timeout = std::chrono::seconds(10),
-                           .connection_type = ConnectionType::TCP,
-                           .options = {}}) {
+PeerLocator::PeerLocator(const PeerLocatorConfig& config)
+    : client_(ClientConfig{config.server_ip,         // server_ip
+                           config.server_port,       // server_port
+                           std::chrono::seconds(10), // connection_timeout
+                           ConnectionType::TCP,      // connection_type
+                           {}}) {                    // options
   client_.SetEventCallback(ZNET_BIND_FN(OnEvent));
 }
 
@@ -102,10 +102,10 @@ Result PeerLocator::Connect() {
   });
 
   Result result;
-  if ((result = client_.Bind()) != Result::Success) [[unlikely]] {
+  if (ZNET_UNLIKELY((result = client_.Bind()) != Result::Success)) ZNET_UNLIKELY_ATTR {
     return result;
   }
-  if ((result = client_.Connect()) != Result::Success) [[unlikely]] {
+  if (ZNET_UNLIKELY((result = client_.Connect()) != Result::Success)) ZNET_UNLIKELY_ATTR {
     return result;
   }
   ZNET_LOG_INFO("Relay client bound to {} and connected to {}", client_.local_address()->readable(),

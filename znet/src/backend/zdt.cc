@@ -354,7 +354,7 @@ ZDTTransportLayer::ZDTTransportLayer(std::shared_ptr<UDPSocket> socket,
       connection_(connection),
       last_recv_(steady_clock::now()),
       last_send_(steady_clock::now()) {
-  rto_ = std::clamp(std::chrono::milliseconds(200), config_.rto_min,
+  rto_ = compat::Clamp(std::chrono::milliseconds(200), config_.rto_min,
                     config_.rto_max);
 }
 
@@ -668,17 +668,17 @@ void ZDTTransportLayer::TrackReliable(const PendingRecord& pending,
                                       TransmissionLog log) {
   // rto_ can shrink, so this message may fall due before the cached deadline
   next_retransmit_scan_ = std::min(next_retransmit_scan_, now + rto_);
-  unacked_[pending.key] = OutReliable{.message = pending.owner,
-                                      .offset = offset,
-                                      .length = pending.payload_len,
-                                      .channel = pending.record.channel,
-                                      .message_seq = pending.record.message_seq,
-                                      .frag_index = pending.record.frag_index,
-                                      .frag_count = pending.record.frag_count,
-                                      .data_flags = pending.record.flags,
-                                      .last_send = now,
-                                      .send_count = 1,
-                                      .packets = log};
+  unacked_[pending.key] = OutReliable{pending.owner,             // message
+                                      offset,                    // offset
+                                      pending.payload_len,       // length
+                                      pending.record.channel,    // channel
+                                      pending.record.message_seq,// message_seq
+                                      pending.record.frag_index, // frag_index
+                                      pending.record.frag_count, // frag_count
+                                      pending.record.flags,      // data_flags
+                                      now,                       // last_send
+                                      1,                         // send_count
+                                      log};              // packets
 }
 
 void ZDTTransportLayer::SendControl(uint8_t flags) {
@@ -855,7 +855,7 @@ void ZDTTransportLayer::UpdateRtt(std::chrono::steady_clock::duration sample) {
   }
   auto rto = std::chrono::milliseconds(
       static_cast<long long>(srtt_ms_ + 4.0 * rttvar_ms_));
-  rto_ = std::clamp(rto, config_.rto_min, config_.rto_max);
+  rto_ = ::znet::compat::Clamp(rto, config_.rto_min, config_.rto_max);
 }
 
 void ZDTTransportLayer::RetransmitUnacked() {

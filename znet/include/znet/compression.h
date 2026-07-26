@@ -53,13 +53,6 @@ constexpr CompressionType ResolveCompressionType(CompressionType type) {
 #endif
 }
 
-constexpr auto operator<=>(CompressionType lhs, CompressionType rhs) noexcept {
-  return static_cast<int>(lhs) <=> static_cast<int>(rhs);
-}
-
-constexpr bool operator==(CompressionType lhs, CompressionType rhs) noexcept {
-  return static_cast<int>(lhs) == static_cast<int>(rhs);
-}
 
 CompressionTypeRaw GetCompressionTypeRaw(CompressionType type);
 std::string GetCompressionTypeName(CompressionType type);

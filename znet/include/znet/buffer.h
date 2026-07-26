@@ -17,31 +17,80 @@
 #include "znet/precompiled.h"
 
 #include <bitset>
+#if ZNET_HAS_CXX20
 #include <span>
+#endif
 
 namespace znet {
 
-// Type constraints
-template<typename T>
-concept Arithmetic8Byte = std::is_arithmetic_v<T> && sizeof(T) <= 8;
-
-template<typename T>
-concept Arithmetic16Byte = std::is_arithmetic_v<T> && sizeof(T) <= 16;
-
-template<typename T>
-concept Integral16Byte = std::is_integral_v<T> && sizeof(T) <= 16;
-
-template<typename T>
-concept HasReadMethod = requires() {
-  { T::Read() } -> std::same_as<T>;
-};
-
 class Buffer;
 
-template<typename T>
-concept HasWriteMethod = requires(Buffer& buf) {
-  { T::Write(buf) } -> std::same_as<T>;
-};
+// Type constraints.
+//
+// Each one exists twice: as a trait usable in any language mode, and (on
+// C++20) as the concept of the same name that the public API used before
+// C++14 support was added. The ZNET_TPL_* macros below pick whichever the
+// compiler understands, so a C++20 build still gets concept diagnostics and a
+// C++14 build gets the equivalent SFINAE constraint.
+namespace detail {
+
+template <typename T>
+struct IsArithmetic8Byte
+    : compat::BoolConstant<std::is_arithmetic<T>::value && sizeof(T) <= 8> {};
+
+template <typename T>
+struct IsArithmetic16Byte
+    : compat::BoolConstant<std::is_arithmetic<T>::value && sizeof(T) <= 16> {};
+
+template <typename T>
+struct IsIntegral16Byte
+    : compat::BoolConstant<std::is_integral<T>::value && sizeof(T) <= 16> {};
+
+template <typename T, typename = void>
+struct HasReadMethodT : std::false_type {};
+template <typename T>
+struct HasReadMethodT<T, compat::VoidT<decltype(T::Read())>>
+    : std::is_same<decltype(T::Read()), T> {};
+
+template <typename T, typename = void>
+struct HasWriteMethodT : std::false_type {};
+template <typename T>
+struct HasWriteMethodT<T,
+                       compat::VoidT<decltype(T::Write(std::declval<Buffer&>()))>>
+    : std::is_same<decltype(T::Write(std::declval<Buffer&>())), T> {};
+
+}  // namespace detail
+
+// The concepts are aliases over the traits above rather than restatements of
+// them, so each constraint is defined exactly once and the two spellings
+// cannot drift apart.
+#if ZNET_HAS_CXX20
+template <typename T>
+concept Arithmetic8Byte = detail::IsArithmetic8Byte<T>::value;
+
+template <typename T>
+concept Arithmetic16Byte = detail::IsArithmetic16Byte<T>::value;
+
+template <typename T>
+concept Integral16Byte = detail::IsIntegral16Byte<T>::value;
+
+template <typename T>
+concept HasReadMethod = detail::HasReadMethodT<T>::value;
+
+template <typename T>
+concept HasWriteMethod = detail::HasWriteMethodT<T>::value;
+#endif
+
+#define ZNET_TPL_ARITH8(T) \
+  ZNET_TPL_CONSTRAINED(::znet::Arithmetic8Byte, ::znet::detail::IsArithmetic8Byte, T)
+#define ZNET_TPL_ARITH16(T) \
+  ZNET_TPL_CONSTRAINED(::znet::Arithmetic16Byte, ::znet::detail::IsArithmetic16Byte, T)
+#define ZNET_TPL_INT16(T) \
+  ZNET_TPL_CONSTRAINED(::znet::Integral16Byte, ::znet::detail::IsIntegral16Byte, T)
+#define ZNET_TPL_HAS_READ(T) \
+  ZNET_TPL_CONSTRAINED(::znet::HasReadMethod, ::znet::detail::HasReadMethodT, T)
+#define ZNET_TPL_HAS_WRITE(T) \
+  ZNET_TPL_CONSTRAINED(::znet::HasWriteMethod, ::znet::detail::HasWriteMethodT, T)
 
 enum class BufferError {
   None,
@@ -50,13 +99,6 @@ enum class BufferError {
   ReadOutOfBounds,
   CorruptedFormat,
 };
-
-constexpr auto operator<=>(BufferError lhs, BufferError rhs) noexcept {
-  return static_cast<int>(lhs) <=> static_cast<int>(rhs);
-}
-constexpr bool operator==(BufferError lhs, BufferError rhs) noexcept {
-  return static_cast<int>(lhs) == static_cast<int>(rhs);
-}
 
 inline std::string GetBufferErrorString(BufferError error) {
   switch (error) {
@@ -100,7 +142,7 @@ class Buffer {
     mem_allocations_ = 1;
 #endif
     data_ = new (std::nothrow) char[allocated_size_];
-    if (!data_) [[unlikely]] {
+    if (ZNET_UNLIKELY(!data_)) ZNET_UNLIKELY_ATTR {
       last_error_ = BufferError::CannotAllocate;
       allocated_size_ = 0;
       return;
@@ -127,7 +169,7 @@ class Buffer {
 #endif
     // todo safe errors
     data_ = new (std::nothrow) char[allocated_size_];
-    if (!data_) [[unlikely]] {
+    if (ZNET_UNLIKELY(!data_)) ZNET_UNLIKELY_ATTR {
       last_error_ = BufferError::CannotAllocate;
       allocated_size_ = 0;
       return;
@@ -136,16 +178,17 @@ class Buffer {
   }
 #endif
 
-  template<Arithmetic8Byte T>
-  void Read(std::span<T> data) {
-    size_t size = data.size();
-    if (size > std::numeric_limits<size_t>::max() / sizeof(T)) [[unlikely]] {
+  // Pointer + size is the primary form because std::span is C++20-only; the
+  // span overload below is a thin forwarder kept for callers that have one.
+  ZNET_TPL_ARITH8(T)
+  void Read(T* arr, size_t size) {
+    if (ZNET_UNLIKELY(size > std::numeric_limits<size_t>::max() / sizeof(T))) ZNET_UNLIKELY_ATTR {
       last_error_ = BufferError::CorruptedFormat;
       return;
     }
-    char* pt = reinterpret_cast<char*>(data.data());
+    char* pt = reinterpret_cast<char*>(arr);
     size_t calculated_size = sizeof(T) * size;
-    if (!CheckReadableBytes(size)) [[unlikely]] {
+    if (ZNET_UNLIKELY(!CheckReadableBytes(size))) ZNET_UNLIKELY_ATTR {
       last_error_ = BufferError::ReadOutOfBounds;
       return;
     }
@@ -153,10 +196,12 @@ class Buffer {
     read_cursor_ += calculated_size;
   }
 
-  template<Arithmetic8Byte T>
-  void Read(T* arr, size_t size) {
-    Read(std::span<T>(arr, size));
+#if ZNET_HAS_CXX20
+  ZNET_TPL_ARITH8(T)
+  void Read(std::span<T> data) {
+    Read(data.data(), data.size());
   }
+#endif
 
   char ReadChar() { return ReadInt<char>(); }
 
@@ -168,25 +213,21 @@ class Buffer {
 
   double ReadDouble() { return ReadNumber<double>(); }
 
-  template<Integral16Byte T>
+  ZNET_TPL_INT16(T)
   T ReadInt() {
     return ReadNumber<T>();
   }
 
-  template<Arithmetic16Byte T>
+  ZNET_TPL_ARITH16(T)
   T ReadNumber() {
     size_t size = sizeof(T);
-    std::unique_ptr<char[]> data(new (std::nothrow) char[size]);
-    if (!data) [[unlikely]] {
-      last_error_ = BufferError::CannotAllocate;
-      return 0;
-    }
-    if (!CheckReadableBytes(size)) [[unlikely]] {
+    char data[sizeof(T)];
+    if (ZNET_UNLIKELY(!CheckReadableBytes(size))) ZNET_UNLIKELY_ATTR {
       last_error_ = BufferError::ReadOutOfBounds;
       return 0;
     }
     // likely, most systems use native endianness
-    if (GetSystemEndianness() == endianness_) [[likely]] {
+    if (ZNET_LIKELY(GetSystemEndianness() == endianness_)) ZNET_LIKELY_ATTR {
       for (size_t i = 0; i < size; i++) {
         data[i] = data_[read_cursor_ + i];
       }
@@ -197,11 +238,11 @@ class Buffer {
     }
     read_cursor_ += size;
     T l = 0;
-    std::memcpy(&l, data.get(), size);
+    std::memcpy(&l, data, size);
     return l;
   }
 
-  template<HasReadMethod T>
+  ZNET_TPL_HAS_READ(T)
   T ReadCustom() {
     return T::Read();
   }
@@ -250,28 +291,28 @@ class Buffer {
     return ReadInt<PortNumber>();
   }
 
-  template<Arithmetic8Byte T>
+  ZNET_TPL_ARITH8(T)
   T ReadVarInt() {
     constexpr uint8_t size = sizeof(T);
     char data[size];
     std::memset(data, 0, size);
-    if (!CheckReadableBytes(1)) [[unlikely]] {
+    if (ZNET_UNLIKELY(!CheckReadableBytes(1))) ZNET_UNLIKELY_ATTR {
       last_error_ = BufferError::ReadOutOfBounds;
       return 0;
     }
     unsigned char actual_size = ReadUnsignedChar();
     // the count comes off the wire, so a peer could claim more bytes than T
     // holds and walk past the destination.
-    if (actual_size > size) [[unlikely]] {
+    if (ZNET_UNLIKELY(actual_size > size)) ZNET_UNLIKELY_ATTR {
       last_error_ = BufferError::CorruptedFormat;
       return 0;
     }
-    if (!CheckReadableBytes(actual_size)) [[unlikely]] {
+    if (ZNET_UNLIKELY(!CheckReadableBytes(actual_size))) ZNET_UNLIKELY_ATTR {
       last_error_ = BufferError::ReadOutOfBounds;
       return 0;
     }
     // likely, most systems use native endianness
-    if (GetSystemEndianness() == endianness_) [[likely]] {
+    if (ZNET_LIKELY(GetSystemEndianness() == endianness_)) ZNET_LIKELY_ATTR {
       for (size_t i = 0; i < actual_size; i++) {
         data[i] = data_[read_cursor_ + i];
       }
@@ -288,19 +329,13 @@ class Buffer {
 
   std::string ReadString() {
     size_t size = ReadVarInt<size_t>();
-    if (!CheckReadableBytes(size)) [[unlikely]] {
+    if (ZNET_UNLIKELY(!CheckReadableBytes(size))) ZNET_UNLIKELY_ATTR {
       last_error_ = BufferError::ReadOutOfBounds;
       return "";
     }
-    char* data = new (std::nothrow) char[size];
-    if (!data) [[unlikely]] {
-      last_error_ = BufferError::CannotAllocate;
-      return "";
-    }
-    for (size_t i = 0; i < size; i++) {
-      data[i] = ReadInt<char>();
-    }
-    return {data, size};
+    std::string out(data_ + read_cursor_, size);
+    read_cursor_ += size;
+    return out;
   }
 
   template <typename Map, typename KeyFunc, typename ValueFunc>
@@ -330,12 +365,12 @@ class Buffer {
   std::unique_ptr<T[]> ReadArray(ValueFunc value_func) {
     size_t size = ReadVarInt<size_t>();
     size_t size_bytes = size * sizeof(T);
-    if (!CheckReadableBytes(size_bytes)) [[unlikely]] {
+    if (ZNET_UNLIKELY(!CheckReadableBytes(size_bytes))) ZNET_UNLIKELY_ATTR {
       last_error_ = BufferError::ReadOutOfBounds;
       return nullptr;
     }
     T* ptr = new T[size];
-    if (!ptr) [[unlikely]] {
+    if (ZNET_UNLIKELY(!ptr)) ZNET_UNLIKELY_ATTR {
       last_error_ = BufferError::CannotAllocate;
       return nullptr;
     }
@@ -349,14 +384,14 @@ class Buffer {
   template <typename T, size_t size, typename ValueFunc>
   std::array<T, size> ReadArray(ValueFunc value_func) {
     size_t size_r = ReadVarInt<size_t>();
-    if (size_r != size) [[unlikely]] {
+    if (ZNET_UNLIKELY(size_r != size)) ZNET_UNLIKELY_ATTR {
       ZNET_LOG_ERROR("Array size mismatch. Expected: {}, Actual: {}", size,
                      size_r);
       last_error_ = BufferError::CorruptedFormat;
       return {};
     }
     size_t size_bytes = size * sizeof(T);
-    if (!CheckReadableBytes(size_bytes)) [[unlikely]] {
+    if (ZNET_UNLIKELY(!CheckReadableBytes(size_bytes))) ZNET_UNLIKELY_ATTR {
       last_error_ = BufferError::ReadOutOfBounds;
       return {};
     }
@@ -368,7 +403,7 @@ class Buffer {
   }
 
   void WriteString(const std::string& str) {
-    if (!CheckSeal()) [[unlikely]] {
+    if (ZNET_UNLIKELY(!CheckSeal())) ZNET_UNLIKELY_ATTR {
       return;
     }
     size_t size = str.size();
@@ -390,21 +425,21 @@ class Buffer {
 
   void WriteDouble(double f) { WriteNumber(f); }
 
-  template<Integral16Byte T>
+  ZNET_TPL_INT16(T)
   void WriteInt(T c) {
     return WriteNumber(c);
   }
 
-  template<Arithmetic16Byte T>
+  ZNET_TPL_ARITH16(T)
   void WriteNumber(T c) {
-    if (!CheckSeal()) [[unlikely]] {
+    if (ZNET_UNLIKELY(!CheckSeal())) ZNET_UNLIKELY_ATTR {
       return;
     }
     char* pt = reinterpret_cast<char*>(&c);
     size_t size = sizeof(c);
     ReserveIncremental(size);
     // likely, most systems use native endianness
-    if (GetSystemEndianness() == endianness_) [[likely]] {
+    if (ZNET_LIKELY(GetSystemEndianness() == endianness_)) ZNET_LIKELY_ATTR {
       for (size_t i = 0; i < size; i++) {
         data_[write_cursor_ + i] = pt[i];
       }
@@ -416,16 +451,16 @@ class Buffer {
     write_cursor_ += size;
   }
 
-  template<HasWriteMethod T>
+  ZNET_TPL_HAS_WRITE(T)
   void WriteCustom(T& ptr) {
-    if (!CheckSeal()) [[unlikely]] {
+    if (ZNET_UNLIKELY(!CheckSeal())) ZNET_UNLIKELY_ATTR {
       return;
     }
     ptr->Write(*this);
   }
 
   void WriteInetAddress(const InetAddress& address) {
-    if (!CheckSeal()) [[unlikely]] {
+    if (ZNET_UNLIKELY(!CheckSeal())) ZNET_UNLIKELY_ATTR {
       return;
     }
     if (address.ipv() == InetProtocolVersion::IPv4) {
@@ -453,7 +488,7 @@ class Buffer {
   // write a std::bitset<N> (little‑endian bit order)
   template<size_t N>
   void WriteBitset(const std::bitset<N>& bs) {
-    if (!CheckSeal()) [[unlikely]] {
+    if (ZNET_UNLIKELY(!CheckSeal())) ZNET_UNLIKELY_ATTR {
       return;
     }
     constexpr size_t BYTES = (N + 7) / 8;
@@ -466,27 +501,26 @@ class Buffer {
     Write(data, BYTES);
   }
 
-  template<Arithmetic8Byte T>
-  void Write(std::span<const T> data) {
-    if (!CheckSeal()) [[unlikely]] {
+  ZNET_TPL_ARITH8(T)
+  void Write(const T* arr, size_t size) {
+    if (ZNET_UNLIKELY(!CheckSeal())) ZNET_UNLIKELY_ATTR {
       return;
     }
-    auto* pt = reinterpret_cast<const char*>(data.data());
-    size_t calculated_size = sizeof(T) * data.size();
+    auto* pt = reinterpret_cast<const char*>(arr);
+    size_t calculated_size = sizeof(T) * size;
     ReserveIncremental(calculated_size);
     std::memcpy(data_ + write_cursor_, pt, calculated_size);
     write_cursor_ += calculated_size;
   }
 
-  // Backward compatibility: pointer + size overload
-  template<Arithmetic8Byte T>
-  void Write(const T* arr, size_t size) {
-    Write(std::span<const T>(arr, size));
-  }
+#if ZNET_HAS_CXX20
+  ZNET_TPL_ARITH8(T)
+  void Write(std::span<const T> data) { Write(data.data(), data.size()); }
+#endif
 
-  template<Arithmetic8Byte T>
+  ZNET_TPL_ARITH8(T)
   void WriteVarInt(T c) {
-    if (!CheckSeal()) [[unlikely]] {
+    if (ZNET_UNLIKELY(!CheckSeal())) ZNET_UNLIKELY_ATTR {
       return;
     }
     auto* raw_data = reinterpret_cast<const char*>(&c);
@@ -500,7 +534,7 @@ class Buffer {
     ReserveIncremental(actual_size + 1);
     WriteUnsignedChar(actual_size);
     // likely, most systems use native endianness
-    if (GetSystemEndianness() == endianness_) [[likely]] {
+    if (ZNET_LIKELY(GetSystemEndianness() == endianness_)) ZNET_LIKELY_ATTR {
       for (size_t i = 0; i < actual_size; i++) {
         data_[write_cursor_ + i] = raw_data[i];
       }
@@ -514,7 +548,7 @@ class Buffer {
 
   template <typename KeyFunc, typename ValueFunc, typename Map>
   void WriteMap(Map& map, KeyFunc key_func, ValueFunc value_func) {
-    if (!CheckSeal()) [[unlikely]] {
+    if (ZNET_UNLIKELY(!CheckSeal())) ZNET_UNLIKELY_ATTR {
       return;
     }
     WriteInt(map.size());
@@ -526,7 +560,7 @@ class Buffer {
 
   template <typename ValueFunc, typename T>
   void WriteVector(std::vector<T>& v, ValueFunc value_func) {
-    if (!CheckSeal()) [[unlikely]] {
+    if (ZNET_UNLIKELY(!CheckSeal())) ZNET_UNLIKELY_ATTR {
       return;
     }
     size_t size = v.size();
@@ -538,7 +572,7 @@ class Buffer {
 
   template <typename ValueFunc, typename T, size_t size>
   void WriteArray(T (&v)[size], ValueFunc value_func) {
-    if (!CheckSeal()) [[unlikely]] {
+    if (ZNET_UNLIKELY(!CheckSeal())) ZNET_UNLIKELY_ATTR {
       return;
     }
     WriteInt(size);
@@ -550,7 +584,7 @@ class Buffer {
 
   template <typename ValueFunc, typename T>
   void WriteArray(T* v, size_t size, ValueFunc value_func) {
-    if (!CheckSeal()) [[unlikely]] {
+    if (ZNET_UNLIKELY(!CheckSeal())) ZNET_UNLIKELY_ATTR {
       return;
     }
     if (!v) {
@@ -566,7 +600,7 @@ class Buffer {
 
   template <typename ValueFunc, typename T>
   void WriteArray(std::shared_ptr<T[]>& v, size_t size, ValueFunc value_func) {
-    if (!CheckSeal()) [[unlikely]] {
+    if (ZNET_UNLIKELY(!CheckSeal())) ZNET_UNLIKELY_ATTR {
       return;
     }
     WriteInt(size);
@@ -593,14 +627,14 @@ class Buffer {
 
   void Trim() {
     // most buffers aren't already exactly trimmed
-    if (write_cursor_ == allocated_size_) [[unlikely]] {
+    if (ZNET_UNLIKELY(write_cursor_ == allocated_size_)) ZNET_UNLIKELY_ATTR {
       return;
     }
-    if (!CheckSeal()) [[unlikely]] {
+    if (ZNET_UNLIKELY(!CheckSeal())) ZNET_UNLIKELY_ATTR {
       return;
     }
     char* new_data = new (std::nothrow) char[write_cursor_];
-    if (!new_data) [[unlikely]] {
+    if (ZNET_UNLIKELY(!new_data)) ZNET_UNLIKELY_ATTR {
       last_error_ = BufferError::CannotAllocate;
       return;
     }
@@ -611,7 +645,7 @@ class Buffer {
   }
 
   void Reset(bool deallocate = false) {
-    if (!CheckSeal()) [[unlikely]] {
+    if (ZNET_UNLIKELY(!CheckSeal())) ZNET_UNLIKELY_ATTR {
       return;
     }
     write_cursor_ = 0;
@@ -673,7 +707,7 @@ class Buffer {
   }
 
   void SkipWrite(size_t size) {
-    if (sealed_.load(std::memory_order_acquire)) [[unlikely]] {
+    if (ZNET_UNLIKELY(sealed_.load(std::memory_order_acquire))) ZNET_UNLIKELY_ATTR {
       last_error_ = BufferError::WriteAfterSeal;
       return;
     }
@@ -697,10 +731,10 @@ class Buffer {
   void ReserveExact(size_t size) { Reserve(size, true); }
 
   void Reserve(size_t size, bool exact = false) {
-    if (!CheckSeal()) [[unlikely]] {
+    if (ZNET_UNLIKELY(!CheckSeal())) ZNET_UNLIKELY_ATTR {
       return;
     }
-    if (!data_) [[unlikely]] {
+    if (ZNET_UNLIKELY(!data_)) ZNET_UNLIKELY_ATTR {
       size_t target_size;
       if (exact) {
         target_size = size;
@@ -708,7 +742,7 @@ class Buffer {
         target_size = size * 2;
       }
       data_ = new (std::nothrow) char[target_size];
-      if (!data_) [[unlikely]] {
+      if (ZNET_UNLIKELY(!data_)) ZNET_UNLIKELY_ATTR {
         last_error_ = BufferError::CannotAllocate;
         return;
       }
@@ -719,12 +753,12 @@ class Buffer {
       return;
     }
     // Most Reserve calls don't need to reallocate
-    if (allocated_size_ >= size) [[likely]] {
+    if (ZNET_LIKELY(allocated_size_ >= size)) ZNET_LIKELY_ATTR {
       return;
     }
     size_t target_size_ = size * 2;
     char* tmp_data = new (std::nothrow) char[target_size_];
-    if (!tmp_data) [[unlikely]] {
+    if (ZNET_UNLIKELY(!tmp_data)) ZNET_UNLIKELY_ATTR {
       last_error_ = BufferError::CannotAllocate;
       return;
     }
@@ -749,7 +783,7 @@ class Buffer {
     return std::min(write_cursor_, read_limit_) >= read_cursor_ + required;
   }
   ZNET_NODISCARD inline bool CheckSeal() {
-    if (sealed_.load(std::memory_order_acquire)) [[unlikely]] {
+    if (ZNET_UNLIKELY(sealed_.load(std::memory_order_acquire))) ZNET_UNLIKELY_ATTR {
       ZNET_LOG_DEBUG("Tried to write to a sealed buffer.");
       last_error_ = BufferError::WriteAfterSeal;
       return false;

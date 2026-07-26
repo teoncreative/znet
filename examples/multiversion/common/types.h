@@ -15,6 +15,12 @@
 #ifndef ZNET_PARENT_TYPES_H
 #define ZNET_PARENT_TYPES_H
 
+// ZNET_FORMAT resolves to std::format on C++20 and to znet's own shim below
+// that, so this example builds at any standard znet supports.
+#include "znet/logger.h"
+
+#include <string>
+
 struct Vec3 {
   double x, y, z;
 
@@ -32,7 +38,7 @@ struct Vec3 {
   }
 
   std::string to_string() const {
-    return std::format("x: {}, y: {}, z: {}", x, y, z);
+    return ZNET_FORMAT("x: {}, y: {}, z: {}", x, y, z);
   }
 };
 
