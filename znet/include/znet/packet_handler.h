@@ -16,19 +16,52 @@
 
 namespace znet {
 
-// Packet handler type constraints
+// Packet handler type constraints. As in buffer.h, each is available both as
+// a trait (any language mode) and as the original concept (C++20).
+namespace detail {
+
+template <typename T, typename P, typename = void>
+struct HasOnPacketConstT : std::false_type {};
+template <typename T, typename P>
+struct HasOnPacketConstT<
+    T, P,
+    compat::VoidT<decltype(std::declval<T&>().OnPacket(
+        std::declval<const P&>()))>>
+    : std::is_same<decltype(std::declval<T&>().OnPacket(
+                       std::declval<const P&>())),
+                   void> {};
+
+template <typename T, typename P, typename = void>
+struct HasOnPacketSharedT : std::false_type {};
+template <typename T, typename P>
+struct HasOnPacketSharedT<
+    T, P,
+    compat::VoidT<decltype(std::declval<T&>().OnPacket(
+        std::declval<std::shared_ptr<P>>()))>>
+    : std::is_same<decltype(std::declval<T&>().OnPacket(
+                       std::declval<std::shared_ptr<P>>())),
+                   void> {};
+
+template <typename T>
+struct IsDerivedFromPacket : std::is_base_of<Packet, T> {};
+
+}  // namespace detail
+
+// Aliases over the traits above, so each constraint is defined exactly once.
+#if ZNET_HAS_CXX20
 template<typename T, typename P>
-concept HasOnPacketConst = requires(T handler, const P& pkt) {
-  { handler.OnPacket(pkt) } -> std::same_as<void>;
-};
+concept HasOnPacketConst = detail::HasOnPacketConstT<T, P>::value;
 
 template<typename T, typename P>
-concept HasOnPacketShared = requires(T handler, std::shared_ptr<P> pkt) {
-  { handler.OnPacket(pkt) } -> std::same_as<void>;
-};
+concept HasOnPacketShared = detail::HasOnPacketSharedT<T, P>::value;
 
 template<typename T>
-concept DerivedFromPacket = std::is_base_of_v<Packet, T>;
+concept DerivedFromPacket = detail::IsDerivedFromPacket<T>::value;
+#endif
+
+#define ZNET_TPL_DERIVED_FROM_PACKET(T)                       \
+  ZNET_TPL_CONSTRAINED(::znet::DerivedFromPacket,             \
+                       ::znet::detail::IsDerivedFromPacket, T)
 
 struct PacketHandlerBase {
   virtual ~PacketHandlerBase() = default;
@@ -62,18 +95,31 @@ class PacketHandler : public PacketHandlerBase {
     return tbl;
   }
 
+  // Tag dispatch rather than `if constexpr`, which is C++17. Both compile to
+  // the same thing: the false_type overloads have empty bodies and inline away.
+  template<typename P>
+  static void CallConst(Derived* self, const std::shared_ptr<P>& p,
+                        std::true_type) {
+    self->OnPacket(static_cast<const P&>(*p));
+  }
+  template<typename P>
+  static void CallConst(Derived*, const std::shared_ptr<P>&, std::false_type) {}
+
+  template<typename P>
+  static void CallShared(Derived* self, const std::shared_ptr<P>& p,
+                         std::true_type) {
+    self->OnPacket(p);
+  }
+  template<typename P>
+  static void CallShared(Derived*, const std::shared_ptr<P>&, std::false_type) {}
+
   // main dispatcher
   template<typename P>
   static void call(Derived* self, std::shared_ptr<Packet> p_base) {
     auto p = std::static_pointer_cast<P>(p_base);
 
-    if constexpr (HasOnPacketConst<Derived, P>) {
-      self->OnPacket(static_cast<const P&>(*p));
-    }
-
-    if constexpr (HasOnPacketShared<Derived, P>) {
-      self->OnPacket(p);
-    }
+    CallConst<P>(self, p, detail::HasOnPacketConstT<Derived, P>{});
+    CallShared<P>(self, p, detail::HasOnPacketSharedT<Derived, P>{});
   }
 
 };
@@ -86,14 +132,14 @@ class CallbackPacketHandler : public PacketHandlerBase {
   std::unordered_map<std::type_index, RefHandlerFn> refHandlers;
 
  public:
-  template <DerivedFromPacket T>
+  ZNET_TPL_DERIVED_FROM_PACKET(T)
   void AddShared(std::function<void(std::shared_ptr<T>)> fn) {
     sharedHandlers[typeid(T)] = [fn](std::shared_ptr<Packet> p) {
       fn(std::static_pointer_cast<T>(p));
     };
   }
 
-  template <DerivedFromPacket T>
+  ZNET_TPL_DERIVED_FROM_PACKET(T)
   void AddRef(std::function<void(const T&)> fn) {
     refHandlers[typeid(T)] = [fn](std::shared_ptr<Packet> p) {
       fn(*std::static_pointer_cast<T>(p));

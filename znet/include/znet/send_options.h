@@ -42,13 +42,13 @@ class SendOptions {
   explicit SendOptions(const SendOptionsInit& init);
 
   template <typename Key>
-  void Set(Key::type value) {
+  void Set(typename Key::type value) {
     bitmask_ |= (1u << Key::id);
     Get<Key>() = value;
   }
 
   template <typename Key>
-  Key::type GetOr(Key::type def) const {
+  typename Key::type GetOr(typename Key::type def) const {
     return Has<Key>() ? Get<Key>() : def;
   }
 

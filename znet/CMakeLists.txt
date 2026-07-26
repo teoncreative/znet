@@ -12,10 +12,20 @@ endforeach()
 
 project(znet
     VERSION ${ZNET_VERSION_MAJOR}.${ZNET_VERSION_MINOR}.${ZNET_VERSION_PATCH}
-    DESCRIPTION "Modern C++20 networking library"
+    DESCRIPTION "Modern C++14/17/20 networking library"
     LANGUAGES CXX
 )
 message(STATUS "znet version ${PROJECT_VERSION}")
+
+# C++ standard. znet compiles as C++14 and upwards; where a newer standard
+# offers a better spelling of something, headers detect it and use it,
+# so raising this only ever adds capability.
+set(ZNET_CXX_STANDARD "20" CACHE STRING "C++ standard used to build znet (14, 17, 20 or 23)")
+set_property(CACHE ZNET_CXX_STANDARD PROPERTY STRINGS 14 17 20 23)
+if(NOT ZNET_CXX_STANDARD MATCHES "^(14|17|20|23)$")
+    message(FATAL_ERROR "ZNET_CXX_STANDARD must be one of 14, 17, 20, 23 (got '${ZNET_CXX_STANDARD}')")
+endif()
+message(STATUS "znet C++ standard: ${ZNET_CXX_STANDARD}")
 
 # Options
 option(ZNET_PREFER_STD_SLEEP "Prefers thread sleep to wait between ticks, this results in less precision of the timings but reduces CPU usage." OFF)
@@ -53,10 +63,14 @@ add_library(znet STATIC
 )
 
 set_target_properties(znet PROPERTIES
-    CXX_STANDARD 20
+    CXX_STANDARD ${ZNET_CXX_STANDARD}
     CXX_STANDARD_REQUIRED ON
     CXX_EXTENSIONS OFF  # Disable compiler-specific extensions
 )
+
+# Consumers must compile at C++14 or newer; compat.h enforces this too, but
+# saying it here gives a CMake-level error instead of a preprocessor one.
+target_compile_features(znet PUBLIC cxx_std_14)
 
 target_precompile_headers(znet PRIVATE include/znet/precompiled.h)
 target_include_directories(znet PUBLIC include)

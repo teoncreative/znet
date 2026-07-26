@@ -104,9 +104,43 @@ void TestInetAddress(std::shared_ptr<Buffer> buffer) {
   EXPECT_EQ(buffer->size(), 26);
 }
 
+// ReadString used to allocate a scratch array, fill it a character at a time,
+// construct the string from it and then leak the scratch. It now copies
+// straight out of the buffer, so these cases guard the cases that a
+// byte-at-a-time loop got right by accident: an empty string, a string with an
+// embedded NUL, and non-ASCII bytes that must not be sign-extended or treated
+// as a terminator.
+void TestStringRoundTrip(std::shared_ptr<Buffer> buffer) {
+  const std::string cases[] = {
+      "",
+      "a",
+      "Hello World!",
+      std::string("with\0embedded\0nuls", 18),
+      std::string("\x01\x02\xfe\xff", 4),
+      "unicode: \xc3\xa9\xe2\x82\xac",
+      std::string(4096, 'x'),
+  };
+
+  for (const std::string& s : cases) {
+    buffer->WriteString(s);
+  }
+  for (const std::string& s : cases) {
+    const std::string got = buffer->ReadString();
+    EXPECT_EQ(got, s);
+    EXPECT_EQ(got.size(), s.size());
+  }
+  EXPECT_EQ(buffer->readable_bytes(), 0u);
+  EXPECT_EQ(buffer->GetAndClearLastError(), BufferError::None);
+}
+
 TEST_F(BufferTest, TestBuffers) {
   TestBuffer(buffer_le_);
   TestBuffer(buffer_be_);
+}
+
+TEST_F(BufferTest, TestStringRoundTrip) {
+  TestStringRoundTrip(buffer_le_);
+  TestStringRoundTrip(buffer_be_);
 }
 
 TEST_F(BufferTest, TestVarInts) {

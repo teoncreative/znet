@@ -44,26 +44,26 @@ namespace znet {
 namespace backends {
 
 // Protocol version, checked for strict equality during the handshake.
-inline constexpr uint8_t kZDTProtocolVersion = 1;
+ZNET_INLINE_CONSTEXPR uint8_t kZDTProtocolVersion = 1;
 
 // Prefix on offline (pre-connection) messages, so unrelated UDP traffic on the
 // port is not parsed as a handshake.
-inline constexpr std::array<uint8_t, 8> kZDTMagic = {'Z', 'N', 'E', 'T',
+ZNET_INLINE_CONSTEXPR std::array<uint8_t, 8> kZDTMagic = {'Z', 'N', 'E', 'T',
                                                      'Z', 'D', 'T', 0x01};
 
 // Online datagram flags (byte 0), connection-level only. Bit 7 separates
 // connected-state datagrams from offline handshake messages, which the demux
 // keys on. Anything about an individual message lives in its record flags.
-inline constexpr uint8_t kFlagFin = 1u << 0;     // graceful close
-inline constexpr uint8_t kFlagPing = 1u << 1;    // keepalive probe
-inline constexpr uint8_t kFlagPong = 1u << 2;    // keepalive reply
-inline constexpr uint8_t kFlagNak = 1u << 3;     // negative ack list follows
-inline constexpr uint8_t kFlagOnline = 1u << 7;  // online-datagram marker
+ZNET_INLINE_CONSTEXPR uint8_t kFlagFin = 1u << 0;     // graceful close
+ZNET_INLINE_CONSTEXPR uint8_t kFlagPing = 1u << 1;    // keepalive probe
+ZNET_INLINE_CONSTEXPR uint8_t kFlagPong = 1u << 2;    // keepalive reply
+ZNET_INLINE_CONSTEXPR uint8_t kFlagNak = 1u << 3;     // negative ack list follows
+ZNET_INLINE_CONSTEXPR uint8_t kFlagOnline = 1u << 7;  // online-datagram marker
 
 // Per-record flags (byte 0 of each message record).
-inline constexpr uint8_t kRecReliable = 1u << 0;  // retransmit until acked
-inline constexpr uint8_t kRecOrdered = 1u << 1;   // ordering applies on channel
-inline constexpr uint8_t kRecFragment = 1u << 2;  // frag_index/frag_count present
+ZNET_INLINE_CONSTEXPR uint8_t kRecReliable = 1u << 0;  // retransmit until acked
+ZNET_INLINE_CONSTEXPR uint8_t kRecOrdered = 1u << 1;   // ordering applies on channel
+ZNET_INLINE_CONSTEXPR uint8_t kRecFragment = 1u << 2;  // frag_index/frag_count present
 
 // Offline (handshake) message ids, all < 0x80 so they never set kFlagOnline.
 enum class ZDTOfflineMsg : uint8_t {
@@ -81,11 +81,11 @@ enum class ZDTOfflineMsg : uint8_t {
 // A datagram is one header followed by zero or more message records, so small
 // messages share one instead of each paying for its own. Zero records is a valid
 // control datagram (bare ack, ping, pong or fin).
-inline constexpr size_t kZDTHeaderSize = 9;
+ZNET_INLINE_CONSTEXPR size_t kZDTHeaderSize = 9;
 // rec_flags, channel, message_seq, length
-inline constexpr size_t kZDTRecordHeaderSize = 6;
+ZNET_INLINE_CONSTEXPR size_t kZDTRecordHeaderSize = 6;
 // the above plus frag_index and frag_count
-inline constexpr size_t kZDTFragRecordHeaderSize = 8;
+ZNET_INLINE_CONSTEXPR size_t kZDTFragRecordHeaderSize = 8;
 
 // Sequences go on the wire truncated to 16 bits but are tracked in full: a
 // truncated value aliases every 65536 messages, which would let a late retransmit
@@ -108,7 +108,7 @@ inline SequenceId ReconstructSeq(WireSeq truncated, SequenceId expected) {
 
 // Naks per datagram. A gap that does not fit is reported by the next one, so
 // this only bounds how fast a backlog is drained, not what can be reported.
-inline constexpr size_t kZDTMaxNaks = 8;
+ZNET_INLINE_CONSTEXPR size_t kZDTMaxNaks = 8;
 
 struct ZDTHeader {
   uint8_t flags = kFlagOnline;
@@ -160,7 +160,7 @@ bool ReadOfflineHeader(Buffer& buffer, ZDTOfflineMsg& out_id);
 // --- Return-routability cookie ------------------------------------------------
 // Server issues HMAC(secret[epoch], addr, epoch) in Reply1 holding no state, and
 // only allocates a session once the client echoes it back in Request2.
-inline constexpr size_t kZDTCookieLen = 16;
+ZNET_INLINE_CONSTEXPR size_t kZDTCookieLen = 16;
 using ZDTCookie = std::array<uint8_t, kZDTCookieLen>;
 
 ZDTCookie ComputeCookie(const uint8_t* secret, size_t secret_len,

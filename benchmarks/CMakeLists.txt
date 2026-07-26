@@ -15,10 +15,8 @@ project(znet-benchmarks LANGUAGES CXX)
 
 function(znet_add_benchmark name)
     add_executable(${name} ${ARGN})
+    znet_apply_cxx_standard(${name})
     set_target_properties(${name} PROPERTIES
-        CXX_STANDARD 20
-        CXX_STANDARD_REQUIRED ON
-        CXX_EXTENSIONS OFF
         RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/benchmarks"
     )
     # the benchmarks root, not the caller's directory, so targets defined in

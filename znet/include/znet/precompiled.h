@@ -13,6 +13,8 @@
 //#define ZNET_PREFER_STD_SLEEP 1
 #define OPENSSL_SUPPRESS_DEPRECATED
 
+#include "znet/compat.h"
+
 #include <cassert>
 #include <csignal>
 #include <functional>
@@ -77,12 +79,6 @@ typedef SSIZE_T ssize_t;
 #endif
 
 #pragma comment(lib, "Ws2_32.lib")
-#endif
-
-#if __cplusplus >= 201703L
-#define ZNET_NODISCARD [[nodiscard]]
-#else
-#define ZNET_NODISCARD
 #endif
 
 // TODO Deprecated status?

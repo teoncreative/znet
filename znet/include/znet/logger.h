@@ -12,8 +12,32 @@
 #pragma once
 
 #include "znet/precompiled.h"
-#include <format>
 #include <iostream>
+
+// Pick a formatting backend. std::format is preferred wherever it exists; the
+// bundled shim keeps the same `{}` call syntax on C++14/17 without pulling in
+// a dependency. Set ZNET_USE_FMTLIB=1 (and link fmt::fmt) to get full format
+// spec support below C++20.
+// Probe for <format> rather than assuming C++20 implies it: libc++ shipped the
+// language features long before the library ones, so an -std=c++20 build on an
+// older Clang/Apple toolchain has no std::format at all. __cpp_lib_format
+// comes from <version>.
+#if ZNET_HAS_CXX20 && defined(__has_include)
+#if __has_include(<version>)
+#include <version>
+#endif
+#endif
+
+#if defined(ZNET_USE_FMTLIB) && ZNET_USE_FMTLIB
+#include <fmt/format.h>
+#define ZNET_FORMAT(...) ::fmt::format(__VA_ARGS__)
+#elif ZNET_HAS_CXX20 && defined(__cpp_lib_format)
+#include <format>
+#define ZNET_FORMAT(...) ::std::format(__VA_ARGS__)
+#else
+#include "znet/detail/format.h"
+#define ZNET_FORMAT(...) ::znet::detail::Format(__VA_ARGS__)
+#endif
 
 // https://github.com/TheCherno/Hazel/blob/e4b0493999206bd2c3ff9d30fa333bcf81f313c8/Hazel/src/Hazel/Debug/Instrumentor.h#L207
 // Resolve which function signature macro will be used. Note that this only
@@ -49,39 +73,42 @@
 #define ZNET_LOG_LEVEL ZNET_LOG_LEVEL_DEBUG
 #endif
 
-#define ZNET_PRINTFN(fmsg, func, msg, ...)               \
-std::cout << std::format(fmsg, func, std::format(msg __VA_OPT__(,) __VA_ARGS__)) << std::flush
+// The message is folded into __VA_ARGS__ rather than named separately, which
+// is what removes the need for __VA_OPT__ (C++20) to elide the comma when a
+// log call passes no arguments beyond the message.
+#define ZNET_PRINTFN(fmsg, func, ...) \
+  std::cout << ZNET_FORMAT(fmsg, func, ZNET_FORMAT(__VA_ARGS__)) << std::flush
 
 #if ZNET_LOG_LEVEL <= ZNET_LOG_LEVEL_DEBUG
-#define ZNET_LOG_DEBUG(msg, ...)                                    \
-ZNET_PRINTFN("\x1b[44m[debug]\x1b[0m \x1b[35m{}: \x1b[0m{}\x1b[0m\n", \
-ZNET_FUNC_SIGN, msg, __VA_ARGS__)
+#define ZNET_LOG_DEBUG(...)                                             \
+ZNET_PRINTFN("\x1b[44m[debug]\x1b[0m \x1b[35m{}: \x1b[0m{}\x1b[0m\n",   \
+ZNET_FUNC_SIGN, __VA_ARGS__)
 #else
-#define ZNET_LOG_DEBUG(msg, ...)
+#define ZNET_LOG_DEBUG(...)
 #endif
 
 #if ZNET_LOG_LEVEL <= ZNET_LOG_LEVEL_INFO
-#define ZNET_LOG_INFO(msg, ...)                                     \
-ZNET_PRINTFN("\x1b[42m[info ]\x1b[0m \x1b[35m{}: \x1b[0m{}\x1b[0m\n", \
-ZNET_FUNC_SIGN, msg, __VA_ARGS__)
+#define ZNET_LOG_INFO(...)                                              \
+ZNET_PRINTFN("\x1b[42m[info ]\x1b[0m \x1b[35m{}: \x1b[0m{}\x1b[0m\n",   \
+ZNET_FUNC_SIGN, __VA_ARGS__)
 #else
-#define ZNET_LOG_INFO(msg, ...)
+#define ZNET_LOG_INFO(...)
 #endif
 
 #if ZNET_LOG_LEVEL <= ZNET_LOG_LEVEL_WARN
-#define ZNET_LOG_WARN(msg, ...)                                          \
-ZNET_PRINTFN("\x1b[41m[warn ]\x1b[0m \x1b[35m{}: \x1b[31m{}\x1b[0m\n", \
-ZNET_FUNC_SIGN, msg, __VA_ARGS__)
+#define ZNET_LOG_WARN(...)                                              \
+ZNET_PRINTFN("\x1b[41m[warn ]\x1b[0m \x1b[35m{}: \x1b[31m{}\x1b[0m\n",  \
+ZNET_FUNC_SIGN, __VA_ARGS__)
 #else
-#define ZNET_LOG_WARN(msg, ...)
+#define ZNET_LOG_WARN(...)
 #endif
 
 #if ZNET_LOG_LEVEL <= ZNET_LOG_LEVEL_ERROR
-#define ZNET_LOG_ERROR(msg, ...)                                         \
-ZNET_PRINTFN("\x1b[41m[error]\x1b[0m \x1b[35m{}: \x1b[31m{}\x1b[0m\n", \
-ZNET_FUNC_SIGN, msg, __VA_ARGS__)
+#define ZNET_LOG_ERROR(...)                                             \
+ZNET_PRINTFN("\x1b[41m[error]\x1b[0m \x1b[35m{}: \x1b[31m{}\x1b[0m\n",  \
+ZNET_FUNC_SIGN, __VA_ARGS__)
 #else
-#define ZNET_LOG_ERROR(msg, ...)
+#define ZNET_LOG_ERROR(...)
 #endif
 
 class LoggerInitializer {
