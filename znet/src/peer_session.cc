@@ -65,7 +65,7 @@ void PeerSession::Process() {
     return;
   }
   transport_layer_->Update();
-  // Drain what is already buffered rather than one message per tick, otherwise
+  // drain what is already buffered rather than one message per tick, otherwise
   // throughput is capped at the caller's tick rate. The bound keeps one busy
   // session from starving the others sharing this worker.
   std::shared_ptr<Buffer> buffer;
@@ -91,7 +91,7 @@ void PeerSession::Process() {
       codec_->Deserialize(buffer, *handler_);
     }
   }
-  // Handlers above almost always answer, and Update() already ran, so without
+  // handlers above almost always answer, and Update() already ran, so without
   // this their replies would sit in the queue until the next tick and every
   // round trip would cost two.
   if (IsAlive()) {
@@ -129,7 +129,7 @@ bool PeerSession::SendPacket(std::shared_ptr<Packet> packet, SendOptions options
   if (!buffer) {
     return false;
   }
-  // Compress before encrypting; ciphertext is incompressible, so the other
+  // compress before encrypting; ciphertext is incompressible, so the other
   // order costs a full pass and saves nothing. Small messages skip it: the
   // coder tables cost more than they can ever save back.
   CompressionType compression = out_compression_type_;

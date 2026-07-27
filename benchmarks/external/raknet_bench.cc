@@ -21,6 +21,7 @@
 //
 
 #include "common/harness.h"
+#include "common/impairment.h"
 
 #include "MessageIdentifiers.h"
 #include "RakPeerInterface.h"
@@ -28,6 +29,7 @@
 #include "BitStream.h"
 
 #include <cstring>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -38,6 +40,8 @@ using namespace RakNet;
 constexpr unsigned short kServerPort = 47200;
 // Anything at or above ID_USER_PACKET_ENUM is ours to define.
 constexpr unsigned char kBenchMessage = ID_USER_PACKET_ENUM + 1;
+
+bench::Impairment g_impair;
 
 struct Pair {
   RakPeerInterface* server = nullptr;
@@ -187,10 +191,12 @@ void Latency(const bench::Workload& w) {
 int main() {
   std::printf("RakNet 4.x (facebookarchive master)\n");
   bench::Note("plaintext, no compression; RELIABLE_ORDERED on channel 0");
+  g_impair = bench::Impairment::FromEnv();
+  bench::NoteImpairment(g_impair);
   bench::PrintHeader("raknet", "RakNet");
-  for (const auto& w : bench::DefaultThroughputWorkloads()) {
+  for (const auto& w : bench::ImpairedThroughputWorkloads(g_impair)) {
     Throughput(w);
   }
-  Latency(bench::DefaultLatencyWorkload());
+  Latency(bench::ImpairedLatencyWorkload(g_impair));
   return 0;
 }

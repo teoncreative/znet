@@ -14,6 +14,8 @@
 #include <openssl/evp.h>
 #include <openssl/kdf.h>
 
+#include <vector>
+
 namespace znet {
 
 /*void print_hex(const unsigned char* data, size_t length) {
@@ -68,7 +70,7 @@ UniquePKey CloneKey(const UniquePKey& k) {
   if (!k) {
     return {};
   }
-  // up‐ref so packet owns its own reference
+  // up-ref so the packet owns its own reference
   if (EVP_PKEY_up_ref(k.get()) <= 0) {
     ZNET_LOG_ERROR("Failed to up_ref pub_key");
     return {};
@@ -168,7 +170,6 @@ unsigned char* ComputeSharedSecret(EVP_PKEY* pkey, EVP_PKEY* peer_pkey,
     return nullptr;
   }
 
-  // Determine buffer length
   if (EVP_PKEY_derive(ctx, nullptr, secret_len) <= 0) {
     ZNET_LOG_ERROR("Failed to determine shared secret length.");
     EVP_PKEY_CTX_free(ctx);
@@ -182,7 +183,6 @@ unsigned char* ComputeSharedSecret(EVP_PKEY* pkey, EVP_PKEY* peer_pkey,
     return nullptr;
   }
 
-  // Derive the shared secret
   if (EVP_PKEY_derive(ctx, secret, secret_len) <= 0) {
     ZNET_LOG_ERROR("Failed to derive shared secret.");
     delete[] secret;
@@ -226,78 +226,77 @@ bool DeriveKeyFromSharedSecret(const unsigned char* shared_secret,
   return true;
 }
 
-int EncryptData(const unsigned char* plaintext, int plaintext_len,
+// `ctx` is owned by the caller and reused across messages. `set_key` is true
+// only the first time, so the AES key schedule is derived once per session
+// instead of once per message; later calls reset the IV and nothing else.
+int EncryptData(EVP_CIPHER_CTX* ctx, bool set_key,
+                const unsigned char* plaintext, int plaintext_len,
                 const unsigned char* key, const unsigned char* iv,
                 unsigned char* ciphertext) {
-  EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();
   if (!ctx) {
     ZNET_LOG_ERROR("Failed to create EVP_CIPHER_CTX.");
-    return false;
+    return 0;
   }
 
-  if (1 != EVP_EncryptInit_ex(ctx, EVP_aes_256_cbc(), nullptr, key, iv)) {
+  const int ok = set_key
+                     ? EVP_EncryptInit_ex(ctx, EVP_aes_256_cbc(), nullptr, key, iv)
+                     : EVP_EncryptInit_ex(ctx, nullptr, nullptr, nullptr, iv);
+  if (1 != ok) {
     ZNET_LOG_ERROR("Failed to initialize encryption.");
-    EVP_CIPHER_CTX_free(ctx);
-    return false;
+    return 0;
   }
 
   int ciphertext_len = 0;
   if (1 != EVP_EncryptUpdate(ctx, ciphertext, &ciphertext_len, plaintext,
                              plaintext_len)) {
     ZNET_LOG_ERROR("Failed to encrypt data.");
-    EVP_CIPHER_CTX_free(ctx);
-    return false;
+    return 0;
   }
 
   int len;
   if (1 != EVP_EncryptFinal_ex(ctx, ciphertext + ciphertext_len, &len)) {
     ZNET_LOG_ERROR("Failed to finalize encryption.");
-    EVP_CIPHER_CTX_free(ctx);
-    return false;
+    return 0;
   }
   ciphertext_len += len;
-
-  EVP_CIPHER_CTX_free(ctx);
   return ciphertext_len;
 }
 
-int DecryptData(const unsigned char* ciphertext, int ciphertext_len,
+// reuses `ctx` the same way EncryptData does; see the note there.
+int DecryptData(EVP_CIPHER_CTX* ctx, bool set_key,
+                const unsigned char* ciphertext, int ciphertext_len,
                 unsigned char* key, unsigned char* iv,
                 unsigned char* plaintext) {
-  EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();
   if (!ctx) {
     ZNET_LOG_ERROR("Failed to create EVP_CIPHER_CTX");
-    return false;
+    return 0;
   }
 
-  if (1 != EVP_DecryptInit_ex(ctx, EVP_aes_256_cbc(), nullptr, key, iv)) {
+  const int ok = set_key
+                     ? EVP_DecryptInit_ex(ctx, EVP_aes_256_cbc(), nullptr, key, iv)
+                     : EVP_DecryptInit_ex(ctx, nullptr, nullptr, nullptr, iv);
+  if (1 != ok) {
     ZNET_LOG_ERROR("Failed to initialize decryption");
-    EVP_CIPHER_CTX_free(ctx);
-    return false;
+    return 0;
   }
 
   int plaintext_len = 0;
   if (1 != EVP_DecryptUpdate(ctx, plaintext, &plaintext_len, ciphertext,
                              ciphertext_len)) {
     ZNET_LOG_ERROR("Failed to decrypt data");
-    EVP_CIPHER_CTX_free(ctx);
-    return false;
+    return 0;
   }
 
   int len;
   if (1 != EVP_DecryptFinal_ex(ctx, plaintext + plaintext_len, &len)) {
     ZNET_LOG_ERROR("Failed to finalize decryption");
-    EVP_CIPHER_CTX_free(ctx);
-    return false;
+    return 0;
   }
   plaintext_len += len;
-
-  EVP_CIPHER_CTX_free(ctx);
   return plaintext_len;
 }
 
 int CalculateCipherTextLength(int plaintext_len) {
-  // Assume these are set or calculated appropriately
   int block_size = 16;  // Block size in bytes (AES)
   int iv_size = 16;     // IV size in bytes (16 for CBC, 12 for GCM, etc.)
 
@@ -338,7 +337,29 @@ void EncryptionLayer::Initialize(bool send, bool want_encryption) {
   }
 }
 
-EncryptionLayer::~EncryptionLayer() {}
+EncryptionLayer::~EncryptionLayer() {
+  if (enc_ctx_) {
+    EVP_CIPHER_CTX_free(enc_ctx_);
+    enc_ctx_ = nullptr;
+  }
+  if (dec_ctx_) {
+    EVP_CIPHER_CTX_free(dec_ctx_);
+    dec_ctx_ = nullptr;
+  }
+  // both of these were leaked once per session. they are key material, so they
+  // are wiped rather than just released: a plain delete[] leaves the session
+  // key sitting in freed heap for whatever allocates that block next.
+  if (key_) {
+    OPENSSL_cleanse(key_, key_len_);
+    delete[] key_;
+    key_ = nullptr;
+  }
+  if (shared_secret_) {
+    OPENSSL_cleanse(shared_secret_, shared_secret_len_);
+    delete[] shared_secret_;
+    shared_secret_ = nullptr;
+  }
+}
 
 std::shared_ptr<Buffer> EncryptionLayer::HandleDecrypt(
     std::shared_ptr<Buffer> buffer) {
@@ -350,16 +371,39 @@ std::shared_ptr<Buffer> EncryptionLayer::HandleDecrypt(
     ZNET_LOG_ERROR("Encryption mode {} is not known/supported!", mode);
     return nullptr;
   }
-  auto* iv = new unsigned char[16];
-  //memset(iv, 0, 16);
-  buffer->Read(iv, 16);
+  // both of these used to be raw new and never freed, once per inbound message
+  unsigned char iv[16];
+  if (buffer->readable_bytes() < sizeof(iv)) {
+    // Read() would leave iv untouched and only set an error flag, and the
+    // indeterminate bytes would go straight to OpenSSL
+    ZNET_LOG_ERROR("Encrypted message is too short to hold an IV, dropping.");
+    return nullptr;
+  }
+  buffer->Read(iv, sizeof(iv));
   auto cipher_len = static_cast<int>(buffer->readable_bytes());
-  auto* actual = new unsigned char[static_cast<size_t>(cipher_len)];
+  // OpenSSL documents the output buffer as needing a block of slack beyond the
+  // input, even though CBC with padding cannot use it from a fresh Init.
+  std::vector<unsigned char> actual(static_cast<size_t>(cipher_len) +
+                                    EVP_MAX_BLOCK_LENGTH);
   const char* data_ptr = buffer->data() + buffer->read_cursor();
-  int actual_len = DecryptData(reinterpret_cast<const unsigned char*>(data_ptr),
-                               cipher_len, key_, iv, actual);
+  if (!dec_ctx_) {
+    dec_ctx_ = EVP_CIPHER_CTX_new();
+    dec_keyed_ = false;
+  }
+  const bool set_dec_key = !dec_keyed_;
+  int actual_len = DecryptData(dec_ctx_, set_dec_key,
+                               reinterpret_cast<const unsigned char*>(data_ptr),
+                               cipher_len, key_, iv, actual.data());
+  if (actual_len > 0) {
+    dec_keyed_ = true;
+  }
   buffer->SkipRead(static_cast<size_t>(cipher_len));
-  return std::make_shared<Buffer>(reinterpret_cast<char*>(actual), actual_len);
+  if (actual_len <= 0) {
+    ZNET_LOG_ERROR("Decryption produced no output, dropping message.");
+    return nullptr;
+  }
+  return std::make_shared<Buffer>(reinterpret_cast<char*>(actual.data()),
+                                  static_cast<size_t>(actual_len));
 }
 
 std::shared_ptr<Buffer> EncryptionLayer::HandleIn(
@@ -376,26 +420,42 @@ std::shared_ptr<Buffer> EncryptionLayer::HandleOut(
   int buffer_len = static_cast<int>(buffer->size());
   std::shared_ptr<Buffer> new_buffer = std::make_shared<Buffer>();
   if (enable_encryption_) {
-    auto* ciphertext =
-        new unsigned char[static_cast<size_t>(CalculateCipherTextLength(buffer_len))];
-    auto* iv = new unsigned char[16];
-    if (!GenerateIV(iv, 16)) {
+    // owned, not raw new: the three buffers here used to be leaked on every
+    // single outgoing message, and so was the plaintext of the round-trip
+    // check below.
+    std::vector<unsigned char> ciphertext(
+        static_cast<size_t>(CalculateCipherTextLength(buffer_len)));
+    unsigned char iv[16];
+    if (!GenerateIV(iv, sizeof(iv))) {
       ZNET_LOG_ERROR("Failed to generate random IV, will use zeros!");
-      memset(iv, 0, 16);
+      memset(iv, 0, sizeof(iv));
     }
 
-    // Encrypt the plaintext
-    int ciphertext_len =
-        EncryptData(reinterpret_cast<const unsigned char*>(buffer->data()),
-                    buffer_len, key_, iv, ciphertext);
+    int ciphertext_len;
+    {
+      std::lock_guard<std::mutex> lock(enc_mutex_);
+      if (!enc_ctx_) {
+        enc_ctx_ = EVP_CIPHER_CTX_new();
+        cipher_keyed_ = false;
+      }
+      const bool set_key = !cipher_keyed_;
+      ciphertext_len =
+          EncryptData(enc_ctx_, set_key,
+                      reinterpret_cast<const unsigned char*>(buffer->data()),
+                      buffer_len, key_, iv, ciphertext.data());
+      if (ciphertext_len > 0) {
+        cipher_keyed_ = true;
+      }
+    }
+    if (ciphertext_len <= 0) {
+      ZNET_LOG_ERROR("Encryption produced no output, dropping message.");
+      return nullptr;
+    }
 
     new_buffer->ReserveExact(static_cast<size_t>(ciphertext_len) + 2 + 8 + 16 + 8);
     new_buffer->WriteInt<uint8_t>(1);  // encryption enabled
-    new_buffer->Write(iv, 16);
-    new_buffer->Write(ciphertext, static_cast<size_t>(ciphertext_len));
-
-    auto* actual = new unsigned char[static_cast<size_t>(buffer_len)];
-    DecryptData(ciphertext, ciphertext_len, key_, iv, actual);
+    new_buffer->Write(iv, sizeof(iv));
+    new_buffer->Write(ciphertext.data(), static_cast<size_t>(ciphertext_len));
     return new_buffer;
   }
   new_buffer->ReserveExact(static_cast<size_t>(buffer_len) + 2);
@@ -413,7 +473,7 @@ void EncryptionLayer::OnHandshakePacket(
     return;
   }
   if (session_.is_initiator()) {
-    // The server states the parameters outright; adopt them.
+    // the server states the parameters outright; adopt them.
     session_.SetNegotiatedCompression(
         static_cast<CompressionType>(packet->compression_));
     if (!packet->encryption_) {
@@ -432,7 +492,7 @@ void EncryptionLayer::OnHandshakePacket(
       return;
     }
   } else {
-    // Accepting side: our own policy decides, the client only supplies a key.
+    // accepting side: our own policy decides, the client only supplies a key.
     if (!want_encryption_) {
       negotiated_ = true;
       ZNET_LOG_DEBUG("Server selected an unencrypted session.");

@@ -50,6 +50,28 @@ class TransportLayer {
    * @param out Destination, which the caller may have pre-filled.
    */
   virtual void FillMetrics(SessionMetrics& out) const { (void)out; }
+
+  /**
+   * @brief Registers a callback that ends the owning worker's tick sleep.
+   *
+   * Send() only queues, and the worker is what puts bytes on the wire, so
+   * without this an outbound message on an otherwise idle session waits for
+   * the next tick. Set once when the session is handed to a worker and never
+   * replaced, so it needs no synchronisation; the callback owns whatever it
+   * signals, so it stays valid after the server is gone.
+   */
+  void SetWakeCallback(std::function<void()> wake) { wake_ = std::move(wake); }
+
+ protected:
+  /** @brief Called when a Send() finds the outbound queue empty. */
+  void WakeWorker() const {
+    if (wake_) {
+      wake_();
+    }
+  }
+
+ private:
+  std::function<void()> wake_;
 };
 
 }

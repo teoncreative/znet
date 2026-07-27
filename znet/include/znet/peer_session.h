@@ -80,6 +80,19 @@ class PeerSession {
   }
 
   /**
+   * @brief Registers a callback the transport fires when an idle session is
+   *        sent to, so the owning worker flushes without waiting out its tick.
+   *
+   * Set by the server when it hands the session to a worker. A session driven
+   * directly, as a client's is, needs none.
+   */
+  void SetWakeCallback(std::function<void()> wake) {
+    if (transport_layer_) {
+      transport_layer_->SetWakeCallback(std::move(wake));
+    }
+  }
+
+  /**
    * @brief Associates user-defined data with the PeerSession.
    *
    * Allows attaching a user-defined object to the session for custom purposes.

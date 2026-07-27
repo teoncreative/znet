@@ -145,13 +145,19 @@ struct ZDTOptions {
   /** @brief Close a connection that has heard nothing for this long. */
   std::chrono::milliseconds idle_timeout{10000};
   /**
-   * @brief Congestion window, in datagrams. Governs throughput.
+   * @brief Ceiling on the congestion window, in datagrams.
    *
-   * An acknowledgement describes one packet_seq plus 32 history bits, so a
-   * datagram outstanding beyond that can never be acknowledged and is resent
-   * for nothing. Keep at or below 33 unless the ack format grows.
+   * This is a bound, not the window itself: ZDT slow-starts from 10 datagrams
+   * and backs off on queueing delay rather than on loss, and this caps how far
+   * it may grow. Acknowledgements are run-length encoded, so the ceiling comes
+   * from how far back the receiver remembers arrivals (kZDTAckHistoryBits)
+   * rather than from header size.
+   *
+   * The window counts *datagrams*, not bytes, so a half-full datagram costs as
+   * much of it as a full one. Bytes in flight are bounded by roughly this times
+   * the MTU per round trip, which is what governs throughput on a long link.
    */
-  int max_datagrams_in_flight = 32;
+  int max_datagrams_in_flight = 512;
   /**
    * @brief Reliable messages allowed in flight. A memory bound, not congestion
    * control.

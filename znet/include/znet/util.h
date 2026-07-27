@@ -63,9 +63,13 @@ inline bool CloseSocket(SocketHandle socket) {
   return false;
 }
 
-// Half-closes both directions on the socket. Used to wake a blocked recv()
-// that is being torn down from another thread - plain CloseSocket() does not
-// interrupt an in-progress recv on POSIX, which stalls graceful shutdown.
+/**
+ * @brief Half-closes both directions on the socket.
+ *
+ * Used to wake a blocked recv() on a socket being torn down from another
+ * thread: plain CloseSocket() does not interrupt an in-progress recv on
+ * POSIX, which stalls graceful shutdown.
+ */
 inline bool ShutdownSocket(SocketHandle socket) {
   if (!IsValidSocketHandle(socket)) {
     return false;

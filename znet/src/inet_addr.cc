@@ -140,7 +140,7 @@ std::unique_ptr<InetAddress> InetAddress::from(const std::string& host, PortNumb
   }
   std::string ip_str = ResolveHostnameToIP(host);
   if (ip_str == "localhost") {
-    // For some dumb reason
+    // the resolver hands this one back unresolved
     ip_str = "127.0.0.1";
   }
   if (IsIPv4(ip_str)) {

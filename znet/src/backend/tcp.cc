@@ -176,7 +176,7 @@ bool TCPTransportLayer::Send(std::shared_ptr<Buffer> buffer, SendOptions options
   const size_t header = 48; // usually smaller than this
   const size_t limit = ZNET_MAX_BUFFER_SIZE - header;
   size_t new_size = buffer->size() + sizeof(size_t);
-  // This intentionally checks for >= limit, not > limit
+  // intentionally >= limit, not > limit
   if (new_size >= limit) {
     // Due to the nature of how we read packets, we cannot receive packets
     // bigger than a frame (MAX_BUFFER_SIZE - HEADER_SIZE).
@@ -328,7 +328,7 @@ Result TCPClientBackend::Connect() {
     return Result::Failure;
   }
 
-  // The session's loop interleaves Update() (flush) with Receive(), so a
+  // the session's loop interleaves Update() (flush) with Receive(), so a
   // blocking socket would park the thread in recv() and strand everything
   // queued by Send() until the peer happened to send something back. The
   // accepted server-side sockets are already non-blocking for the same reason.
@@ -414,7 +414,6 @@ Result TCPServerBackend::Bind() {
              SO_REUSEADDR | SO_REUSEPORT | SO_BROADCAST, &option,
              sizeof(option));
 #endif
-  // Enable non-blockig socket
   if (!SetSocketBlocking(server_socket_, false)) {
     ZNET_LOG_ERROR("Error setting socket to non-blocking mode: {}",
                    GetLastErrorInfo());

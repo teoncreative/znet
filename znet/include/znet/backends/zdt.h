@@ -43,29 +43,31 @@
 namespace znet {
 namespace backends {
 
-// Protocol version, checked for strict equality during the handshake.
-ZNET_INLINE_CONSTEXPR uint8_t kZDTProtocolVersion = 1;
+/** @brief Protocol version, checked for strict equality during the handshake. */
+ZNET_INLINE_CONSTEXPR uint8_t kZDTProtocolVersion = 2;
 
-// Prefix on offline (pre-connection) messages, so unrelated UDP traffic on the
-// port is not parsed as a handshake.
+/**
+ * @brief Prefix on offline (pre-connection) messages.
+ *
+ * Keeps unrelated UDP traffic on the port from being parsed as a handshake.
+ */
 ZNET_INLINE_CONSTEXPR std::array<uint8_t, 8> kZDTMagic = {'Z', 'N', 'E', 'T',
                                                      'Z', 'D', 'T', 0x01};
 
-// Online datagram flags (byte 0), connection-level only. Bit 7 separates
+// online datagram flags (byte 0), connection-level only. bit 7 separates
 // connected-state datagrams from offline handshake messages, which the demux
 // keys on. Anything about an individual message lives in its record flags.
 ZNET_INLINE_CONSTEXPR uint8_t kFlagFin = 1u << 0;     // graceful close
 ZNET_INLINE_CONSTEXPR uint8_t kFlagPing = 1u << 1;    // keepalive probe
 ZNET_INLINE_CONSTEXPR uint8_t kFlagPong = 1u << 2;    // keepalive reply
-ZNET_INLINE_CONSTEXPR uint8_t kFlagNak = 1u << 3;     // negative ack list follows
 ZNET_INLINE_CONSTEXPR uint8_t kFlagOnline = 1u << 7;  // online-datagram marker
 
-// Per-record flags (byte 0 of each message record).
+// per-record flags (byte 0 of each message record).
 ZNET_INLINE_CONSTEXPR uint8_t kRecReliable = 1u << 0;  // retransmit until acked
 ZNET_INLINE_CONSTEXPR uint8_t kRecOrdered = 1u << 1;   // ordering applies on channel
 ZNET_INLINE_CONSTEXPR uint8_t kRecFragment = 1u << 2;  // frag_index/frag_count present
 
-// Offline (handshake) message ids, all < 0x80 so they never set kFlagOnline.
+/** @brief Offline (handshake) message ids, all < 0x80 so they never set kFlagOnline. */
 enum class ZDTOfflineMsg : uint8_t {
   OpenConnectionRequest1 = 0x01,
   OpenConnectionReply1 = 0x02,
@@ -78,22 +80,24 @@ enum class ZDTOfflineMsg : uint8_t {
   Punch = 0x09,  // P2P NAT hole-punch keepalive (not part of the client/server flow)
 };
 
-// A datagram is one header followed by zero or more message records, so small
-// messages share one instead of each paying for its own. Zero records is a valid
+// a datagram is one header followed by zero or more message records, so small
+// messages share one instead of each paying for its own. zero records is a valid
 // control datagram (bare ack, ping, pong or fin).
-ZNET_INLINE_CONSTEXPR size_t kZDTHeaderSize = 9;
+// flags(1) + packet_seq(2) + ack(2) + block_count(1), then 2 bytes per block.
+// this is the fixed part; ReadZDTHeader checks the blocks separately.
+ZNET_INLINE_CONSTEXPR size_t kZDTHeaderSize = 6;
 // rec_flags, channel, message_seq, length
 ZNET_INLINE_CONSTEXPR size_t kZDTRecordHeaderSize = 6;
 // the above plus frag_index and frag_count
 ZNET_INLINE_CONSTEXPR size_t kZDTFragRecordHeaderSize = 8;
 
-// Sequences go on the wire truncated to 16 bits but are tracked in full: a
+// sequences go on the wire truncated to 16 bits but are tracked in full: a
 // truncated value aliases every 65536 messages, which would let a late retransmit
 // reconstruct onto a live message and corrupt ordering and map keys.
 using WireSeq = uint16_t;
 using SequenceId = uint64_t;
 
-// Rebuilds the full SequenceId from a truncated wire value, picking the
+// rebuilds the full SequenceId from a truncated wire value, picking the
 // candidate nearest `expected` (the standard TCP/QUIC reconstruction).
 inline SequenceId ReconstructSeq(WireSeq truncated, SequenceId expected) {
   constexpr SequenceId kPeriod = SequenceId{1} << 16;
@@ -106,23 +110,60 @@ inline SequenceId ReconstructSeq(WireSeq truncated, SequenceId expected) {
   return candidate;
 }
 
-// Naks per datagram. A gap that does not fit is reported by the next one, so
-// this only bounds how fast a backlog is drained, not what can be reported.
-ZNET_INLINE_CONSTEXPR size_t kZDTMaxNaks = 8;
+// how far back the receiver remembers which packet_seqs arrived. the encoder
+// walks this to build ack blocks, so it bounds what one acknowledgement can
+// describe and therefore how large the send window may usefully grow.
+ZNET_INLINE_CONSTEXPR size_t kZDTAckHistoryBits = 1024;
+ZNET_INLINE_CONSTEXPR size_t kZDTAckHistoryWords = kZDTAckHistoryBits / 64;
+
+// ack blocks per datagram. each is a run of received packets followed by the
+// run of missing ones just older, walking backwards from `ack`. a gap that does
+// not fit is described by a later acknowledgement, so this bounds header size
+// rather than what can eventually be reported.
+ZNET_INLINE_CONSTEXPR size_t kZDTMaxAckBlocks = 24;
+// each block is num_ack(1) + num_nack(1)
+ZNET_INLINE_CONSTEXPR size_t kZDTAckBlockSize = 2;
+// blocks a data datagram always has room for. kZDTHeaderSize covers only the
+// fixed part, so records are packed against this larger figure and the ack
+// encoder is capped at whatever is actually left. without the reserve a full
+// datagram would carry no ack at all.
+ZNET_INLINE_CONSTEXPR size_t kZDTAckBlocksReserved = 4;
+ZNET_INLINE_CONSTEXPR size_t kZDTHeaderReserve =
+    kZDTHeaderSize + kZDTAckBlocksReserved * kZDTAckBlockSize;
+
+// how long a base round trip measurement stays authoritative. the minimum is
+// the queue-free path, so it has to be re-probed: a route change or a handover
+// raises the floor permanently, and a minimum kept for the whole connection
+// would read the new baseline as congestion and never open the window again.
+ZNET_INLINE_CONSTEXPR int kZDTRttMinWindowMs = 10000;
+
+// round trip inflation that counts as a queue building rather than jitter, and
+// how hard to back off when it does.
+ZNET_INLINE_CONSTEXPR double kZDTQueueingRttRatio = 1.25;
+ZNET_INLINE_CONSTEXPR double kZDTQueueingBackoff = 0.85;
+
+ZNET_INLINE_CONSTEXPR int kZDTMaxDatagramsInFlight =
+    static_cast<int>(kZDTAckHistoryBits);
+
+// one run of received packets and the run of missing ones immediately older.
+// blocks are ordered newest first, the first one ending at `ack`.
+struct ZDTAckBlock {
+  uint8_t num_ack = 0;   // consecutive received, ending at this block's head
+  uint8_t num_nack = 0;  // consecutive missing, just older than those
+};
 
 struct ZDTHeader {
   uint8_t flags = kFlagOnline;
   uint16_t packet_seq = 0;  // connection-level, ++ per datagram (drives ack/RTT)
   uint16_t ack = 0;         // highest packet_seq seen from peer
-  uint32_t ack_bits = 0;    // bitfield of the 32 packet_seqs before `ack`
-  // Packets the peer saw a gap for: it received something newer, so these are
-  // presumed lost rather than late. Lets the sender resend without waiting out
-  // an RTO, which is otherwise the only signal it gets.
-  std::array<uint16_t, kZDTMaxNaks> naks{};
-  uint8_t nak_count = 0;
+  // run-length encoded picture of what arrived, walking back from `ack`. the
+  // nack runs are the negative acknowledgement, so nothing caps the window at
+  // what fits in a fixed-width bitfield.
+  std::array<ZDTAckBlock, kZDTMaxAckBlocks> blocks{};
+  uint8_t block_count = 0;
 };
 
-// One message, or one fragment of one, inside a datagram.
+// one message, or one fragment of one, inside a datagram.
 struct ZDTRecord {
   uint8_t flags = 0;         // kRec*
   uint8_t channel = 0;
@@ -132,47 +173,47 @@ struct ZDTRecord {
   uint16_t length = 0;  // payload bytes following this record header
 };
 
-// Serializes `header` (big-endian) to the front of `buffer`.
+// serializes `header` (big-endian) to the front of `buffer`.
 void WriteZDTHeader(Buffer& buffer, const ZDTHeader& header);
-// Parses an online header from the front of `buffer`; returns false if the buffer
-// is too short or does not carry the online marker. Leaves the read cursor at the
+// parses an online header from the front of `buffer`; returns false if the buffer
+// is too short or does not carry the online marker. leaves the read cursor at the
 // first record on success.
 bool ReadZDTHeader(Buffer& buffer, ZDTHeader& out_header);
 
-// Record header only; the payload follows and is not copied.
+// record header only; the payload follows and is not copied.
 void WriteZDTRecord(Buffer& buffer, const ZDTRecord& record);
-// Reads a record header and validates that `length` bytes actually follow.
-// Leaves the read cursor at the record's payload.
+// reads a record header and validates that `length` bytes actually follow.
+// leaves the read cursor at the record's payload.
 bool ReadZDTRecord(Buffer& buffer, ZDTRecord& out_record);
 
-// Bytes a record occupies on the wire, header plus payload.
+// bytes a record occupies on the wire, header plus payload.
 inline size_t ZDTRecordSize(bool fragment, size_t payload_len) {
   return (fragment ? kZDTFragRecordHeaderSize : kZDTRecordHeaderSize) +
          payload_len;
 }
 
-// Writes an offline message id followed by kZDTMagic.
+// writes an offline message id followed by kZDTMagic.
 void WriteOfflineHeader(Buffer& buffer, ZDTOfflineMsg id);
-// Reads and validates an offline header (id < 0x80 and correct magic). On success
+// reads and validates an offline header (id < 0x80 and correct magic). on success
 // the read cursor is left just past the magic and `out_id` holds the message id.
 bool ReadOfflineHeader(Buffer& buffer, ZDTOfflineMsg& out_id);
 
 // --- Return-routability cookie ------------------------------------------------
-// Server issues HMAC(secret[epoch], addr, epoch) in Reply1 holding no state, and
+// server issues HMAC(secret[epoch], addr, epoch) in Reply1 holding no state, and
 // only allocates a session once the client echoes it back in Request2.
 ZNET_INLINE_CONSTEXPR size_t kZDTCookieLen = 16;
 using ZDTCookie = std::array<uint8_t, kZDTCookieLen>;
 
 ZDTCookie ComputeCookie(const uint8_t* secret, size_t secret_len,
                         const std::string& peer_readable, uint32_t epoch);
-// Constant-time comparison (no early-out) to avoid timing side channels.
+// constant-time comparison (no early-out) to avoid timing side channels.
 bool ConstTimeEqual(const ZDTCookie& a, const ZDTCookie& b);
 // 64-bit random peer identifier (OpenSSL RAND_bytes).
 uint64_t GenerateGuid();
 
 enum class RecvResult { Received, WouldBlock, Error };
 
-// Thin owner of a UDP socket. Shared by a server's per-peer transports: concurrent
+// thin owner of a UDP socket. shared by a server's per-peer transports: concurrent
 // sendto() on one socket is safe.
 class UDPSocket {
  public:
@@ -190,10 +231,10 @@ class UDPSocket {
 
   bool SetBlocking(bool blocking);
   bool SetReceiveTimeout(std::chrono::milliseconds timeout);
-  // Headroom for bursts that arrive between drains. Best-effort: the kernel
+  // headroom for bursts that arrive between drains. Best-effort: the kernel
   // clamps to its own maximum and reports no error when it does.
   bool SetReceiveBufferSize(int bytes);
-  // Best-effort; the handshake MTU probe needs oversized datagrams dropped
+  // best-effort; the handshake MTU probe needs oversized datagrams dropped
   // rather than IP-fragmented.
   bool SetDontFragment(bool enabled);
 
@@ -206,11 +247,11 @@ class UDPSocket {
   SocketHandle socket_ = kSocketInvalid;
 };
 
-// Thread-safe raw-datagram queue, shared by a producer and a consumer running on
+// thread-safe raw-datagram queue, shared by a producer and a consumer running on
 // different threads (see ZDTTransportLayer for the threading rule).
 class ZDTInbox {
  public:
-  // Drops and returns false once `limit` datagrams are pending, so a flooding
+  // drops and returns false once `limit` datagrams are pending, so a flooding
   // peer cannot grow this queue without bound.
   bool Push(const uint8_t* data, size_t len, size_t limit);
   void Drain(std::deque<std::vector<uint8_t>>& out);
@@ -222,14 +263,14 @@ class ZDTInbox {
   size_t dropped_ = 0;
 };
 
-// Per-connection parameters settled by the handshake.
+// per-connection parameters settled by the handshake.
 struct ZDTConnection {
   uint16_t mtu = 1200;
   uint64_t local_guid = 0;
   uint64_t remote_guid = 0;
 };
 
-// Per-peer transport. All protocol state is touched only on the owning session's
+// per-peer transport. all protocol state is touched only on the owning session's
 // worker thread (Update/Receive/Send). OnDatagram may be called from any thread;
 // it just appends raw bytes to the inbox which Update() drains.
 class ZDTTransportLayer : public TransportLayer {
@@ -247,7 +288,7 @@ class ZDTTransportLayer : public TransportLayer {
   void Update() override;
   void Flush() override;
 
-  // Feeds one raw ZDT datagram (UDP payload) to this transport. Thread-safe.
+  // feeds one raw ZDT datagram (UDP payload) to this transport. Thread-safe.
   void OnDatagram(const uint8_t* data, size_t len);
 
   void FillMetrics(SessionMetrics& out) const override;
@@ -258,7 +299,7 @@ class ZDTTransportLayer : public TransportLayer {
  private:
   using TimePoint = std::chrono::steady_clock::time_point;
 
-  // Identifies one reliable datagram / reassembly buffer.
+  // identifies one reliable datagram / reassembly buffer.
   struct MsgKey {
     uint8_t channel = 0;
     bool reliable = false;
@@ -277,7 +318,7 @@ class ZDTTransportLayer : public TransportLayer {
   void SendControl(uint8_t flags);
   void CheckTimers();
 
-  // One message queued for the datagram being packed. `owner` keeps the source
+  // one message queued for the datagram being packed. `owner` keeps the source
   // buffer alive until the batch goes out, since `payload` points into it.
   struct PendingRecord {
     ZDTRecord record;
@@ -294,30 +335,35 @@ class ZDTTransportLayer : public TransportLayer {
   WireSeq SendBatch(uint8_t extra_flags, const PendingRecord* batch,
                     size_t count);
 
-  void FillAck(ZDTHeader& header);
-  // fills header.naks with gaps not yet reported, marking them so a gap is not
-  // asked for on every outgoing datagram
-  void FillNaks(ZDTHeader& header);
+  // encodes the arrival history into at most max_blocks blocks, so the caller
+  // can hold the datagram inside the MTU.
+  void FillAck(ZDTHeader& header, size_t max_blocks);
+  // congestion control: grows while acks arrive, backs off on queueing delay.
+  void OnCongestionAck(int acked_datagrams);
+  ZNET_NODISCARD int SendWindow() const;
+  ZNET_NODISCARD int SendWindowCap() const;
+  // marks a reported gap for immediate retransmit and stops tracking it, so one
+  // loss costs one resend however often the peer keeps reporting it.
   void OnNak(WireSeq packet_seq);
-  void RecordRemoteSeq(WireSeq packet_seq);   // update our (ack, ack_bits)
-  void ProcessAcks(const ZDTHeader& header);  // consume peer's (ack, ack_bits)
-  void AckPacket(WireSeq packet_seq);
-  void UpdateRtt(std::chrono::steady_clock::duration sample);
+  void RecordRemoteSeq(WireSeq packet_seq);   // fold an arrival into our history
+  void ProcessAcks(const ZDTHeader& header);  // consume the peer's ack blocks
+  bool AckPacket(WireSeq packet_seq);  // true if this ack was new
+  void UpdateRtt(std::chrono::steady_clock::duration sample, TimePoint now);
   void RetransmitUnacked();
   void PruneSentPackets();
-  // Expands the record's truncated message_seq to a full SequenceId, using the
+  // expands the record's truncated message_seq to a full SequenceId, using the
   // matching substream's position on that channel as context.
   SequenceId ReconstructSeqFor(const ZDTRecord& record);
-  // Return false when the record could not be taken (reassembly at its limit).
-  // The caller then leaves the datagram unacked so the sender retransmits,
+  // return false when the record could not be taken (reassembly at its limit).
+  // the caller then leaves the datagram unacked so the sender retransmits,
   // rather than taking responsibility for data it dropped.
   bool OnRecord(const ZDTRecord& record, const uint8_t* data, size_t len);
   bool OnDataFragment(const ZDTRecord& record, const uint8_t* data, size_t len);
   void PruneReassembly();
   void DeliverMessage(const ZDTRecord& record, std::shared_ptr<Buffer> payload);
 
-  // Ring of the most recent packet_seqs a reliable datagram was sent under.
-  // Fixed capacity, stored inline, so tracking retransmissions never allocates
+  // ring of the most recent packet_seqs a reliable datagram was sent under.
+  // fixed capacity, stored inline, so tracking retransmissions never allocates
   // and never grows regardless of how many retries a configuration allows.
   struct TransmissionLog {
     static constexpr size_t kCapacity = 16;
@@ -353,8 +399,8 @@ class ZDTTransportLayer : public TransportLayer {
     std::shared_ptr<Buffer> payload;
     SendOptions options;
   };
-  // A datagram can carry several reliable messages, so acking it retires all of
-  // them. Fixed capacity and inline, like TransmissionLog: batching must not add
+  // a datagram can carry several reliable messages, so acking it retires all of
+  // them. fixed capacity and inline, like TransmissionLog: batching must not add
   // an allocation per datagram.
   struct SentInfo {
     static constexpr size_t kMaxKeys = 64;
@@ -395,7 +441,7 @@ class ZDTTransportLayer : public TransportLayer {
     std::map<uint8_t, std::vector<uint8_t>> fragments;  // frag_index -> bytes
     TimePoint first_seen;
   };
-  // Per-channel receive state. Reliable and unreliable traffic use separate
+  // per-channel receive state. reliable and unreliable traffic use separate
   // sequence spaces, so both can share a channel without interfering. Within the
   // reliable substream pick ordered XOR unordered; within the unreliable
   // substream pick sequenced XOR unordered.
@@ -404,7 +450,7 @@ class ZDTTransportLayer : public TransportLayer {
   //   unreliable + ordered  -> unrel_last + unrel_started (sequenced drop-old)
   //   unreliable + unordered-> stateless (deliver every arrival)
   //
-  // Allocated lazily per channel actually used, so idle channels cost nothing.
+  // allocated lazily per channel actually used, so idle channels cost nothing.
   struct ChannelState {
     // send
     SequenceId rel_send = 0;
@@ -435,6 +481,21 @@ class ZDTTransportLayer : public TransportLayer {
   // session's worker. The lock covers only the queue, never a sendto().
   mutable std::mutex outbound_mutex_;
   std::deque<QueuedOut> outbound_;
+  // messages queued but not yet handed to the wire, counting both outbound_ and
+  // staged_. Send() bounds itself on this rather than outbound_.size(), which
+  // reads short whenever staged_ is holding some.
+  size_t outbound_count_ = 0;
+  // reused across ProcessInbound() calls. a default-constructed std::deque
+  // allocates its map and first node immediately, so declaring this local meant
+  // two mallocs on every tick whether or not a datagram had arrived. swapping
+  // into a member keeps those nodes alive between calls. session worker only.
+  std::deque<std::vector<uint8_t>> inbound_scratch_;
+  // the oldest queued messages, already taken off outbound_ but not yet sent
+  // because the send window refused them. holding them here instead of putting
+  // them back means FlushOutbound() takes the lock once per refill rather than
+  // once per message, and never has to splice a partial batch back onto the
+  // front of a deque. touched only by the session worker, so it needs no lock.
+  std::deque<QueuedOut> staged_;
   // read via IsAlive() from whichever thread owns the application, written by
   // Close() from the same, so it cannot be a plain bool
   std::atomic_bool is_closed_{false};
@@ -445,6 +506,15 @@ class ZDTTransportLayer : public TransportLayer {
   // reliability: RTT/RTO (Jacobson/Karels).
   double srtt_ms_ = 0.0;
   double rttvar_ms_ = 0.0;
+  // lowest round trip seen, i.e. the path with no queue in it. congestion is
+  // judged against this rather than against packet loss: netem-style random
+  // loss, and the wireless loss it stands in for, is not congestion, and
+  // halving the window for it is how a loss-based controller strangles itself
+  // on a lossy link.
+  double rtt_min_ms_ = 0.0;
+  // when rtt_min_ms_ was last set, so it can be re-probed. see
+  // kZDTRttMinWindowMs.
+  TimePoint rtt_min_stamp_;
   bool has_rtt_ = false;
   std::chrono::milliseconds rto_{200};
 
@@ -457,10 +527,22 @@ class ZDTTransportLayer : public TransportLayer {
 
   // reliability, receiver: ack state and per-channel ordered delivery.
   uint16_t remote_ack_seq_ = 0;
-  uint32_t remote_ack_bits_ = 0;
-  // Gaps already reported as naks, in the same bit positions as
-  // remote_ack_bits_ and shifted with it, so each gap is only asked for once.
-  uint32_t nak_sent_bits_ = 0;
+  // bit i means "packet_seq (remote_ack_seq_ - i) arrived"; bit 0 is
+  // remote_ack_seq_ itself and is always set once has_remote_seq_ is true.
+  std::array<uint64_t, kZDTAckHistoryWords> remote_ack_bits_{};
+  // how much of remote_ack_bits_ describes sequences the peer has actually
+  // sent. the rest is history never observed, and encoding it as missing would
+  // invent losses out of a freshly opened connection.
+  size_t history_valid_bits_ = 0;
+  // congestion window in datagrams, and the slow-start threshold it switches
+  // to congestion avoidance at. a double so congestion avoidance can grow it by
+  // a fraction of a datagram per ack rather than rounding to nothing.
+  double cwnd_ = 10.0;       // initial window, TCP's IW10
+  double ssthresh_ = 1e9;    // no threshold until the first loss teaches one
+  // suppresses repeated halving inside one round trip: one loss event should
+  // cost one halving, not one per lost datagram in the same window.
+  WireSeq loss_recovery_until_ = 0;
+  bool in_loss_recovery_ = false;
   bool has_remote_seq_ = false;
   bool needs_ack_ = false;
   std::unordered_map<uint8_t, ChannelState> channels_;  // allocated on first use
@@ -468,7 +550,7 @@ class ZDTTransportLayer : public TransportLayer {
   SessionMetrics metrics_;
 #endif
   std::map<MsgKey, Reassembly> reassembly_;  // frag_index unused in this key
-  // Bytes currently held in reassembly_. Tracked so the caps can act as
+  // bytes currently held in reassembly_. tracked so the caps can act as
   // backpressure (refuse to start new messages) instead of discarding data.
   size_t reassembly_bytes_ = 0;
 };
@@ -492,21 +574,35 @@ class ZDTClientBackend : public ClientBackend {
   Result Close() override;
   void Update() override;
   bool IsAlive() override;
+  void SetWakeCallback(std::function<void()> on_data) override {
+    on_data_ = std::move(on_data);
+  }
+  void StopReceiving() override;
+  bool DrivesOwnReceive() const override { return true; }
 
   std::mutex& mutex() override { return mutex_; }
   std::shared_ptr<PeerSession> client_session() override { return client_session_; }
   std::shared_ptr<InetAddress> local_address() override { return local_address_; }
 
  private:
-  // runs the synchronous RakNet-style handshake on socket_. On success fills
-  // `out` with the negotiated connection and returns Result::Success; otherwise a
+  // on success fills `out` with the negotiated connection and returns Result::Success; otherwise a
   // granular failure Result (IncompatibleVersion, ServerFull, Timeout, ...).
   Result Handshake(ZDTConnection& out);
+
+  // like the server's, so an arriving datagram is seen at once rather than on
+  // the client loop's next tick. started only after the handshake, which reads
+  // the socket directly and would otherwise race it.
+  void ReceiveLoop();
 
   std::mutex mutex_;
   std::shared_ptr<InetAddress> server_address_;
   std::shared_ptr<InetAddress> local_address_;
   std::shared_ptr<UDPSocket> socket_;
+  std::shared_ptr<ZDTInbox> inbox_;
+  std::thread receive_thread_;
+  std::mutex receive_thread_mutex_;
+  std::atomic_bool receiving_{false};
+  std::function<void()> on_data_;
   std::shared_ptr<PeerSession> client_session_;
   ZDTOptions config_;
   SessionOptions session_options_;  // passed to the PeerSession it creates
@@ -558,7 +654,7 @@ class ZDTServerBackend : public ServerBackend {
     uint64_t remote_guid = 0;
   };
 
-  // Body of the receive thread: blocks in recvfrom and routes each datagram as
+  // body of the receive thread: blocks in recvfrom and routes each datagram as
   // it lands. Online -> the matching peer's inbox; offline -> the stateless
   // handshake path (which may create a session and push it onto
   // pending_accept_). Returns when is_listening_ goes false.
@@ -569,7 +665,7 @@ class ZDTServerBackend : public ServerBackend {
                      size_t datagram_size);
   void MaybeRotateSecret();
   ZDTCookie CookieFor(const std::string& peer_readable, uint32_t epoch) const;
-  // Per-source handshake rate limit (bounded, self-pruning). Returns false when
+  // per-source handshake rate limit (bounded, self-pruning). returns false when
   // the source has exceeded per_source_handshake_rate this second.
   bool AllowHandshake(const std::string& peer_readable);
 
@@ -578,8 +674,6 @@ class ZDTServerBackend : public ServerBackend {
   std::shared_ptr<UDPSocket> socket_;
   ZDTOptions config_;
   SessionOptions child_session_options_;  // passed to each accepted PeerSession
-  // IsAlive() is polled by the server's main loop while Close() may be running
-  // on another thread, so these cannot be plain bools.
   std::atomic_bool is_bind_{false};
   std::atomic_bool is_listening_{false};
 
@@ -593,12 +687,12 @@ class ZDTServerBackend : public ServerBackend {
   // lock. Deliberately not mutex_: the Server holds that across a whole tick,
   // and stalling the receive thread that long is what overflows the socket.
   mutable std::mutex state_mutex_;
-  // Set once before the receive thread starts and never reassigned, so the
-  // thread can read it without synchronising.
+  // set once before the receive thread starts and never reassigned, so the
+  // thread can read it without synchronizing.
   std::function<void()> on_data_;
   // StopReceiving() is reachable both from the shutdown path and from Close()
   // on another thread. Joining the same thread twice is undefined, so entry is
-  // serialised here.
+  // serialized here.
   std::mutex receive_thread_mutex_;
   std::thread receive_thread_;
   std::atomic_bool receiving_{false};

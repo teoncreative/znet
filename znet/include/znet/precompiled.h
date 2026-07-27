@@ -67,7 +67,7 @@
 #include <ws2tcpip.h>
 #include <cstdio>
 #include <cstdlib>
-// Needed for the Windows 2000 IPv6 Tech Preview.
+// needed for the Windows 2000 IPv6 Tech Preview.
 #if (_WIN32_WINNT == 0x0500)
 #include <tpipv6.h>
 #endif

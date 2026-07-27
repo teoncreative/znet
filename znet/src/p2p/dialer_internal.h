@@ -23,7 +23,7 @@
 namespace znet {
 namespace p2p {
 
-// Each returns a connected, self-managed PeerSession and sets *out_result to
+// each returns a connected, self-managed PeerSession and sets *out_result to
 // Result::Success, or returns nullptr with the failure reason in *out_result.
 std::shared_ptr<PeerSession> PunchSyncTCP(
     const std::shared_ptr<InetAddress>& local,

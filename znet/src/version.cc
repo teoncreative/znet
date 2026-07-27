@@ -12,7 +12,7 @@
 
 namespace znet {
 
-// Compiled into the library, so these report the version of the binary rather
+// compiled into the library, so these report the version of the binary rather
 // than of whatever headers the caller happens to be building against.
 int VersionNumber() {
   return ZNET_VERSION;

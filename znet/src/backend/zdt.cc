@@ -56,12 +56,10 @@ void WriteZDTHeader(Buffer& buffer, const ZDTHeader& header) {
   buffer.WriteInt<uint8_t>(header.flags);
   buffer.WriteInt<uint16_t>(header.packet_seq);
   buffer.WriteInt<uint16_t>(header.ack);
-  buffer.WriteInt<uint32_t>(header.ack_bits);
-  if (header.flags & kFlagNak) {
-    buffer.WriteInt<uint8_t>(header.nak_count);
-    for (uint8_t i = 0; i < header.nak_count; i++) {
-      buffer.WriteInt<uint16_t>(header.naks[i]);
-    }
+  buffer.WriteInt<uint8_t>(header.block_count);
+  for (uint8_t i = 0; i < header.block_count; i++) {
+    buffer.WriteInt<uint8_t>(header.blocks[i].num_ack);
+    buffer.WriteInt<uint8_t>(header.blocks[i].num_nack);
   }
 }
 
@@ -75,21 +73,17 @@ bool ReadZDTHeader(Buffer& buffer, ZDTHeader& out_header) {
   }
   out_header.packet_seq = buffer.ReadInt<uint16_t>();
   out_header.ack = buffer.ReadInt<uint16_t>();
-  out_header.ack_bits = buffer.ReadInt<uint32_t>();
-  out_header.nak_count = 0;
-  if (out_header.flags & kFlagNak) {
-    if (buffer.readable_bytes() < 1) {
-      return false;
-    }
-    uint8_t count = buffer.ReadInt<uint8_t>();
-    if (count > kZDTMaxNaks || buffer.readable_bytes() < count * 2u) {
-      return false;  // a peer cannot make us read past the datagram
-    }
-    for (uint8_t i = 0; i < count; i++) {
-      out_header.naks[i] = buffer.ReadInt<uint16_t>();
-    }
-    out_header.nak_count = count;
+  uint8_t count = buffer.ReadInt<uint8_t>();
+  // a peer cannot make us read past the datagram, nor overrun the array
+  if (count > kZDTMaxAckBlocks ||
+      buffer.readable_bytes() < count * kZDTAckBlockSize) {
+    return false;
   }
+  for (uint8_t i = 0; i < count; i++) {
+    out_header.blocks[i].num_ack = buffer.ReadInt<uint8_t>();
+    out_header.blocks[i].num_nack = buffer.ReadInt<uint8_t>();
+  }
+  out_header.block_count = count;
   return true;
 }
 
@@ -376,14 +370,25 @@ bool ZDTTransportLayer::Send(std::shared_ptr<Buffer> buffer, SendOptions options
     ZNET_LOG_WARN("ZDT: tried to send on a closed transport, dropping packet!");
     return false;
   }
-  std::lock_guard<std::mutex> lock(outbound_mutex_);
-  if (outbound_.size() >= config_.max_outbound_messages) {
+  std::unique_lock<std::mutex> lock(outbound_mutex_);
+  // outbound_count_, not outbound_.size(): FlushOutbound() moves the whole
+  // queue into a local while it works, so size() reads zero mid-flush and the
+  // bound would not hold.
+  if (outbound_count_ >= config_.max_outbound_messages) {
     // refusing is the backpressure signal to the caller.
     ZNET_LOG_WARN("ZDT: outbound queue full ({}), dropping packet!",
-                  outbound_.size());
+                  outbound_count_);
     return false;
   }
   outbound_.push_back(QueuedOut{std::move(buffer), options});
+  const bool was_idle = outbound_count_ == 0 && staged_.empty();
+  outbound_count_++;
+  lock.unlock();
+  // only on the idle edge: with anything already queued a flush is on its way
+  // and the notify would be pure overhead on the hot path.
+  if (was_idle) {
+    WakeWorker();
+  }
   return true;
 }
 
@@ -406,7 +411,7 @@ void ZDTTransportLayer::FillMetrics(SessionMetrics& out) const {
   out.zdt.mtu = connection_.mtu;
   {
     std::lock_guard<std::mutex> lock(outbound_mutex_);
-    out.common.outbound_queued = static_cast<uint32_t>(outbound_.size());
+    out.common.outbound_queued = static_cast<uint32_t>(outbound_count_);
   }
 #else
   (void)out;
@@ -427,9 +432,11 @@ void ZDTTransportLayer::DrainSocket() {
 }
 
 void ZDTTransportLayer::ProcessInbound() {
-  std::deque<std::vector<uint8_t>> local;
-  inbox_->Drain(local);
-  for (auto& raw : local) {
+  // cleared here, not after the loop: the FIN path returns early and Drain()
+  // swaps, so leftovers would land back in the inbox and be processed twice.
+  inbound_scratch_.clear();
+  inbox_->Drain(inbound_scratch_);
+  for (auto& raw : inbound_scratch_) {
     if (raw.empty() || !(raw[0] & kFlagOnline)) {
       continue;  // stray/offline datagram on a connected transport
     }
@@ -460,7 +467,7 @@ void ZDTTransportLayer::ProcessInbound() {
       SendControl(kFlagPong);
       continue;
     }
-    // Everything after the header is a run of records. A datagram with none is
+    // everything after the header is a run of records. a datagram with none is
     // a bare ack, pong or keepalive, already handled above.
     bool accepted_all = true;
     while (buffer.readable_bytes() > 0) {
@@ -481,7 +488,7 @@ void ZDTTransportLayer::ProcessInbound() {
         break;
       }
     }
-    // Acknowledging a datagram tells the sender it may retire everything in it,
+    // acknowledging a datagram tells the sender it may retire everything in it,
     // so only do that once all of it was taken. A refused datagram simply goes
     // unacked and the sender resends it after its RTO.
     if (header.packet_seq != 0 && accepted_all) {
@@ -504,18 +511,21 @@ bool ZDTTransportLayer::OnRecord(const ZDTRecord& record, const uint8_t* data,
 void ZDTTransportLayer::FlushOutbound() {
   uint16_t mtu =
       connection_.mtu != 0 ? connection_.mtu : config_.mtu_ladder.back();
-  const size_t floor = kZDTHeaderSize + kZDTFragRecordHeaderSize + 1;
+  const size_t floor = kZDTHeaderReserve + kZDTFragRecordHeaderSize + 1;
   if (mtu < floor) {
     mtu = static_cast<uint16_t>(floor);
   }
-  // largest payload that still fits one datagram as a single record
-  const size_t unfrag_capacity = mtu - kZDTHeaderSize - kZDTRecordHeaderSize;
-  const size_t frag_capacity = mtu - kZDTHeaderSize - kZDTFragRecordHeaderSize;
+  // largest payload that still fits one datagram as a single record. budgeted
+  // against kZDTHeaderReserve, not kZDTHeaderSize: the ack blocks are part of
+  // the header and a full datagram would otherwise overrun the MTU by however
+  // many the encoder emitted.
+  const size_t unfrag_capacity = mtu - kZDTHeaderReserve - kZDTRecordHeaderSize;
+  const size_t frag_capacity = mtu - kZDTHeaderReserve - kZDTFragRecordHeaderSize;
 
   // pack into as few datagrams as the MTU allows rather than one each
   std::vector<PendingRecord> batch;
   batch.reserve(SentInfo::kMaxKeys);
-  size_t batch_bytes = kZDTHeaderSize;
+  size_t batch_bytes = kZDTHeaderReserve;
   auto flush_batch = [&]() {
     if (batch.empty()) {
       return;
@@ -531,7 +541,7 @@ void ZDTTransportLayer::FlushOutbound() {
       }
     }
     batch.clear();
-    batch_bytes = kZDTHeaderSize;
+    batch_bytes = kZDTHeaderReserve;
   };
 
   // bound the gap between the newest send and the oldest unacked message to half
@@ -539,20 +549,24 @@ void ZDTTransportLayer::FlushOutbound() {
   // cwnd normally keeps the gap far below this.
   constexpr SequenceId kMaxSeqGap = (SequenceId{1} << 16) / 2;
 
-  // One reading for the whole flush. Reading the clock per message showed up as
+  // one reading for the whole flush. reading the clock per message showed up as
   // the single largest cost once the retransmit scan was fixed, and a batch
   // takes microseconds, so a shared timestamp is accurate enough for the RTO
   // deadlines it feeds.
   const TimePoint now = steady_clock::now();
 
+  size_t consumed = 0;
+
   while (true) {
-    QueuedOut queued;
-    {
+    if (staged_.empty()) {
       std::lock_guard<std::mutex> lock(outbound_mutex_);
       if (outbound_.empty()) {
         break;
       }
-      const SendOptions& next = outbound_.front().options;
+      staged_.swap(outbound_);  // O(1); staged_ is empty here
+    }
+    {
+      const SendOptions& next = staged_.front().options;
       const bool next_reliable = next.GetOr<ReliableKey>(true);
       // only reliable traffic is windowed; unreliable sends are never held back.
       if (next_reliable &&
@@ -562,8 +576,7 @@ void ZDTTransportLayer::FlushOutbound() {
       // the real congestion window: anything past what an ack can describe is
       // resent for nothing and eventually trips max_retries.
       if (next_reliable &&
-          sent_packets_.size() >=
-              static_cast<size_t>(config_.max_datagrams_in_flight)) {
+          sent_packets_.size() >= static_cast<size_t>(SendWindow())) {
         break;
       }
       if (next_reliable && !unacked_.empty()) {
@@ -576,9 +589,10 @@ void ZDTTransportLayer::FlushOutbound() {
           break;  // stalled until the oldest unacked message is retired
         }
       }
-      queued = std::move(outbound_.front());
-      outbound_.pop_front();
     }
+    QueuedOut queued = std::move(staged_.front());
+    staged_.pop_front();
+    consumed++;
 
     uint8_t channel = queued.options.GetOr<ChannelKey>(0);
     bool reliable = queued.options.GetOr<ReliableKey>(true);
@@ -642,6 +656,11 @@ void ZDTTransportLayer::FlushOutbound() {
     }
   }
   flush_batch();  // whatever is left over goes out now, not next tick
+
+  if (consumed != 0) {
+    std::lock_guard<std::mutex> lock(outbound_mutex_);
+    outbound_count_ -= consumed;
+  }
 }
 
 ZDTTransportLayer::PendingRecord ZDTTransportLayer::MakeRecord(
@@ -696,7 +715,18 @@ WireSeq ZDTTransportLayer::SendBatch(uint8_t extra_flags,
   if (next_packet_seq_ == 0) {
     next_packet_seq_ = 1;  // skip the reserved sentinel on wraparound
   }
-  FillAck(header);
+  // ack blocks are variable length, so the records get first claim on the MTU
+  // and the encoder takes what is left. FlushOutbound packs against
+  // kZDTHeaderReserve, so a batch it built always leaves room for some.
+  size_t record_bytes = 0;
+  for (size_t i = 0; i < count; i++) {
+    record_bytes += ZDTRecordSize(batch[i].record.flags & kRecFragment,
+                                  batch[i].payload_len);
+  }
+  const size_t mtu =
+      connection_.mtu != 0 ? connection_.mtu : config_.mtu_ladder.back();
+  const size_t used = kZDTHeaderSize + record_bytes;
+  FillAck(header, mtu > used ? (mtu - used) / kZDTAckBlockSize : 0);
 
   Buffer datagram(Endianness::BigEndian);
   WriteZDTHeader(datagram, header);
@@ -723,31 +753,140 @@ WireSeq ZDTTransportLayer::SendBatch(uint8_t extra_flags,
   return header.packet_seq;
 }
 
-void ZDTTransportLayer::FillAck(ZDTHeader& header) {
-  header.ack = remote_ack_seq_;
-  header.ack_bits = remote_ack_bits_;
-  FillNaks(header);
+namespace {
+
+// bit b of the history means "packet_seq (remote_ack_seq_ - b) arrived".
+bool HistoryBit(const std::array<uint64_t, kZDTAckHistoryWords>& bits, size_t b) {
+  return (bits[b / 64] >> (b % 64)) & 1u;
 }
 
-void ZDTTransportLayer::FillNaks(ZDTHeader& header) {
-  if (!has_remote_seq_) {
+void SetHistoryBit(std::array<uint64_t, kZDTAckHistoryWords>& bits, size_t b) {
+  bits[b / 64] |= (uint64_t{1} << (b % 64));
+}
+
+// remote_ack_seq_ advanced by `n`, so every recorded packet is now `n` further
+// back: bit b becomes bit b+n, and the newly exposed low bits are unknown.
+void ShiftHistoryUp(std::array<uint64_t, kZDTAckHistoryWords>& bits, size_t n) {
+  if (n >= kZDTAckHistoryBits) {
+    bits.fill(0);
     return;
   }
-  // a zero bit is a seq we never saw though something newer arrived. skip the
-  // newest few, where a gap is more likely reordering than loss.
-  constexpr int kReorderSlack = 2;
-  uint32_t missing = ~remote_ack_bits_ & ~nak_sent_bits_;
-  for (int i = kReorderSlack; i < 32 && header.nak_count < kZDTMaxNaks; i++) {
-    if (!(missing & (1u << i))) {
-      continue;
+  const size_t words = n / 64;
+  const size_t rem = n % 64;
+  for (size_t i = kZDTAckHistoryWords; i-- > 0;) {
+    uint64_t v = 0;
+    if (i >= words) {
+      v = bits[i - words] << rem;
+      if (rem != 0 && i > words) {
+        v |= bits[i - words - 1] >> (64 - rem);
+      }
     }
-    header.naks[header.nak_count++] =
-        static_cast<uint16_t>(remote_ack_seq_ - 1 - i);
-    nak_sent_bits_ |= (1u << i);
+    bits[i] = v;
   }
-  if (header.nak_count > 0) {
-    header.flags |= kFlagNak;
-    ZNET_METRIC(metrics_.zdt.naks_sent += header.nak_count);
+}
+
+}  // namespace
+
+// walks the received-history backwards from `ack` and run-length encodes it.
+// the first block always starts on a received run, because bit 0 is `ack`
+// itself. Trailing blocks that describe only missing packets are dropped: the
+// sender learns nothing from "everything older than this is still missing",
+// and a later acknowledgement will carry them once something in between lands.
+void ZDTTransportLayer::FillAck(ZDTHeader& header, size_t max_blocks) {
+  header.ack = remote_ack_seq_;
+  header.block_count = 0;
+  if (!has_remote_seq_ || max_blocks == 0) {
+    return;
+  }
+  if (max_blocks > kZDTMaxAckBlocks) {
+    max_blocks = kZDTMaxAckBlocks;
+  }
+  // bounded by what the peer has actually sent; zeroes past that are history
+  // never observed, and reporting them would invent losses on a new connection.
+  // also bounded by the window, since anything older than that the peer has
+  // already seen acked or it could not have kept sending. truncating is safe
+  // where hiding a gap is not: runs are positional, so folding one into an ack
+  // run would falsely retire the message.
+  size_t limit = history_valid_bits_;
+  const size_t reportable = static_cast<size_t>(SendWindowCap()) + 64;
+  if (limit > reportable) {
+    limit = reportable;
+  }
+  size_t b = 0;
+  while (b < limit && header.block_count < max_blocks) {
+    size_t acks = 0;
+    while (b < limit && acks < 255 && HistoryBit(remote_ack_bits_, b)) {
+      acks++;
+      b++;
+    }
+    size_t nacks = 0;
+    while (b < limit && nacks < 255 && !HistoryBit(remote_ack_bits_, b)) {
+      nacks++;
+      b++;
+    }
+    if (acks == 0 && nacks == 0) {
+      break;
+    }
+    header.blocks[header.block_count].num_ack = static_cast<uint8_t>(acks);
+    header.blocks[header.block_count].num_nack = static_cast<uint8_t>(nacks);
+    header.block_count++;
+  }
+  while (header.block_count > 0 &&
+         header.blocks[header.block_count - 1].num_ack == 0) {
+    header.block_count--;
+  }
+#if ZNET_ENABLE_METRICS
+  for (uint8_t i = 0; i < header.block_count; i++) {
+    metrics_.zdt.naks_sent += header.blocks[i].num_nack;
+  }
+#endif
+}
+
+// hard ceiling: the configured window, never past what the receiver's history
+// can describe.
+int ZDTTransportLayer::SendWindowCap() const {
+  int cap = config_.max_datagrams_in_flight;
+  if (cap > kZDTMaxDatagramsInFlight) {
+    cap = kZDTMaxDatagramsInFlight;
+  }
+  return cap < 2 ? 2 : cap;
+}
+
+int ZDTTransportLayer::SendWindow() const {
+  const int cap = SendWindowCap();
+  int w = static_cast<int>(cwnd_);
+  if (w < 2) {
+    w = 2;  // always allow enough in flight to make forward progress
+  }
+  return w > cap ? cap : w;
+}
+
+// the congestion signal is queueing delay, not loss. Reno-style halving on
+// every drop settles at a window of ~1.2/sqrt(loss), six datagrams at 5%,
+// which collapses throughput on a link that is lossy rather than congested.
+// A full queue raises the round trip; a corrupted radio frame does not.
+void ZDTTransportLayer::OnCongestionAck(int acked_datagrams) {
+  if (acked_datagrams <= 0) {
+    return;
+  }
+  if (has_rtt_ && rtt_min_ms_ > 0.0 &&
+      srtt_ms_ > rtt_min_ms_ * kZDTQueueingRttRatio && cwnd_ > 4.0) {
+    if (!in_loss_recovery_) {
+      in_loss_recovery_ = true;
+      loss_recovery_until_ = next_packet_seq_;
+      cwnd_ *= kZDTQueueingBackoff;
+      ssthresh_ = cwnd_;
+    }
+    return;
+  }
+  if (cwnd_ < ssthresh_) {
+    cwnd_ += static_cast<double>(acked_datagrams);
+  } else {
+    cwnd_ += static_cast<double>(acked_datagrams) / cwnd_;
+  }
+  const double cap = static_cast<double>(SendWindowCap());
+  if (cwnd_ > cap) {
+    cwnd_ = cap;
   }
 }
 
@@ -756,13 +895,20 @@ void ZDTTransportLayer::OnNak(WireSeq packet_seq) {
   if (it == sent_packets_.end()) {
     return;  // already retired, or too old to still be tracked
   }
-  // age them so the next Update resends without waiting out the RTO
+  // an epoch last_send is the fast-retransmit marker: it puts the message past
+  // any threshold, and tells the scan this was a reported loss rather than a
+  // timeout. the scan is skipped until the soonest deadline, so it also has to
+  // be pulled forward or the resend still waits out the RTO.
   for (const MsgKey& key : it->second) {
     auto msg = unacked_.find(key);
     if (msg != unacked_.end()) {
       msg->second.last_send = TimePoint{};
+      next_retransmit_scan_ = TimePoint::min();
     }
   }
+  // the peer reports this gap until filled, and it never will: the resend goes
+  // out under a fresh packet_seq. drop it so one loss triggers one retransmit.
+  sent_packets_.erase(it);
   ZNET_METRIC(metrics_.zdt.naks_received++);
 }
 
@@ -770,63 +916,70 @@ void ZDTTransportLayer::RecordRemoteSeq(WireSeq packet_seq) {
   if (!has_remote_seq_) {
     has_remote_seq_ = true;
     remote_ack_seq_ = packet_seq;
-    remote_ack_bits_ = 0;
-    // Zero ack_bits here means "no history", not "32 packets missing". Marking
-    // them all as already reported stops the first datagram of a connection
-    // from naking sequences the peer never sent.
-    nak_sent_bits_ = ~0u;
+    remote_ack_bits_.fill(0);
+    SetHistoryBit(remote_ack_bits_, 0);  // bit 0 is remote_ack_seq_ itself
+    history_valid_bits_ = 1;
     return;
   }
   if (SeqGreater(packet_seq, remote_ack_seq_)) {
-    uint16_t shift = static_cast<uint16_t>(packet_seq - remote_ack_seq_);
-    if (shift >= 32) {
-      // Jumped clear past the window: everything in it is unrepresentable, so
-      // leave recovery to the RTO instead of emitting a burst of naks.
-      remote_ack_bits_ = 0;
-      nak_sent_bits_ = ~0u;
-    } else {
-      remote_ack_bits_ <<= shift;
-      remote_ack_bits_ |= (1u << (shift - 1));  // old highest -> a set bit
-      nak_sent_bits_ <<= shift;                 // stays aligned with the above
-      nak_sent_bits_ |= (1u << (shift - 1));    // arrived, so never nak it
-    }
+    const uint16_t shift = static_cast<uint16_t>(packet_seq - remote_ack_seq_);
+    ShiftHistoryUp(remote_ack_bits_, shift);
     remote_ack_seq_ = packet_seq;
+    SetHistoryBit(remote_ack_bits_, 0);
+    history_valid_bits_ += shift;
+    if (history_valid_bits_ > kZDTAckHistoryBits) {
+      history_valid_bits_ = kZDTAckHistoryBits;
+    }
   } else if (SeqLess(packet_seq, remote_ack_seq_)) {
-    uint16_t back = static_cast<uint16_t>(remote_ack_seq_ - packet_seq);
-    if (back >= 1 && back <= 32) {
-      remote_ack_bits_ |= (1u << (back - 1));
-      nak_sent_bits_ |= (1u << (back - 1));  // it arrived after all
+    const uint16_t back = static_cast<uint16_t>(remote_ack_seq_ - packet_seq);
+    if (back < kZDTAckHistoryBits) {
+      SetHistoryBit(remote_ack_bits_, back);  // a late arrival, not a gap
     }
   }
   // equal -> duplicate of the current highest; nothing to do
 }
 
 void ZDTTransportLayer::ProcessAcks(const ZDTHeader& header) {
-  for (uint8_t i = 0; i < header.nak_count; i++) {
-    OnNak(header.naks[i]);
+  // leaving recovery on the first ack of something sent after the loss is what
+  // keeps one burst from halving the window more than once
+  if (in_loss_recovery_ && !SeqLess(header.ack, loss_recovery_until_)) {
+    in_loss_recovery_ = false;
   }
-  AckPacket(header.ack);
-  for (int i = 0; i < 32; i++) {
-    if (header.ack_bits & (1u << i)) {
-      AckPacket(static_cast<uint16_t>(header.ack - 1 - i));
+  int newly_acked = 0;
+  uint32_t offset = 0;
+  for (uint8_t b = 0; b < header.block_count && offset < kZDTAckHistoryBits;
+       b++) {
+    for (uint8_t k = 0; k < header.blocks[b].num_ack; k++) {
+      if (AckPacket(static_cast<WireSeq>(header.ack - offset))) {
+        newly_acked++;
+      }
+      offset++;
     }
+    for (uint8_t k = 0; k < header.blocks[b].num_nack; k++) {
+      OnNak(static_cast<WireSeq>(header.ack - offset));
+      offset++;
+    }
+  }
+  if (newly_acked > 0) {
+    OnCongestionAck(newly_acked);
   }
 }
 
-void ZDTTransportLayer::AckPacket(WireSeq packet_seq) {
+bool ZDTTransportLayer::AckPacket(WireSeq packet_seq) {
   if (packet_seq == 0) {
-    return;  // reserved sentinel: the peer had nothing to acknowledge yet
+    return false;  // reserved sentinel: the peer had nothing to acknowledge yet
   }
   auto it = sent_packets_.find(packet_seq);
   if (it == sent_packets_.end()) {
-    return;
+    return false;
   }
   SentInfo info = it->second;
   sent_packets_.erase(it);
   // packet_seq is unique per transmission, so there is no Karn ambiguity.
-  UpdateRtt(steady_clock::now() - info.send_time);
-  // One datagram can carry several reliable messages; acking it retires all of
-  // them. Dropping each message's other transmissions keeps a sent_packets_
+  const TimePoint now = steady_clock::now();
+  UpdateRtt(now - info.send_time, now);
+  // one datagram can carry several reliable messages; acking it retires all of
+  // them. dropping each message's other transmissions keeps a sent_packets_
   // entry from outliving the unacked_ entry that owns it.
   for (const MsgKey& key : info) {
     auto msg = unacked_.find(key);
@@ -838,9 +991,11 @@ void ZDTTransportLayer::AckPacket(WireSeq packet_seq) {
     }
     unacked_.erase(msg);
   }
+  return true;
 }
 
-void ZDTTransportLayer::UpdateRtt(std::chrono::steady_clock::duration sample) {
+void ZDTTransportLayer::UpdateRtt(std::chrono::steady_clock::duration sample,
+                                  TimePoint now) {
   double ms = std::chrono::duration<double, std::milli>(sample).count();
   if (ms < 0.0) {
     return;
@@ -849,26 +1004,40 @@ void ZDTTransportLayer::UpdateRtt(std::chrono::steady_clock::duration sample) {
     has_rtt_ = true;
     srtt_ms_ = ms;
     rttvar_ms_ = ms / 2.0;
+    rtt_min_ms_ = ms;
+    rtt_min_stamp_ = now;
   } else {
+    // a windowed minimum, not a lifetime one. the whole controller is measured
+    // against this, so a stale floor left by a route change would read the new
+    // baseline as permanent queueing and pin the window at its lower bound.
+    const bool stale = now - rtt_min_stamp_ >
+                       std::chrono::milliseconds(kZDTRttMinWindowMs);
+    if (ms < rtt_min_ms_ || rtt_min_ms_ <= 0.0 || stale) {
+      rtt_min_ms_ = ms;
+      rtt_min_stamp_ = now;
+    }
     rttvar_ms_ = 0.75 * rttvar_ms_ + 0.25 * std::fabs(srtt_ms_ - ms);
     srtt_ms_ = 0.875 * srtt_ms_ + 0.125 * ms;
   }
   auto rto = std::chrono::milliseconds(
       static_cast<long long>(srtt_ms_ + 4.0 * rttvar_ms_));
-  rto_ = ::znet::compat::Clamp(rto, config_.rto_min, config_.rto_max);
+  rto_ = compat::Clamp(rto, config_.rto_min, config_.rto_max);
 }
 
 void ZDTTransportLayer::RetransmitUnacked() {
   auto now = steady_clock::now();
-  // Walking every unacked message on every tick costs more than the retransmits
+  // walking every unacked message on every tick costs more than the retransmits
   // themselves: the window holds hundreds of entries and almost none are ever
   // due. Skip the scan until the soonest deadline actually arrives.
   if (now < next_retransmit_scan_) {
     return;
   }
   TimePoint earliest = TimePoint::max();
+  bool timed_out = false;
   for (auto& entry : unacked_) {
     OutReliable& msg = entry.second;
+    // OnNak already decided this one is lost; it is not evidence of a queue.
+    const bool nak_forced = msg.last_send == TimePoint{};
     int backoff = std::min(msg.send_count - 1, 6);
     auto threshold = std::min(rto_ * (1 << backoff), config_.rto_max);
     if (now - msg.last_send < threshold) {
@@ -892,7 +1061,35 @@ void ZDTTransportLayer::RetransmitUnacked() {
     ZNET_METRIC(metrics_.zdt.retransmits++);
     msg.last_send = now;
     msg.send_count++;
+    if (!nak_forced) {
+      timed_out = true;
+    }
     earliest = std::min(earliest, now + threshold);
+  }
+  // a timeout on a lossy path is usually still just loss, so it only collapses
+  // the window when the round trip says a queue is involved
+  if (timed_out) {
+    const bool queueing = has_rtt_ && rtt_min_ms_ > 0.0 &&
+                          srtt_ms_ > rtt_min_ms_ * kZDTQueueingRttRatio;
+    if (queueing) {
+      // guarded like the delay path: a burst of timeouts is one event, and
+      // collapsing once per message in it would take several round trips of
+      // slow start to undo.
+      if (!in_loss_recovery_) {
+        ssthresh_ = cwnd_ / 2.0;
+        if (ssthresh_ < 2.0) {
+          ssthresh_ = 2.0;
+        }
+        cwnd_ = 2.0;
+        in_loss_recovery_ = true;
+        loss_recovery_until_ = next_packet_seq_;
+      }
+    } else {
+      cwnd_ *= 0.9;
+      if (cwnd_ < 8.0) {
+        cwnd_ = 8.0;
+      }
+    }
   }
   next_retransmit_scan_ = earliest;
 }
@@ -1068,7 +1265,7 @@ bool ZDTTransportLayer::OnDataFragment(const ZDTRecord& record,
   if (existing == reassembly_.end() &&
       (reassembly_.size() >= config_.max_reassemblies ||
        reassembly_bytes_ >= config_.max_reassembly_bytes)) {
-    // At capacity, and this fragment would start a new message. Refusing to
+    // at capacity, and this fragment would start a new message. refusing to
     // acknowledge it makes the sender try again once we have room; accepting
     // and then dropping it would lose the message, because the sender retires a
     // fragment the moment it is acked. Fragments for messages already in
@@ -1134,7 +1331,10 @@ ZDTClientBackend::ZDTClientBackend(std::shared_ptr<InetAddress> server_address,
 
 ZDTClientBackend::~ZDTClientBackend() {
   ZNET_LOG_DEBUG("Destructor of the ZDT client backend is called.");
+  // Close() first so the FIN still goes out, then join: the loop reads socket_
+  // and inbox_, both of which are about to be destroyed.
   Close();
+  StopReceiving();
 }
 
 Result ZDTClientBackend::BindTo(const InetAddress& address) {
@@ -1314,13 +1514,64 @@ Result ZDTClientBackend::Connect() {
   }
   ZNET_LOG_DEBUG("ZDT connected to {} (mtu={})", server_address_->readable(),
                  connection.mtu);
+  // the receive thread owns the socket from here, so the transport takes its
+  // datagrams from the inbox instead of polling alongside it
+  inbox_ = std::make_shared<ZDTInbox>();
   auto transport = std::make_unique<ZDTTransportLayer>(
-      socket_, server_address_, config_, /*drains_own_socket=*/true,
-      /*inbox=*/nullptr, connection);
+      socket_, server_address_, config_, /*drains_own_socket=*/false, inbox_,
+      connection);
   client_session_ = std::make_shared<PeerSession>(
       local_address_, server_address_, std::move(transport), ConnectionType::ZDT,
       /*is_initiator=*/true, /*self_managed=*/false, session_options_);
+  // blocking with a timeout: a datagram returns at once, and the timeout only
+  // exists so the loop notices shutdown.
+  socket_->SetBlocking(true);
+  socket_->SetReceiveTimeout(std::chrono::milliseconds(200));
+  {
+    std::lock_guard<std::mutex> lock(receive_thread_mutex_);
+    receiving_ = true;
+    receive_thread_ = std::thread([this]() { ReceiveLoop(); });
+  }
   return Result::Success;
+}
+
+void ZDTClientBackend::ReceiveLoop() {
+  uint8_t buffer[ZNET_MAX_BUFFER_SIZE];
+  while (receiving_.load(std::memory_order_relaxed)) {
+    size_t len = 0;
+    std::shared_ptr<InetAddress> from;
+    RecvResult result = socket_->RecvFrom(buffer, sizeof(buffer), len, from);
+    if (result == RecvResult::WouldBlock) {
+      continue;  // receive timeout expired, just re-check the stop flag
+    }
+    if (result == RecvResult::Error) {
+      break;  // socket closed underneath us, shutdown is in progress
+    }
+    if (len == 0 || !from) {
+      continue;
+    }
+    // one peer, so anything from elsewhere is noise on the port
+    if (!(*from == *server_address_)) {
+      continue;
+    }
+    inbox_->Push(buffer, len, config_.max_inbox_datagrams);
+    if (on_data_) {
+      on_data_();  // the session has work; do not make it wait out its tick
+    }
+  }
+}
+
+void ZDTClientBackend::StopReceiving() {
+  std::lock_guard<std::mutex> lock(receive_thread_mutex_);
+  receiving_ = false;
+  // the loop is parked in recvfrom and would otherwise hold shutdown for a
+  // whole receive timeout. only safe once anything outbound has been sent.
+  if (socket_ && socket_->IsValid()) {
+    ShutdownSocket(socket_->handle());
+  }
+  if (receive_thread_.joinable()) {
+    receive_thread_.join();
+  }
 }
 
 Result ZDTClientBackend::Close() {
@@ -1365,7 +1616,7 @@ Result ZDTServerBackend::Bind() {
   if (result != Result::Success) {
     return result;
   }
-  // The receive thread blocks in recvfrom so a datagram wakes it immediately
+  // the receive thread blocks in recvfrom so a datagram wakes it immediately
   // instead of waiting for the next poll. The timeout is only there to give the
   // loop a chance to notice shutdown.
   socket_->SetBlocking(true);
@@ -1626,7 +1877,7 @@ Result ZDTServerBackend::Close() {
     is_listening_ = false;
     is_bind_ = false;
   }
-  // Stop and join before touching the tables, otherwise the receive thread is
+  // stop and join before touching the tables, otherwise the receive thread is
   // still routing into them. Joined outside every lock it might be waiting on,
   // and harmless if the shutdown path already did it.
   StopReceiving();

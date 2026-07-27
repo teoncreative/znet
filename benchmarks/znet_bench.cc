@@ -17,6 +17,7 @@
 //
 
 #include "common/harness.h"
+#include "common/impairment.h"
 
 #include "znet/client.h"
 #include "znet/client_events.h"
@@ -145,6 +146,10 @@ bool TCPCanCarry(size_t payload_bytes) {
   return payload_bytes + framing_slack < ZNET_MAX_BUFFER_SIZE;
 }
 
+// impairment is read once; an empty config leaves the relay out of the path
+// entirely, so a clean run is byte-for-byte the old direct-to-server setup.
+bench::Impairment g_impair;
+
 struct Harnessed {
   std::unique_ptr<Server> server;
   std::unique_ptr<Client> client;
@@ -260,29 +265,43 @@ void RunThroughput(ConnectionType type, const bench::Workload& w) {
   }
 
   const std::string payload = bench::MakePayload(w.payload_bytes);
+  uint32_t seq = 0;
+  uint32_t counted = 0;
   auto start = bench::Clock::now();
-  for (uint32_t i = 0; i < w.messages; i++) {
-    auto packet = std::make_shared<BenchPacket>();
-    packet->seq = i;
-    packet->payload = payload;
-    // Send can refuse when the transport's outbound queue is full; that is the
-    // backpressure signal, so spin until it takes the message.
-    while (!h.client_session->SendPacket(packet)) {
-      if (!h.client_session->IsAlive()) {
-        break;
-      }
-      std::this_thread::sleep_for(std::chrono::microseconds(50));
-    }
-  }
-  auto deadline = bench::Clock::now() + std::chrono::seconds(60);
-  while (received.load() < w.messages && bench::Clock::now() < deadline &&
-         h.client_session->IsAlive()) {
-    std::this_thread::sleep_for(std::chrono::microseconds(200));
-  }
+  // the shared loop, same as every comparison library uses, so the send pacing
+  // and the 4096-message backlog bound are identical across the table. this
+  // used to push all w.messages up front and then wait, which is a different
+  // experiment: it lets znet build a queue no other row is allowed to build.
+  uint32_t delivered = bench::RunThroughputLoop(
+      w,
+      [&]() {
+        if (!h.client_session->IsAlive()) {
+          return false;
+        }
+        auto packet = std::make_shared<BenchPacket>();
+        packet->seq = seq;
+        packet->payload = payload;
+        // Send refuses when the transport's outbound queue is full; that is the
+        // backpressure signal the loop drains on.
+        if (!h.client_session->SendPacket(packet)) {
+          return false;
+        }
+        seq++;
+        return true;
+      },
+      [&]() {
+        // znet services its own sockets on its own threads, so unlike the
+        // libraries the application drives, there is nothing to pump here; the
+        // loop only needs to be told how many arrived since it last asked.
+        uint32_t now = received.load();
+        uint32_t progress = now - counted;
+        counted = now;
+        return progress;
+      });
   auto elapsed = bench::Clock::now() - start;
 
   bench::ReportThroughput(LibraryName().c_str(), TransportName(type), w,
-                          received.load(), elapsed);
+                          delivered, elapsed);
   Teardown(h);
 }
 
@@ -337,6 +356,8 @@ int main() {
     return 1;
   }
   std::printf("znet %s\n", VersionString());
+  g_impair = bench::Impairment::FromEnv();
+  bench::NoteImpairment(g_impair);
   bench::Note("default = AES + zstd as shipped; raw = both off, which is what");
   bench::Note("ENet and RakNet do. See README.md.");
 
@@ -348,10 +369,10 @@ int main() {
     g_profile = profile;
     for (ConnectionType type : {ConnectionType::TCP, ConnectionType::ZDT}) {
       bench::PrintHeader(LibraryName().c_str(), TransportName(type));
-      for (const auto& w : bench::DefaultThroughputWorkloads()) {
+      for (const auto& w : bench::ImpairedThroughputWorkloads(g_impair)) {
         RunThroughput(type, w);
       }
-      RunLatency(type, bench::DefaultLatencyWorkload());
+      RunLatency(type, bench::ImpairedLatencyWorkload(g_impair));
     }
   }
 

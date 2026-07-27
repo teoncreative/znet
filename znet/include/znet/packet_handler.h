@@ -16,7 +16,7 @@
 
 namespace znet {
 
-// Packet handler type constraints. As in buffer.h, each is available both as
+// packet handler type constraints. as in buffer.h, each is available both as
 // a trait (any language mode) and as the original concept (C++20).
 namespace detail {
 
@@ -47,7 +47,7 @@ struct IsDerivedFromPacket : std::is_base_of<Packet, T> {};
 
 }  // namespace detail
 
-// Aliases over the traits above, so each constraint is defined exactly once.
+// aliases over the traits above, so each constraint is defined exactly once.
 #if ZNET_HAS_CXX20
 template<typename T, typename P>
 concept HasOnPacketConst = detail::HasOnPacketConstT<T, P>::value;
@@ -95,7 +95,7 @@ class PacketHandler : public PacketHandlerBase {
     return tbl;
   }
 
-  // Tag dispatch rather than `if constexpr`, which is C++17. Both compile to
+  // tag dispatch rather than `if constexpr`, which is C++17. both compile to
   // the same thing: the false_type overloads have empty bodies and inline away.
   template<typename P>
   static void CallConst(Derived* self, const std::shared_ptr<P>& p,

@@ -19,12 +19,11 @@
 #include <cstdint>
 #include <type_traits>
 
-// Forward declarations
 struct ReliableKey;
 struct OrderedKey;
 struct ChannelKey;
 
-// Helper struct for designated initializers
+// helper struct for designated initializers
 struct SendOptionsInit {
   bool reliable = true;
   bool ordered = true;
@@ -33,10 +32,9 @@ struct SendOptionsInit {
 
 class SendOptions {
  public:
-  // Default constructor
   SendOptions() = default;
 
-  // Constructor accepting designated initializers
+  // constructor accepting designated initializers
   // Usage: SendOptions opts{.reliable = false, .channel = 2};
   // Defined after key types (see below)
   explicit SendOptions(const SendOptionsInit& init);
@@ -86,7 +84,7 @@ template <> inline const bool& SendOptions::Get<ReliableKey>() const { return da
 template <> inline const bool& SendOptions::Get<OrderedKey>()  const { return data_.ordered;  }
 template <> inline const uint8_t& SendOptions::Get<ChannelKey>() const { return data_.channel; }
 
-// Constructor implementation (after key types are defined)
+// constructor implementation, after the key types are defined
 inline SendOptions::SendOptions(const SendOptionsInit& init) {
   Set<ReliableKey>(init.reliable);
   Set<OrderedKey>(init.ordered);
