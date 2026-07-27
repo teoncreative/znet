@@ -1,7 +1,7 @@
 # znet benchmarks
 
-Loopback benchmarks for znet's two transports, a raw-socket floor, and three
-comparison libraries. Every library runs the same workloads through the same
+Benchmarks for znet's two transports, a raw-socket floor and three comparison
+libraries, on clean loopback and under netem impairment. Every library runs the same workloads through the same
 reporting code (`common/harness.h`), so rows from different binaries line up
 into one table.
 
@@ -14,9 +14,29 @@ Benchmarks are off by default:
 ```sh
 cmake -B build -DCMAKE_BUILD_TYPE=Release -DZNET_BUILD_BENCHMARKS=ON
 cmake --build build --target benchmarks
-./build/benchmarks/baseline-bench
-./build/benchmarks/znet-bench
+
+# in a namespace of its own, so the traffic stays off the host's loopback
+unshare -rn sh -c 'ip link set lo up
+  taskset -c 0-7,16-23 ./build/benchmarks/znet-bench'
 ```
+
+Use a namespace even when not impairing anything: these saturate loopback and
+znet starts `hardware_concurrency()` worker threads, which otherwise competes
+with anything of yours on localhost. A fresh namespace's `lo` is the same 65536
+MTU, so the numbers are unaffected.
+
+Pick the core list to sit inside one L3 domain. On a multi-CCD part a set that
+straddles the boundary lets client and server land on different dies from run
+to run, and the extra hop shows up as a bimodal result rather than as noise:
+the raw socket baselines split into two clusters about 2x apart that way. Check
+yours with
+
+```sh
+cat /sys/devices/system/cpu/cpu0/cache/index3/shared_cpu_list
+```
+
+and use a list from a single group. The `0-7,16-23` above is one domain of a
+Ryzen 9 9950X3D, 8 physical cores and their SMT siblings.
 
 Comparison libraries are downloaded at configure time and enabled individually,
 so one that stops building does not block the rest:
@@ -29,6 +49,44 @@ so one that stops building does not block the rest:
 
 GNS enables C and pulls a large dependency tree; configure it in a separate
 build directory if you want to keep the normal one lean.
+
+## Impaired runs
+
+To reach the regimes that separate these protocols, put netem on the loopback
+of an unprivileged network namespace and tell the benchmark what you did:
+
+```sh
+unshare -rn sh -c '
+  ip link set lo mtu 1500
+  ip link set lo up
+  tc qdisc add dev lo root netem delay 25ms loss 5%
+  ZNET_BENCH_IMPAIR="delay=25,loss=5" \
+    taskset -c 0-7,16-23 ./build/benchmarks/znet-bench'
+```
+
+No root, and the host's networking is untouched. `delay` and `jitter` are one
+way, so a round trip pays each twice.
+
+The environment variable does not impair anything - netem does. It exists
+because nothing can read netem's settings back, and the benchmark needs them
+for two things: scaling the workloads (the stock 2,000 ping-pongs is ten
+minutes at a 300 ms round trip) and labelling the output. Give it the same
+numbers you gave netem or the counts will be wrong.
+
+netem rather than a forwarder inside the benchmark, because it sits below the
+socket and so impairs TCP too. A userspace forwarder can only corrupt a proxied
+TCP stream, not drop from it, and would leave the TCP rows quietly unimpaired.
+
+### Why the clean tables flatter TCP
+
+Loopback's MTU is 65536 and the kernel does not really segment on it: a TCP
+write there is a copy between socket buffers, with no reliability bookkeeping in
+userspace and no syscall per datagram. Dropping the MTU to 1500 moves raw TCP by
+about 2% at 8 KiB but halves raw UDP, which then pays IP fragmentation while TCP
+still does not.
+
+So the raw TCP row is a floor, not a rival, and its 8 KiB and latency figures
+describe a memcpy rather than a network.
 
 ## Workloads
 
@@ -43,13 +101,10 @@ Throughput counts messages the *receiver* actually delivered to the
 application, not messages handed to the sender, so silent loss shows up as a
 low count rather than a high rate.
 
-**Payloads are incompressible by default** (`bench::MakePayload`). Filling a
-buffer with one repeated byte, the obvious choice, flatters any library that
-compresses: zstd takes 64 bytes of 'x' down to about 15, so several times as
-many messages fit a datagram and the result describes the payload instead of the
-transport. `PayloadKind` also offers `Snapshot` (game entity state) and `Text`,
-because compression is worth wildly different amounts per traffic type and no
-single payload is representative:
+**Payloads are incompressible by default** (`bench::MakePayload`): one repeated
+byte flatters anything that compresses, since zstd takes 64 bytes of 'x' down to
+about 15. `PayloadKind` also offers `Snapshot` (game entity state) and `Text`,
+because compression is worth wildly different amounts per traffic type:
 
 | payload | 64 B | 1 KiB | 8 KiB |
 | --- | ---: | ---: | ---: |
@@ -60,6 +115,10 @@ single payload is representative:
 Nothing compresses below roughly 96-128 bytes; the frame header makes every kind
 larger. That is what `CommonOptions::compression_threshold` (default 128) is
 for.
+
+Payloads in the comparison tables are incompressible, so those columns describe
+transports rather than compression. What compression is worth by traffic type is
+the ratio table above.
 
 ## Reading the numbers
 
@@ -85,9 +144,7 @@ the handshake and the client adopts it, so clients need no matching config.
 Setting either in `ClientConfig::options` does nothing.
 
 **Compression runs before encryption**, so it applies to the plaintext and is
-effective on encrypted and unencrypted sessions alike. It used to run after,
-which compressed ciphertext: incompressible by construction, so the pass cost
-time and saved nothing.
+effective on encrypted and unencrypted sessions alike.
 
 **Threading models differ, and this dominates the latency column.**
 
@@ -110,26 +167,45 @@ rate. That is real work, but it is measuring aggregation, not the socket. Check
 the MiB/s column and the raw UDP floor together before concluding anything from
 a msg/s number.
 
-**The raw-socket baseline is a floor, not a rival.** It has no reliability,
-ordering, encryption, or per-message allocation. It answers "what do the
-syscalls alone cost on this machine".
+**GNS is still rate-limited here, and its rows are a lower bound.** Its byte
+rate barely moves with payload size - 67, 96 and 91 MiB/s at 64 B, 1 KiB and
+8 KiB - which is what a send-rate cap looks like, not what protocol cost looks
+like. znet's rows over the same three sizes go 82, 194 and 333 MB/s, scaling the
+way amortised per-message overhead should. Two GNS limiters are already raised
+in `gns_bench.cc`: the ~256 KB/s default send rate, and `SendBufferSize`, whose
+512 KB default was worth a further 16-31% when it was found. Whatever still caps
+it has not been identified. Until the byte rate stops being flat, do not read
+the 1 KiB and 8 KiB comparisons as a protocol result.
+
+Its latency tail is its own, though, not an artifact of the setup. The
+benchmark sets `NagleTime=0` so GNS sends immediately, as ZDT does; left at its
+5 ms default it reports a ~10 ms round trip that measures Nagle rather than the
+protocol.
+
+It is also not doing the same work. GNS estimates bandwidth and paces its
+sends where ZDT's controller only reads queueing delay, and GNS carries a
+reliable byte stream rather than discrete messages, with NAT traversal, relay
+fallback and certificate auth that nothing here exercises.
 
 ## Known gaps
 
 - RakNet's 8 KiB throughput case intermittently stalls at 4999 of 5000 delivered
   and runs into the 60 s deadline, reporting ~83 msg/s. Successful runs land
   near 62,000-67,000. Re-run before trusting that row.
-- The 64 B throughput rows and the ZDT latency rows swing 20-50% between runs,
-  for every library including ENet and GNS: each message costs little enough
-  that scheduler noise dominates. Take the median of several runs, and do not
-  read small differences there as real. The 1 KiB and 8 KiB columns are stable
-  to a few percent.
+- The 64 B column needs several runs to mean anything. Scheduler noise
+  dominates when a message costs this little: across the seven runs behind the
+  published table the znet ZDT rows spanned 1.9x, GNS 1.58x and ENet 1.09x. A
+  single run there is an order of magnitude, not a number. The other columns are
+  steadier, GNS 1.00x and 1.02x at 1 KiB and 8 KiB, and read as written.
+- The raw TCP and raw UDP floors in the published table were measured with a
+  core list straddling two L3 domains, which split them into two clusters about
+  2x apart (raw TCP at 1 KiB: four runs near 255,000, three near 508,000) while
+  every library row stayed inside 1.4x. Client and server were landing on
+  different dies. Pinning inside one domain, as above, avoids it.
 
 - znet TCP cannot carry the 8KB case: `ZNET_MAX_BUFFER_SIZE` framing requires a
   whole message to fit in one buffer. The row reports `unsupported` rather than
   silently skipping.
-- ZDT's congestion window is capped at 32 datagrams, because an acknowledgement
-  describes one packet_seq plus 32 history bits and anything beyond that cannot
-  be acknowledged at all. Widening `ack_bits`, or adding selective-ack ranges,
-  is what would raise that ceiling; raising `max_datagrams_in_flight` on its own
-  only produces datagrams the peer has no way to confirm.
+- ZDT's window is counted in datagrams, not bytes, so a half-full datagram
+  costs as much of it as a full one. Bytes in flight are bounded by roughly
+  `max_datagrams_in_flight * MTU` per round trip.

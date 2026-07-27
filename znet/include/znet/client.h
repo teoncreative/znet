@@ -15,7 +15,9 @@
 #include "znet/interface.h"
 #include "znet/peer_session.h"
 #include "znet/precompiled.h"
+#include "znet/scheduler.h"
 #include "znet/task.h"
+#include "znet/worker_signal.h"
 
 namespace znet {
 
@@ -50,6 +52,17 @@ class Client : public Interface {
   Result Bind() override;
 
   Result Bind(const std::string& ip, PortNumber port);
+
+  /**
+   * @brief Sets how often the client's loop services the session.
+   *
+   * The loop sleeps out the rest of each tick, but a datagram arriving or a
+   * Send() on an idle session cuts that short, so raising this trades CPU for
+   * responsiveness only where neither of those applies.
+   *
+   * @param tps Ticks per second, clamped to at least 1.
+   */
+  void SetTicksPerSecond(uint16_t tps) { scheduler_.SetTicksPerSecond(tps); }
 
   /**
    * @brief Establishes connection to the specified server address. This function is not thread-safe.
@@ -98,6 +111,8 @@ class Client : public Interface {
   std::shared_ptr<PeerSession> client_session_;
 
   Task task_;
+  Scheduler scheduler_{120};
+  std::shared_ptr<WorkerSignal> signal_{std::make_shared<WorkerSignal>()};
 
 };
 

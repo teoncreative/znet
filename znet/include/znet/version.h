@@ -29,8 +29,11 @@
 #define ZNET_VERSION_MINOR 1
 #define ZNET_VERSION_PATCH 0
 
-// Encodes a version as a single comparable integer, so versions can be tested
-// with the usual relational operators in #if.
+/**
+ * @brief Encodes a version as a single comparable integer.
+ *
+ * Lets versions be tested with the usual relational operators in #if.
+ */
 #define ZNET_MAKE_VERSION(major, minor, patch) \
   ((major) * 1000000 + (minor) * 1000 + (patch))
 
@@ -47,10 +50,10 @@
 
 namespace znet {
 
-// Version of the linked library, in ZNET_MAKE_VERSION form.
+/** @brief Version of the linked library, in ZNET_MAKE_VERSION form. */
 int VersionNumber();
 
-// Version of the linked library as "major.minor.patch".
+/** @brief Version of the linked library as "major.minor.patch". */
 const char* VersionString();
 
 }  // namespace znet

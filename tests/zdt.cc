@@ -98,18 +98,61 @@ TEST(ZDTHeader, RoundTrip) {
   header.flags = kFlagOnline;
   header.packet_seq = 0xBEEF;
   header.ack = 0x1234;
-  header.ack_bits = 0xDEADBEEF;
 
   Buffer buffer(Endianness::BigEndian);
   WriteZDTHeader(buffer, header);
-  EXPECT_EQ(buffer.size(), kZDTHeaderSize);
+  EXPECT_EQ(buffer.size(), kZDTHeaderSize);  // no blocks: the fixed part only
 
   ZDTHeader out;
   ASSERT_TRUE(ReadZDTHeader(buffer, out));
   EXPECT_EQ(out.flags, header.flags);
   EXPECT_EQ(out.packet_seq, header.packet_seq);
   EXPECT_EQ(out.ack, header.ack);
-  EXPECT_EQ(out.ack_bits, header.ack_bits);
+  EXPECT_EQ(out.block_count, 0);
+}
+
+TEST(ZDTHeader, AckBlocksRoundTrip) {
+  ZDTHeader header;
+  header.packet_seq = 0x0102;
+  header.ack = 0x2000;
+  // received 5, then a gap of 3, then 200 more, then a gap of 1
+  header.blocks[0] = ZDTAckBlock{5, 3};
+  header.blocks[1] = ZDTAckBlock{200, 1};
+  header.blocks[2] = ZDTAckBlock{17, 0};
+  header.block_count = 3;
+
+  Buffer buffer(Endianness::BigEndian);
+  WriteZDTHeader(buffer, header);
+  EXPECT_EQ(buffer.size(), kZDTHeaderSize + 3 * kZDTAckBlockSize);
+
+  ZDTHeader out;
+  ASSERT_TRUE(ReadZDTHeader(buffer, out));
+  ASSERT_EQ(out.block_count, 3);
+  for (int i = 0; i < 3; i++) {
+    EXPECT_EQ(out.blocks[i].num_ack, header.blocks[i].num_ack) << "block " << i;
+    EXPECT_EQ(out.blocks[i].num_nack, header.blocks[i].num_nack) << "block " << i;
+  }
+}
+
+// A peer cannot make us read past the datagram or overrun the block array.
+TEST(ZDTHeader, RejectsOverlongBlockCount) {
+  Buffer buffer(Endianness::BigEndian);
+  buffer.WriteInt<uint8_t>(kFlagOnline);
+  buffer.WriteInt<uint16_t>(1);
+  buffer.WriteInt<uint16_t>(1);
+  buffer.WriteInt<uint8_t>(static_cast<uint8_t>(kZDTMaxAckBlocks + 1));
+  ZDTHeader out;
+  EXPECT_FALSE(ReadZDTHeader(buffer, out));
+
+  Buffer truncated(Endianness::BigEndian);
+  truncated.WriteInt<uint8_t>(kFlagOnline);
+  truncated.WriteInt<uint16_t>(1);
+  truncated.WriteInt<uint16_t>(1);
+  truncated.WriteInt<uint8_t>(4);  // claims four blocks, supplies one
+  truncated.WriteInt<uint8_t>(1);
+  truncated.WriteInt<uint8_t>(0);
+  ZDTHeader out2;
+  EXPECT_FALSE(ReadZDTHeader(truncated, out2));
 }
 
 TEST(ZDTHeader, RecordRoundTrip) {
@@ -833,10 +876,14 @@ TEST(ZDTOptionsPlumbing, ChildOptionsReachTheSession) {
 TEST(ZDTOptionsPlumbing, DefaultsMatchZDTOptions) {
   ZDTOptions defaults;
   EXPECT_EQ(defaults.cwnd, 4096);
-  // The congestion window is the datagram one, and an acknowledgement can only
-  // describe one packet_seq plus 32 history bits. Anything past that is
-  // outstanding with no way to be acked, so it is resent for nothing.
-  EXPECT_LE(defaults.max_datagrams_in_flight, 33);
+  // max_datagrams_in_flight caps the congestion window. Acks are run-length
+  // encoded now, so the limit is how far back the receiver remembers arrivals
+  // rather than how many bits fit in a header. Tied to the constants so the two
+  // move together and a default that outgrows the ack history fails here.
+  EXPECT_LE(defaults.max_datagrams_in_flight,
+            backends::kZDTMaxDatagramsInFlight);
+  EXPECT_EQ(backends::kZDTMaxDatagramsInFlight,
+            static_cast<int>(backends::kZDTAckHistoryBits));
   // The message limit is a memory bound and must stay well above the datagram
   // window, otherwise it throttles coalesced small messages instead.
   EXPECT_GT(defaults.cwnd, defaults.max_datagrams_in_flight);
@@ -1479,7 +1526,256 @@ TEST(ZDTCongestion, WindowBoundsBurstThenDrains) {
   }
 }
 
-// A single source blasting handshake requests is rate-limited: far fewer replies
+// Ack blocks are variable length, so a full datagram has to leave room for
+// them. Heavy two-way loss is what makes the encoder emit many: the history
+// alternates, and each run costs another block.
+TEST(ZDTCongestion, DatagramsStayWithinTheMtu) {
+  ASSERT_EQ(Init(), Result::Success);
+  auto server_socket = MakeBoundSocket();
+  auto client_socket = MakeBoundSocket();
+  ZDTOptions config = FastConfig();
+  ZDTConnection connection;
+  const size_t mtu = connection.mtu;
+  ZDTTransportLayer client(client_socket, server_socket->local_address(), config,
+                           false, nullptr, connection);
+  ZDTTransportLayer server(server_socket, client_socket->local_address(), config,
+                           false, nullptr, connection);
+
+  // the interesting payload is the one that exactly fills a datagram: with any
+  // slack left the ack blocks fit by luck. sweep down from that size so the
+  // boundary is covered however the header constants move.
+  const size_t widest = mtu - kZDTHeaderSize - kZDTRecordHeaderSize;
+  const uint32_t kMessages = 120;
+  for (uint32_t i = 0; i < kMessages; i++) {
+    const size_t payload = widest - (i % 24);
+    auto to_server = std::make_shared<Buffer>();
+    auto to_client = std::make_shared<Buffer>();
+    for (size_t b = 0; b < payload; b++) {
+      to_server->WriteInt<uint8_t>(static_cast<uint8_t>(i + b));
+      to_client->WriteInt<uint8_t>(static_cast<uint8_t>(i + b));
+    }
+    client.Send(to_server);
+    server.Send(to_client);
+  }
+
+  std::mt19937 rng(11);
+  size_t largest = 0;
+  size_t datagrams = 0;
+  // hand-rolled pump so every datagram is measured on its way past
+  auto move = [&](UDPSocket& from, ZDTTransportLayer& to) {
+    for (auto& datagram : CollectDatagrams(from)) {
+      largest = std::max(largest, datagram.size());
+      datagrams++;
+      if ((rng() % 100) < 35) {
+        continue;  // dropped, which is what keeps the ack history ragged
+      }
+      to.OnDatagram(datagram.data(), datagram.size());
+    }
+  };
+
+  size_t at_server = 0;
+  size_t at_client = 0;
+  auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(20);
+  while ((at_server < kMessages || at_client < kMessages) &&
+         std::chrono::steady_clock::now() < deadline) {
+    client.Update();
+    move(*server_socket, server);
+    server.Update();
+    move(*client_socket, client);
+    while (server.Receive()) {
+      at_server++;
+    }
+    while (client.Receive()) {
+      at_client++;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  }
+
+  ASSERT_EQ(at_server, kMessages);
+  ASSERT_EQ(at_client, kMessages);
+  EXPECT_GT(datagrams, kMessages) << "loss must have forced retransmits";
+  EXPECT_LE(largest, mtu) << "a datagram overran the negotiated MTU";
+}
+
+// a reported gap has to be resent straight away. the retransmit scan is skipped
+// until the soonest RTO deadline, so a nak that does not pull that deadline in
+// is silently worth nothing.
+TEST(ZDTReliability, ReportedGapRetransmitsWithoutWaitingOutTheRto) {
+  ASSERT_EQ(Init(), Result::Success);
+  auto server_socket = MakeBoundSocket();
+  auto client_socket = MakeBoundSocket();
+  ZDTOptions config = FastConfig();
+  // far longer than the test takes, so anything resent came from the nak and
+  // not from a timeout
+  config.rto_min = std::chrono::milliseconds(5000);
+  config.rto_max = std::chrono::milliseconds(10000);
+  ZDTConnection connection;
+  ZDTTransportLayer client(client_socket, server_socket->local_address(), config,
+                           false, nullptr, connection);
+  ZDTTransportLayer server(server_socket, client_socket->local_address(), config,
+                           false, nullptr, connection);
+
+  // one datagram each, so dropping one leaves an unambiguous gap
+  const size_t kPayload = 1100;
+  for (uint32_t i = 0; i < 5; i++) {
+    auto payload = std::make_shared<Buffer>();
+    for (size_t b = 0; b < kPayload; b++) {
+      payload->WriteInt<uint8_t>(static_cast<uint8_t>(i + b));
+    }
+    client.Send(payload);
+  }
+  client.Update();
+
+  auto sent = CollectDatagrams(*server_socket);
+  ASSERT_GE(sent.size(), 4u);
+  for (size_t i = 0; i < sent.size(); i++) {
+    if (i == 1) {
+      continue;  // the loss the server is meant to report
+    }
+    server.OnDatagram(sent[i].data(), sent[i].size());
+  }
+
+  server.Update();  // acknowledges, describing the gap
+  auto acks = CollectDatagrams(*client_socket);
+  ASSERT_GT(acks.size(), 0u);
+  for (auto& ack : acks) {
+    client.OnDatagram(ack.data(), ack.size());
+  }
+
+  const auto started = std::chrono::steady_clock::now();
+  client.Update();  // must act on the nak in this same tick
+  const auto elapsed = std::chrono::steady_clock::now() - started;
+
+  auto resent = CollectDatagrams(*server_socket);
+  EXPECT_GT(resent.size(), 0u)
+      << "the reported gap was not resent until the RTO expired";
+  EXPECT_LT(elapsed, config.rto_min);
+}
+
+// Gaps are reported the moment they appear, which costs a spurious retransmit
+// when datagrams merely arrive out of order. That is the deliberate trade: the
+// alternative, holding a recent gap back, cannot tell reordering from a loss at
+// the tail of the window, where nothing newer ever arrives to resolve it and
+// recovery falls back to the RTO. Delivery still has to be exactly once.
+TEST(ZDTReliability, ReorderIsRecoveredExactlyOnce) {
+  ASSERT_EQ(Init(), Result::Success);
+  auto server_socket = MakeBoundSocket();
+  auto client_socket = MakeBoundSocket();
+  ZDTOptions config = FastConfig();
+  config.rto_min = std::chrono::milliseconds(5000);
+  config.rto_max = std::chrono::milliseconds(10000);
+  ZDTConnection connection;
+  ZDTTransportLayer client(client_socket, server_socket->local_address(), config,
+                           false, nullptr, connection);
+  ZDTTransportLayer server(server_socket, client_socket->local_address(), config,
+                           false, nullptr, connection);
+
+  const size_t kPayload = 1100;
+  const uint32_t kMessages = 6;
+  for (uint32_t i = 0; i < kMessages; i++) {
+    auto payload = std::make_shared<Buffer>();
+    for (size_t b = 0; b < kPayload; b++) {
+      payload->WriteInt<uint8_t>(static_cast<uint8_t>(i + b));
+    }
+    client.Send(payload);
+  }
+  client.Update();
+
+  auto sent = CollectDatagrams(*server_socket);
+  ASSERT_GE(sent.size(), 3u);
+
+  // acknowledge while the gap is still open. delivering the swapped pair
+  // back to back would fill it before any ack is built, which is the mistake
+  // that makes this test vacuous.
+  server.OnDatagram(sent[0].data(), sent[0].size());
+  server.Update();
+  server.OnDatagram(sent[2].data(), sent[2].size());  // sent[1] is still behind
+  server.Update();
+
+  for (auto& ack : CollectDatagrams(*client_socket)) {
+    client.OnDatagram(ack.data(), ack.size());
+  }
+  client.Update();
+
+  // the gap is reported straight away, so the client resends. feed that back
+  // as well: the straggler and its retransmit both reach the server.
+  for (auto& datagram : CollectDatagrams(*server_socket)) {
+    server.OnDatagram(datagram.data(), datagram.size());
+  }
+  server.OnDatagram(sent[1].data(), sent[1].size());
+  for (size_t i = 3; i < sent.size(); i++) {
+    server.OnDatagram(sent[i].data(), sent[i].size());
+  }
+  server.Update();  // OnDatagram only queues; Update drains the inbox
+
+  size_t delivered = 0;
+  while (server.Receive()) {
+    delivered++;
+  }
+  EXPECT_EQ(delivered, kMessages)
+      << "a reordered datagram and its retransmit must deliver once, not twice";
+}
+
+// The counterpart to the test above: holding a recent gap back must be bounded.
+// A loss in the last datagram of a burst sits at the tail with nothing newer
+// behind it to push it deeper, so a hold that waits for the gap to age never
+// expires and the sender falls back to the RTO.
+TEST(ZDTReliability, TailGapIsReportedRatherThanHeldForever) {
+  ASSERT_EQ(Init(), Result::Success);
+  auto server_socket = MakeBoundSocket();
+  auto client_socket = MakeBoundSocket();
+  ZDTOptions config = FastConfig();
+  // long enough that nothing here can be a timeout retransmit
+  config.rto_min = std::chrono::milliseconds(5000);
+  config.rto_max = std::chrono::milliseconds(10000);
+  ZDTConnection connection;
+  ZDTTransportLayer client(client_socket, server_socket->local_address(), config,
+                           false, nullptr, connection);
+  ZDTTransportLayer server(server_socket, client_socket->local_address(), config,
+                           false, nullptr, connection);
+
+  const size_t kPayload = 1100;
+  for (uint32_t i = 0; i < 5; i++) {
+    auto payload = std::make_shared<Buffer>();
+    for (size_t b = 0; b < kPayload; b++) {
+      payload->WriteInt<uint8_t>(static_cast<uint8_t>(i + b));
+    }
+    client.Send(payload);
+  }
+  client.Update();
+
+  auto sent = CollectDatagrams(*server_socket);
+  ASSERT_GE(sent.size(), 3u);
+  // drop the second to last, so the gap sits one behind the newest arrival and
+  // no further traffic ever arrives to move it
+  for (size_t i = 0; i < sent.size(); i++) {
+    if (i + 2 == sent.size()) {
+      continue;
+    }
+    server.OnDatagram(sent[i].data(), sent[i].size());
+  }
+
+  // the sender is stalled, so acks are the only thing still moving. give it a
+  // few rounds; the point is that it is bounded, not that it is immediate.
+  size_t resent = 0;
+  for (int round = 0; round < 4 && resent == 0; round++) {
+    server.Update();
+    for (auto& ack : CollectDatagrams(*client_socket)) {
+      client.OnDatagram(ack.data(), ack.size());
+    }
+    client.Update();
+    for (auto& datagram : CollectDatagrams(*server_socket)) {
+      if (datagram.size() > kPayload / 2) {
+        resent++;
+      }
+    }
+  }
+  EXPECT_GT(resent, 0u)
+      << "a gap at the tail of the window was never reported, so recovery "
+         "was left to the RTO";
+}
+
+// a single source blasting handshake requests is rate-limited: far fewer replies
 // than requests come back.
 TEST(ZDTRateLimit, PerSourceHandshakeIsThrottled) {
   ASSERT_EQ(Init(), Result::Success);
@@ -1545,7 +1841,7 @@ struct Reply1Data {
   bool ok = false;
 };
 
-// Sends an OpenConnectionRequest1 padded to `pad_to` bytes and parses Reply1.
+// sends an OpenConnectionRequest1 padded to `pad_to` bytes and parses Reply1.
 Reply1Data DoRequest1(UDPSocket& socket, const InetAddress& server_addr,
                       uint16_t pad_to) {
   Buffer request(Endianness::BigEndian);
@@ -1583,7 +1879,7 @@ Reply1Data DoRequest1(UDPSocket& socket, const InetAddress& server_addr,
   return data;
 }
 
-// Sends an OpenConnectionRequest2 echoing `cookie`/`epoch` and returns true iff a
+// sends an OpenConnectionRequest2 echoing `cookie`/`epoch` and returns true iff a
 // Reply2 comes back.
 bool DoRequest2ExpectReply(UDPSocket& socket, const InetAddress& server_addr,
                            const ZDTCookie& cookie, uint32_t epoch) {
@@ -1671,7 +1967,7 @@ TEST(ZDTSecurity, Request1AllocatesNoSession) {
   std::this_thread::sleep_for(std::chrono::milliseconds(100));
 }
 
-// A forged/corrupted cookie in Request2 is dropped: no Reply2, no session.
+// a forged/corrupted cookie in Request2 is dropped: no Reply2, no session.
 TEST(ZDTSecurity, ForgedCookieRejected) {
   ASSERT_EQ(Init(), Result::Success);
   auto ctx = StartSecurityServer();
@@ -1700,7 +1996,7 @@ TEST(ZDTSecurity, ForgedCookieRejected) {
   std::this_thread::sleep_for(std::chrono::milliseconds(100));
 }
 
-// The cookie is bound to the source address: a cookie issued to socket A cannot
+// the cookie is bound to the source address: a cookie issued to socket A cannot
 // be redeemed from socket B.
 TEST(ZDTSecurity, CookieIsAddressBound) {
   ASSERT_EQ(Init(), Result::Success);
@@ -1729,7 +2025,7 @@ TEST(ZDTSecurity, CookieIsAddressBound) {
   std::this_thread::sleep_for(std::chrono::milliseconds(100));
 }
 
-// Anti-amplification: the server never replies with more bytes than it received
+// anti-amplification: the server never replies with more bytes than it received
 // from an unvalidated address (Reply1 <= padded Request1).
 TEST(ZDTSecurity, NoAmplificationOnRequest1) {
   ASSERT_EQ(Init(), Result::Success);
@@ -1757,9 +2053,9 @@ static std::shared_ptr<InetAddress> LocalAddr(PortNumber port) {
   return std::shared_ptr<InetAddress>(InetAddress::from("127.0.0.1", port));
 }
 
-// Two peers punch to each other and must both reach Ready(), which requires the
+// two peers punch to each other and must both reach Ready(), which requires the
 // full encryption handshake (reliable app-level packets) to flow both ways over
-// the punched ZDT connection. On loopback there is no NAT, so this exercises the
+// the punched ZDT connection. on loopback there is no NAT, so this exercises the
 // punch state machine + handshake rather than real traversal.
 TEST(ZDTP2P, HolePunchLoopbackReachesReady) {
   ASSERT_EQ(Init(), Result::Success);

@@ -21,10 +21,12 @@
 //
 
 #include "common/harness.h"
+#include "common/impairment.h"
 
 #include <enet/enet.h>
 
 #include <cstring>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -32,6 +34,8 @@ namespace {
 
 constexpr enet_uint16 kPort = 47100;
 constexpr size_t kChannels = 2;
+
+bench::Impairment g_impair;
 
 struct Pair {
   ENetHost* server = nullptr;
@@ -201,11 +205,13 @@ int main() {
   std::printf("ENet %d.%d.%d\n", ENET_VERSION_MAJOR, ENET_VERSION_MINOR,
               ENET_VERSION_PATCH);
   bench::Note("plaintext, no compression; reliable+ordered on channel 0");
+  g_impair = bench::Impairment::FromEnv();
+  bench::NoteImpairment(g_impair);
   bench::PrintHeader("enet", "ENet");
-  for (const auto& w : bench::DefaultThroughputWorkloads()) {
+  for (const auto& w : bench::ImpairedThroughputWorkloads(g_impair)) {
     Throughput(w);
   }
-  Latency(bench::DefaultLatencyWorkload());
+  Latency(bench::ImpairedLatencyWorkload(g_impair));
   enet_deinitialize();
   return 0;
 }

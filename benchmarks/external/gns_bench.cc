@@ -18,6 +18,7 @@
 //
 
 #include "common/harness.h"
+#include "common/impairment.h"
 
 #include <steam/isteamnetworkingsockets.h>
 #include <steam/isteamnetworkingutils.h>
@@ -25,6 +26,7 @@
 
 #include <atomic>
 #include <cstring>
+#include <memory>
 #include <string>
 #include <thread>
 #include <vector>
@@ -69,6 +71,8 @@ void OnConnectionStatusChanged(SteamNetConnectionStatusChangedCallback_t* info) 
       break;
   }
 }
+
+bench::Impairment g_impair;
 
 bool Connect(State& s, uint16 port, bench::Clock::duration* connect_time) {
   s.sockets = SteamNetworkingSockets();
@@ -230,16 +234,36 @@ int main() {
       k_ESteamNetworkingConfig_SendRateMin, kSendRate);
   SteamNetworkingUtils()->SetGlobalConfigValueInt32(
       k_ESteamNetworkingConfig_SendRateMax, kSendRate);
+  // the send buffer bounds how much reliable data may be outstanding; the
+  // 512 KB default can cap throughput independently of the rate limiter
+  SteamNetworkingUtils()->SetGlobalConfigValueInt32(
+      k_ESteamNetworkingConfig_SendBufferSize, 32 * 1024 * 1024);
+  // GNS coalesces sends for NagleTime (default 5000us) before putting them on
+  // the wire. Left at the default it adds ~5ms per leg, which made the latency
+  // row read ~10ms and measured Nagle rather than the protocol - znet's ZDT
+  // sends immediately, so the two were not comparable. Turning it off costs GNS
+  // nothing on throughput (measured slightly faster) and is the like-for-like
+  // setting. Override with GNS_NAGLE_US to see the default behaviour.
+  int32 nagle_us = 0;
+  if (const char* n = getenv("GNS_NAGLE_US")) {
+    nagle_us = atoi(n);
+  }
+  SteamNetworkingUtils()->SetGlobalConfigValueInt32(
+      k_ESteamNetworkingConfig_NagleTime, nagle_us);
 
   std::printf("GameNetworkingSockets 1.6.0\n");
   bench::Note("encrypted (AES-GCM) like znet, no compression; reliable stream");
   bench::Note("send rate limit raised from the ~256 KB/s default for loopback");
+  bench::Note("NagleTime set to 0: GNS defaults to 5ms coalescing, which znet");
+  bench::Note("does not do, and which dominates the latency row if left on.");
+  g_impair = bench::Impairment::FromEnv();
+  bench::NoteImpairment(g_impair);
   bench::PrintHeader("gns", "GNS");
   uint16 port = kPort;
-  for (const auto& w : bench::DefaultThroughputWorkloads()) {
+  for (const auto& w : bench::ImpairedThroughputWorkloads(g_impair)) {
     Throughput(w, port++);
   }
-  Latency(bench::DefaultLatencyWorkload());
+  Latency(bench::ImpairedLatencyWorkload(g_impair));
   GameNetworkingSockets_Kill();
   return 0;
 }

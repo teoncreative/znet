@@ -14,14 +14,15 @@
 #include "znet/precompiled.h"
 #include <iostream>
 
-// Pick a formatting backend. std::format is preferred wherever it exists; the
+// pick a formatting backend. std::format is preferred wherever it exists; the
 // bundled shim keeps the same `{}` call syntax on C++14/17 without pulling in
-// a dependency. Set ZNET_USE_FMTLIB=1 (and link fmt::fmt) to get full format
+// a dependency. set ZNET_USE_FMTLIB=1 (and link fmt::fmt) to get full format
 // spec support below C++20.
-// Probe for <format> rather than assuming C++20 implies it: libc++ shipped the
-// language features long before the library ones, so an -std=c++20 build on an
-// older Clang/Apple toolchain has no std::format at all. __cpp_lib_format
-// comes from <version>.
+//
+// <format> is probed rather than assumed from the language level: libc++
+// shipped the C++20 language features long before the library ones, so an
+// -std=c++20 build on an older Clang/Apple toolchain has no std::format at
+// all. __cpp_lib_format comes from <version>.
 #if ZNET_HAS_CXX20 && defined(__has_include)
 #if __has_include(<version>)
 #include <version>
@@ -73,7 +74,7 @@
 #define ZNET_LOG_LEVEL ZNET_LOG_LEVEL_DEBUG
 #endif
 
-// The message is folded into __VA_ARGS__ rather than named separately, which
+// the message is folded into __VA_ARGS__ rather than named separately, which
 // is what removes the need for __VA_OPT__ (C++20) to elide the comma when a
 // log call passes no arguments beyond the message.
 #define ZNET_PRINTFN(fmsg, func, ...) \

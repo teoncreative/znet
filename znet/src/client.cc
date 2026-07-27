@@ -58,22 +58,54 @@ Result Client::Connect() {
   if (ZNET_UNLIKELY(!backend_)) ZNET_UNLIKELY_ATTR {
     return Result::InvalidBackend;
   }
+  // registered before Connect() starts any receive thread, which reads it
+  auto signal = signal_;
+  backend_->SetWakeCallback([signal]() { signal->RaiseSynchronized(); });
+
   Result result = backend_->Connect();
   if (ZNET_UNLIKELY(result != Result::Success)) ZNET_UNLIKELY_ATTR {
     return result;
   }
 
   client_session_ = backend_->client_session();
+  // the other direction: the application's own sends on an idle session
+  client_session_->SetWakeCallback([signal]() { signal->RaiseSynchronized(); });
+  // only worth pacing when something else is taking datagrams off the socket.
+  // otherwise reads happen only while this loop runs, and sleeping would add a
+  // tick to everything inbound.
+  const bool paced = backend_->DrivesOwnReceive();
 
-  // Connected to the server
-  task_.Run([this]() {
+  task_.Run([this, paced]() {
+    signal_->owner.store(std::this_thread::get_id(), std::memory_order_relaxed);
+    // held only around the wait, never across Process(): the notifiers take it
+    // too, so holding it while working would block the receive thread for a
+    // whole tick. nothing else is guarded by it.
+    std::unique_lock<std::mutex> lock(signal_->mutex, std::defer_lock);
+    auto rest_of_tick = [this, paced, &lock]() {
+      if (!paced) {
+        return;  // this loop is the only reader; sleeping would stall inbound
+      }
+      scheduler_.End();
+      auto remaining = scheduler_.remaining();
+      lock.lock();
+      if (remaining > Scheduler::Duration::zero()) {
+        signal_->cv.wait_for(lock, remaining, [this]() {
+          return signal_->woken.load(std::memory_order_relaxed) ||
+                 task_.IsStopRequested();
+        });
+      }
+      signal_->woken.store(false, std::memory_order_relaxed);
+      lock.unlock();
+    };
     // setup
     while (!client_session_->IsReady() && client_session_->IsAlive() && !task_.IsStopRequested()) {
+      scheduler_.Start();
       client_session_->Process();
       if (config_.connection_timeout.count() > 0 && client_session_->time_since_connect() > config_.connection_timeout) {
         ZNET_LOG_DEBUG("Connection to {} timed-out.", server_address_->readable());
         client_session_->Close();
       }
+      rest_of_tick();
     }
     if (!client_session_->IsAlive() || task_.IsStopRequested()) {
       return;
@@ -82,7 +114,9 @@ Result Client::Connect() {
     ClientConnectedToServerEvent connected_event{client_session_};
     event_callback()(connected_event);
     while (client_session_->IsAlive() && !task_.IsStopRequested()) {
+      scheduler_.Start();
       client_session_->Process();
+      rest_of_tick();
     }
     ZNET_LOG_DEBUG("Disconnected from the server.");
     ClientDisconnectedFromServerEvent disconnected_event{client_session_};
@@ -99,7 +133,9 @@ Result Client::Disconnect(CloseOptions options) {
   if (!client_session_) {
     return Result::Failure;
   }
-  return client_session_->Close(options);
+  Result result = client_session_->Close(options);
+  signal_->RaiseSynchronized();  // sleeping out a tick; do not make it wait
+  return result;
 }
 
 ZNET_NODISCARD std::shared_ptr<InetAddress> Client::local_address() const {

@@ -41,7 +41,7 @@ class HandshakePacket : public Packet {
   static PacketId GetPacketId() { return static_cast<PacketId>(-2); }
 
   UniquePKey pub_key_ = nullptr;
-  // Session parameters, chosen by the server. Only meaningful on the packet the
+  // session parameters, chosen by the server. only meaningful on the packet the
   // server sends; the initiator's copy carries defaults and is ignored.
   bool encryption_ = true;
   CompressionTypeRaw compression_ = 0;
@@ -72,10 +72,8 @@ class HandshakePacketSerializerV1 : public PacketSerializer<HandshakePacket> {
     packet->encryption_ = buffer->ReadInt<uint8_t>() != 0;
     packet->compression_ = buffer->ReadInt<CompressionTypeRaw>();
     if (uint32_t len = buffer->ReadInt<uint32_t>()) {
-      // stack‑allocate a temp vector, read into it
       std::vector<unsigned char> tmp(len);
       buffer->Read(tmp.data(), len);
-      // hand off to your unique_ptr factory
       packet->pub_key_ = DeserializePublicKey(tmp.data(), len);
     }
     return packet;
@@ -118,9 +116,13 @@ class EncryptionLayer {
   EncryptionLayer(PeerSession& session);
   ~EncryptionLayer();
 
-  // `want_encryption` is the server's policy and is only read on the accepting
-  // side. The initiator always offers a key and then follows whatever the
-  // server selects, so a client needs no matching configuration.
+  /**
+   * @brief Starts the key exchange.
+   *
+   * `want_encryption` is the server's policy and is only read on the accepting
+   * side. The initiator always offers a key and then follows whatever the
+   * server selects, so a client needs no matching configuration.
+   */
   void Initialize(bool send, bool want_encryption = true);
 
   std::shared_ptr<Buffer> HandleIn(std::shared_ptr<Buffer> buffer);
@@ -144,6 +146,14 @@ class EncryptionLayer {
   bool key_filled_ = false;
   unsigned char* key_ = nullptr;
   size_t key_len_ = 0;
+  EVP_CIPHER_CTX* enc_ctx_ = nullptr;
+  EVP_CIPHER_CTX* dec_ctx_ = nullptr;
+  bool cipher_keyed_ = false;  // encrypt side
+  bool dec_keyed_ = false;     // decrypt side, keyed on its first inbound message
+  // SendPacket runs on the caller's thread and a session may be sent to from
+  // several, so the shared encrypt context needs guarding. The decrypt side
+  // does not: it is only ever touched by the worker owning the session.
+  std::mutex enc_mutex_;
 
  private:
   std::shared_ptr<Buffer> HandleDecrypt(std::shared_ptr<Buffer> buffer);

@@ -25,11 +25,11 @@ namespace znet {
 
 class Buffer;
 
-// Type constraints.
+// type constraints.
 //
-// Each one exists twice: as a trait usable in any language mode, and (on
+// each one exists twice: as a trait usable in any language mode, and (on
 // C++20) as the concept of the same name that the public API used before
-// C++14 support was added. The ZNET_TPL_* macros below pick whichever the
+// C++14 support was added. the ZNET_TPL_* macros below pick whichever the
 // compiler understands, so a C++20 build still gets concept diagnostics and a
 // C++14 build gets the equivalent SFINAE constraint.
 namespace detail {
@@ -61,7 +61,7 @@ struct HasWriteMethodT<T,
 
 }  // namespace detail
 
-// The concepts are aliases over the traits above rather than restatements of
+// the concepts are aliases over the traits above rather than restatements of
 // them, so each constraint is defined exactly once and the two spellings
 // cannot drift apart.
 #if ZNET_HAS_CXX20
@@ -178,7 +178,7 @@ class Buffer {
   }
 #endif
 
-  // Pointer + size is the primary form because std::span is C++20-only; the
+  // pointer + size is the primary form because std::span is C++20-only; the
   // span overload below is a thin forwarder kept for callers that have one.
   ZNET_TPL_ARITH8(T)
   void Read(T* arr, size_t size) {
@@ -188,7 +188,9 @@ class Buffer {
     }
     char* pt = reinterpret_cast<char*>(arr);
     size_t calculated_size = sizeof(T) * size;
-    if (ZNET_UNLIKELY(!CheckReadableBytes(size))) ZNET_UNLIKELY_ATTR {
+    // bytes, not elements: `size` under-checks by sizeof(T) for anything wider
+    // than a char, and the memcpy below reads past the buffer.
+    if (ZNET_UNLIKELY(!CheckReadableBytes(calculated_size))) ZNET_UNLIKELY_ATTR {
       last_error_ = BufferError::ReadOutOfBounds;
       return;
     }
@@ -465,7 +467,7 @@ class Buffer {
     }
     if (address.ipv() == InetProtocolVersion::IPv4) {
       WriteInt<uint8_t>(4);
-      // raw IPv4 (network‐order) + port (network‐order)
+      // raw IPv4 (network-order) + port (network-order)
       auto* addr = reinterpret_cast<const sockaddr_in*>(address.handle_ptr());
       Write(reinterpret_cast<const uint32_t*>(&addr->sin_addr.s_addr), 1);
       Write(&addr->sin_port, 1);
@@ -481,11 +483,10 @@ class Buffer {
   }
 
   void WritePort(PortNumber port) {
-    // Pretty funny but this should be enough
     WriteInt(port);
   }
 
-  // write a std::bitset<N> (little‑endian bit order)
+  // write a std::bitset<N> (little-endian bit order)
   template<size_t N>
   void WriteBitset(const std::bitset<N>& bs) {
     if (ZNET_UNLIKELY(!CheckSeal())) ZNET_UNLIKELY_ATTR {
@@ -752,7 +753,7 @@ class Buffer {
 #endif
       return;
     }
-    // Most Reserve calls don't need to reallocate
+    // most Reserve calls don't need to reallocate
     if (ZNET_LIKELY(allocated_size_ >= size)) ZNET_LIKELY_ATTR {
       return;
     }

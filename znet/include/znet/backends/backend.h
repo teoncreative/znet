@@ -38,6 +38,27 @@ class ClientBackend {
   virtual std::shared_ptr<InetAddress> local_address() = 0;
 
   virtual std::mutex& mutex() = 0;
+  /**
+   * @brief Installs a callback fired when inbound data arrives.
+   *
+   * Mirrors the server-side hook: called from whichever thread noticed the
+   * data, so the client's loop does not sleep out its tick with work waiting.
+   * Backends that read on the caller's thread ignore it.
+   */
+  virtual void SetWakeCallback(std::function<void()> on_data) { (void)on_data; }
+
+  /** @brief Joins any receive thread, leaving the socket open. Idempotent. */
+  virtual void StopReceiving() {}
+
+  /**
+   * @brief Whether the backend has its own thread taking datagrams off the
+   *        socket.
+   *
+   * When it does, the client's loop can sleep out its tick and be woken on
+   * arrival. When it does not, reads only happen while the loop is running, so
+   * pacing it would add a tick of latency to everything inbound.
+   */
+  virtual bool DrivesOwnReceive() const { return false; }
 };
 
 class ServerBackend {

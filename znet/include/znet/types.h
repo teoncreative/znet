@@ -14,14 +14,18 @@
 
 namespace znet {
 
-// Max buffer size defines how big send and receive of each data can be.
+/** @brief Largest single send or receive, in bytes. */
 #ifndef ZNET_MAX_BUFFER_SIZE
 #define ZNET_MAX_BUFFER_SIZE 4096 //16384
 #endif
 
-// When this macro is given as a port, makes the system select a port instead
-// Use the client.local_address() function to get the port on Client
-// Use the server.bind_address() function to get the port on Server
+/**
+ * @brief Passed as a port, lets the system pick one rather than binding a
+ *        specific port.
+ *
+ * Read the chosen port back with Client::local_address() or
+ * Server::bind_address().
+ */
 #define ZNET_PORT_AUTO 0
 
 // 64 bits might be an overkill here but meh
@@ -29,7 +33,7 @@ using SessionId = uint64_t;
 
 enum class Endianness { LittleEndian, BigEndian };
 
-// Evaluated at compile-time: consteval where the language has it, and a
+// evaluated at compile-time: consteval where the language has it, and a
 // constexpr returning a preprocessor-resolved constant otherwise, so the
 // endianness branches in Buffer still fold away in every mode.
 ZNET_CONSTEVAL Endianness GetSystemEndianness() {

@@ -56,7 +56,7 @@
 #define ZNET_FALLTHROUGH
 #endif
 
-// Branch hints. GCC and Clang expose __builtin_expect in every language mode
+// branch hints. GCC and Clang expose __builtin_expect in every language mode
 // and it lowers identically to [[likely]]/[[unlikely]], so the attribute is
 // only worth emitting on MSVC, which has no builtin. Splitting the hint into a
 // condition wrapper and a statement attribute is what lets a single call site
@@ -100,7 +100,7 @@
 #define ZNET_CONSTEVAL constexpr
 #endif
 
-// Several std::array members (data(), the mutating operator[]) only became
+// several std::array members (data(), the mutating operator[]) only became
 // constexpr in C++17. A function that calls one cannot itself be constexpr in
 // a C++14 build; marking it this way keeps the C++17+ guarantee without making
 // the C++14 build ill-formed.
