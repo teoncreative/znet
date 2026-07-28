@@ -302,15 +302,35 @@ static std::shared_ptr<UDPSocket> MakeBoundSocket() {
   return socket;
 }
 
-// Drains every datagram currently queued on `socket`. Tests use this to move
+// drains every datagram currently queued on `socket`. tests use this to move
 // datagrams between transports by hand, so they can drop/reorder them.
-static std::vector<std::vector<uint8_t>> CollectDatagrams(UDPSocket& socket) {
+//
+// `min_expected` is what the caller knows was just sent. linux queues loopback
+// traffic inside sendto(), but macOS hands it to a kernel input thread, so an
+// immediate drain can race the handoff and come back empty. asserting callers
+// wait briefly for that many; polling callers pass 0 and never sleep.
+static std::vector<std::vector<uint8_t>> CollectDatagrams(UDPSocket& socket,
+                                                          size_t min_expected = 0) {
   std::vector<std::vector<uint8_t>> out;
   uint8_t buf[ZNET_MAX_BUFFER_SIZE];
   size_t len = 0;
   std::shared_ptr<InetAddress> from;
-  while (socket.RecvFrom(buf, sizeof(buf), len, from) == RecvResult::Received) {
-    out.emplace_back(buf, buf + len);
+  int idle = 0;
+  for (int poll = 0; poll < 200; poll++) {  // ~200ms ceiling, as RecvWithRetry
+    bool got_any = false;
+    while (socket.RecvFrom(buf, sizeof(buf), len, from) == RecvResult::Received) {
+      out.emplace_back(buf, buf + len);
+      got_any = true;
+    }
+    if (min_expected == 0) {
+      break;  // pure poll: one pass, no waiting
+    }
+    idle = got_any ? 0 : idle + 1;
+    // quiet as well as satisfied, so a split burst is not cut at its first arrival
+    if (out.size() >= min_expected && idle >= 3) {
+      break;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
   }
   return out;
 }
@@ -342,6 +362,14 @@ static std::shared_ptr<UDPSocket> OpenBoundSocket() {
 
 // Unless a test passes explicit SendOptions, Send() uses the library defaults:
 // reliable + ordered on channel 0.
+
+static SendOptions MakeSendOptions(bool reliable, bool ordered, uint8_t channel) {
+  SendOptionsInit init;
+  init.reliable = reliable;
+  init.ordered = ordered;
+  init.channel = channel;
+  return SendOptions{init};
+}
 
 // Short timers so loss/retransmit tests converge quickly.
 static ZDTOptions FastConfig() {
@@ -754,8 +782,8 @@ TEST(ZDTReliability, SimultaneousOpenDoesNotFalselyAck) {
 
   // drop everything A sent; hand B's first datagram (which carries the default
   // ack) to A. A must NOT treat its own first packet as acknowledged.
-  CollectDatagrams(*socket_b);  // discard A -> B
-  for (auto& datagram : CollectDatagrams(*socket_a)) {
+  CollectDatagrams(*socket_b, 1);  // discard A -> B
+  for (auto& datagram : CollectDatagrams(*socket_a, 1)) {
     a.OnDatagram(datagram.data(), datagram.size());
   }
 
@@ -1208,7 +1236,7 @@ TEST(ZDTChannels, ReliableUnorderedDeliversAllExactlyOnce) {
                            false, nullptr, connection);
 
   const uint32_t kMessages = 200;
-  SendOptions options{SendOptionsInit{.reliable = true, .ordered = false, .channel = 1}};
+  SendOptions options = MakeSendOptions(true, false, 1);
   for (uint32_t i = 0; i < kMessages; i++) {
     auto payload = std::make_shared<Buffer>();
     payload->WriteInt<uint32_t>(i);
@@ -1253,7 +1281,7 @@ TEST(ZDTChannels, UnreliableSequencedDeliversMonotonic) {
                            false, nullptr, connection);
 
   const uint32_t kMessages = 200;
-  SendOptions options{SendOptionsInit{.reliable = false, .ordered = true, .channel = 2}};
+  SendOptions options = MakeSendOptions(false, true, 2);
   for (uint32_t i = 0; i < kMessages; i++) {
     auto payload = std::make_shared<Buffer>();
     payload->WriteInt<uint32_t>(i);
@@ -1261,7 +1289,7 @@ TEST(ZDTChannels, UnreliableSequencedDeliversMonotonic) {
   }
   client.Update();  // flush once; unreliable, no retransmit
 
-  auto datagrams = CollectDatagrams(*server_socket);
+  auto datagrams = CollectDatagrams(*server_socket, 1);
   std::mt19937 rng(99);
   std::shuffle(datagrams.begin(), datagrams.end(), rng);  // force reordering
   for (auto& datagram : datagrams) {
@@ -1293,7 +1321,7 @@ TEST(ZDTChannels, UnreliableUnorderedDeliversAllWithoutLoss) {
                            false, nullptr, connection);
 
   const uint32_t kMessages = 200;
-  SendOptions options{SendOptionsInit{.reliable = false, .ordered = false, .channel = 3}};
+  SendOptions options = MakeSendOptions(false, false, 3);
   for (uint32_t i = 0; i < kMessages; i++) {
     auto payload = std::make_shared<Buffer>();
     payload->WriteInt<uint32_t>(i);
@@ -1301,7 +1329,7 @@ TEST(ZDTChannels, UnreliableUnorderedDeliversAllWithoutLoss) {
   }
   client.Update();
 
-  for (auto& datagram : CollectDatagrams(*server_socket)) {
+  for (auto& datagram : CollectDatagrams(*server_socket, 1)) {
     server.OnDatagram(datagram.data(), datagram.size());
   }
   server.Update();
@@ -1332,8 +1360,8 @@ TEST(ZDTChannels, ReliableAndUnreliableCoexistOnOneChannel) {
                            false, nullptr, connection);
 
   const uint32_t kMessages = 100;
-  SendOptions reliable{SendOptionsInit{.reliable = true, .ordered = true, .channel = 5}};
-  SendOptions unreliable{SendOptionsInit{.reliable = false, .ordered = false, .channel = 5}};
+  SendOptions reliable = MakeSendOptions(true, true, 5);
+  SendOptions unreliable = MakeSendOptions(false, false, 5);
   for (uint32_t i = 0; i < kMessages; i++) {
     auto rel = std::make_shared<Buffer>();
     rel->WriteInt<uint32_t>(i);  // reliable values: [0, 100)
@@ -1494,7 +1522,7 @@ TEST(ZDTCongestion, WindowBoundsBurstThenDrains) {
   }
 
   client.Update();  // first flush is bounded by the window
-  auto first_batch = CollectDatagrams(*server_socket);
+  auto first_batch = CollectDatagrams(*server_socket, 1);
   EXPECT_GT(first_batch.size(), 0u);
   EXPECT_LE(first_batch.size(), static_cast<size_t>(config.cwnd))
       << "burst was not bounded by the congestion window";
@@ -1626,7 +1654,7 @@ TEST(ZDTReliability, ReportedGapRetransmitsWithoutWaitingOutTheRto) {
   }
   client.Update();
 
-  auto sent = CollectDatagrams(*server_socket);
+  auto sent = CollectDatagrams(*server_socket, 4);
   ASSERT_GE(sent.size(), 4u);
   for (size_t i = 0; i < sent.size(); i++) {
     if (i == 1) {
@@ -1636,7 +1664,7 @@ TEST(ZDTReliability, ReportedGapRetransmitsWithoutWaitingOutTheRto) {
   }
 
   server.Update();  // acknowledges, describing the gap
-  auto acks = CollectDatagrams(*client_socket);
+  auto acks = CollectDatagrams(*client_socket, 1);
   ASSERT_GT(acks.size(), 0u);
   for (auto& ack : acks) {
     client.OnDatagram(ack.data(), ack.size());
@@ -1646,7 +1674,7 @@ TEST(ZDTReliability, ReportedGapRetransmitsWithoutWaitingOutTheRto) {
   client.Update();  // must act on the nak in this same tick
   const auto elapsed = std::chrono::steady_clock::now() - started;
 
-  auto resent = CollectDatagrams(*server_socket);
+  auto resent = CollectDatagrams(*server_socket, 1);
   EXPECT_GT(resent.size(), 0u)
       << "the reported gap was not resent until the RTO expired";
   EXPECT_LT(elapsed, config.rto_min);
@@ -1681,7 +1709,7 @@ TEST(ZDTReliability, ReorderIsRecoveredExactlyOnce) {
   }
   client.Update();
 
-  auto sent = CollectDatagrams(*server_socket);
+  auto sent = CollectDatagrams(*server_socket, 3);
   ASSERT_GE(sent.size(), 3u);
 
   // acknowledge while the gap is still open. delivering the swapped pair
@@ -1692,14 +1720,14 @@ TEST(ZDTReliability, ReorderIsRecoveredExactlyOnce) {
   server.OnDatagram(sent[2].data(), sent[2].size());  // sent[1] is still behind
   server.Update();
 
-  for (auto& ack : CollectDatagrams(*client_socket)) {
+  for (auto& ack : CollectDatagrams(*client_socket, 1)) {
     client.OnDatagram(ack.data(), ack.size());
   }
   client.Update();
 
   // the gap is reported straight away, so the client resends. feed that back
   // as well: the straggler and its retransmit both reach the server.
-  for (auto& datagram : CollectDatagrams(*server_socket)) {
+  for (auto& datagram : CollectDatagrams(*server_socket, 1)) {
     server.OnDatagram(datagram.data(), datagram.size());
   }
   server.OnDatagram(sent[1].data(), sent[1].size());
@@ -1744,7 +1772,7 @@ TEST(ZDTReliability, TailGapIsReportedRatherThanHeldForever) {
   }
   client.Update();
 
-  auto sent = CollectDatagrams(*server_socket);
+  auto sent = CollectDatagrams(*server_socket, 3);
   ASSERT_GE(sent.size(), 3u);
   // drop the second to last, so the gap sits one behind the newest arrival and
   // no further traffic ever arrives to move it
@@ -1760,11 +1788,11 @@ TEST(ZDTReliability, TailGapIsReportedRatherThanHeldForever) {
   size_t resent = 0;
   for (int round = 0; round < 4 && resent == 0; round++) {
     server.Update();
-    for (auto& ack : CollectDatagrams(*client_socket)) {
+    for (auto& ack : CollectDatagrams(*client_socket, 1)) {
       client.OnDatagram(ack.data(), ack.size());
     }
     client.Update();
-    for (auto& datagram : CollectDatagrams(*server_socket)) {
+    for (auto& datagram : CollectDatagrams(*server_socket, 1)) {
       if (datagram.size() > kPayload / 2) {
         resent++;
       }
