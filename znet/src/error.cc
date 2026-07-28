@@ -10,6 +10,37 @@
 
 #include "znet/error.h"
 
+#ifndef TARGET_WIN
+#include <cerrno>
+#include <cstring>
+
+namespace {
+
+// strerror_r has two incompatible signatures - XSI returns int and fills buf,
+// GNU returns the message and may leave buf untouched. Feature-test macros do
+// not tell them apart reliably (macOS defines neither yet is XSI), so dispatch
+// on the return type. Templates, not overloads: the unused variant is then
+// never instantiated and cannot trip -Wunused-function under -Werror.
+
+// XSI variant: the return code says whether buf was filled.
+template <typename R, ZNET_ENABLE_IF(std::is_integral<R>::value)>
+inline std::string StrErrorResult(R ret, const char* buf) {
+  // ERANGE leaves a truncated message in buf, which still beats nothing.
+  if (ret != 0 && buf[0] == '\0') {
+    return "unknown error";
+  }
+  return {buf};
+}
+
+// GNU variant: the returned pointer is the message; buf may be untouched.
+template <typename R, ZNET_ENABLE_IF(!std::is_integral<R>::value)>
+inline std::string StrErrorResult(R ret, const char*) {
+  return ret ? std::string(ret) : std::string("unknown error");
+}
+
+}  // namespace
+#endif
+
 std::string GetLastErrorInfo() {
 #ifdef TARGET_WIN
   char buf[256];
@@ -24,20 +55,9 @@ std::string GetLastErrorInfo() {
                 nullptr);
   return {buf};
 #else
-  // glibc ships two signatures for strerror_r:
-  //   * XSI:  int  strerror_r(int, char*, size_t)  - fills buf, returns 0/errno
-  //   * GNU:  char* strerror_r(int, char*, size_t) - may return a static string
-  //     WITHOUT touching buf. Using buf directly prints uninitialized stack
-  //     bytes (the "garbage on failure" symptom). Dispatch at compile time.
   int saved_errno = errno;
   char buf[256];
   buf[0] = '\0';
-#if ((_POSIX_C_SOURCE >= 200112L) && !_GNU_SOURCE)
-  strerror_r(saved_errno, buf, sizeof(buf));
-  return {buf};
-#else
-  const char* msg = strerror_r(saved_errno, buf, sizeof(buf));
-  return std::string(msg ? msg : "unknown error");
-#endif
+  return StrErrorResult(strerror_r(saved_errno, buf, sizeof(buf)), buf);
 #endif
 }
