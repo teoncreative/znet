@@ -117,7 +117,6 @@ class PeerLocator {
 
   EventCallbackFn event_callback_;
   Client client_;
-  PortNumber game_port_;
 
   std::string peer_name_;
   std::shared_ptr<InetAddress> endpoint_;
