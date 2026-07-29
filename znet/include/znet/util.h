@@ -89,7 +89,8 @@ inline void SetTCPNoDelay(SocketHandle socket) {
 inline bool SetSocketBlocking(SocketHandle socket, bool blocking) {
 #ifdef TARGET_WIN
   u_long mode = blocking ? 0UL : 1UL; // 1 to enable non-blocking socket
-  return ioctlsocket(socket, FIONBIO, &mode) == 0;
+  // FIONBIO carries IOC_IN so the macro is unsigned; the cmd param is signed.
+  return ioctlsocket(socket, static_cast<long>(FIONBIO), &mode) == 0;
 #else
   int flags = fcntl(socket, F_GETFL, 0);
   if (flags == -1) {
