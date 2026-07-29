@@ -530,6 +530,27 @@ static PortNumber FreeUdpPort() {
   return port;
 }
 
+static PortNumber FreeTcpPort() {
+  SocketHandle probe = socket(AF_INET, SOCK_STREAM, 0);
+  if (!IsValidSocketHandle(probe)) {
+    return 0;
+  }
+  PortNumber port = 0;
+  auto any = InetAddress::from("127.0.0.1", 0);
+  if (bind(probe, any->handle_ptr(), any->addr_size()) == 0) {
+    sockaddr_storage addr{};
+    socklen_t len = static_cast<socklen_t>(sizeof(addr));
+    if (getsockname(probe, reinterpret_cast<sockaddr*>(&addr), &len) == 0) {
+      auto bound = InetAddress::from(reinterpret_cast<sockaddr*>(&addr));
+      if (bound) {
+        port = bound->port();
+      }
+    }
+  }
+  CloseSocket(probe);
+  return port;
+}
+
 TEST(ZDTIntegration, HandshakeReachesReadyOverUdp) {
   ASSERT_EQ(Init(), Result::Success);
 
@@ -1007,7 +1028,7 @@ TEST(ZDTMetrics, CountsRealTraffic) {
 // populated either way, and each transport fills only its own group.
 TEST(ZDTMetrics, TCPUsesTheSameShape) {
   ASSERT_EQ(Init(), Result::Success);
-  PortNumber port = FreeUdpPort();  // free for TCP too
+  PortNumber port = FreeTcpPort();
   RoundTripState state;
 
   ServerConfig server_config{"127.0.0.1", port, std::chrono::seconds(5),
