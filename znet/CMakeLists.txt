@@ -171,11 +171,6 @@ if(ZNET_ENABLE_STRICT_WARNINGS)
     )
 endif()
 
-# Platform-specific flags
-if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
-    target_link_options(znet PRIVATE -pthread)
-endif()
-
 # Defines
 # All feature flags carry an explicit 0/1 so that -DFLAG=0 disables rather than
 # enables (which is what bare #ifdef would do), and so a build that never sets
@@ -227,11 +222,5 @@ else()
     endif()
 endif()
 
-if(CMAKE_SYSTEM_NAME STREQUAL "Linux" OR CMAKE_SYSTEM_NAME STREQUAL "Apple")
-    find_package(Threads REQUIRED)
-    target_link_libraries(znet PRIVATE Threads::Threads)
-endif()
-
-if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
-    target_link_libraries(znet PRIVATE stdc++)
-endif()
+find_package(Threads REQUIRED)
+target_link_libraries(znet PRIVATE Threads::Threads)
