@@ -57,7 +57,7 @@ UniquePKey DeserializePublicKey(const unsigned char* der, uint32_t len) {
   }
 
   const unsigned char* p = der;
-  EVP_PKEY* raw = d2i_PUBKEY(nullptr, &p, len);
+  EVP_PKEY* raw = d2i_PUBKEY(nullptr, &p, static_cast<long>(len));
   if (!raw) {
     ZNET_LOG_ERROR("Failed to deserialize public key.");
     return nullptr;

@@ -56,3 +56,50 @@ jobs:
       # Execute tests defined by the CMake configuration. Note that --build-config is needed because the default Windows generator is a multi-config generator (Visual Studio generator).
       # See https://cmake.org/cmake/help/latest/manual/ctest.1.html for more detail
       run: ctest --build-config ${{ matrix.build_type }} --output-on-failure
+
+  # cl above only exercises znet's MSVC warning set; clang on Windows takes the
+  # GNU-style -W flags instead. Separate job: MSYS2 needs its own shell.
+  build-msys2:
+    name: windows-latest / msys2 clang / C++${{ matrix.cpp_standard }}
+    runs-on: windows-latest
+
+    defaults:
+      run:
+        shell: 'msys2 {0}'
+
+    strategy:
+      fail-fast: false
+      matrix:
+        cpp_standard: [14, 17, 20, 23]
+
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        submodules: 'true'
+
+    - uses: msys2/setup-msys2@v2
+      with:
+        msystem: CLANG64
+        update: true
+        pacboy: >-
+          clang:p
+          cmake:p
+          ninja:p
+          openssl:p
+
+    # relative paths: the runner's backslashed paths are awkward in the MSYS2 shell
+    - name: Configure CMake
+      run: >
+        cmake -B build -G Ninja
+        -DCMAKE_CXX_COMPILER=clang++
+        -DCMAKE_C_COMPILER=clang
+        -DCMAKE_BUILD_TYPE=Release
+        -DZNET_CXX_STANDARD=${{ matrix.cpp_standard }}
+        -S .
+
+    - name: Build
+      run: cmake --build build
+
+    - name: Test
+      working-directory: build
+      run: ctest --output-on-failure

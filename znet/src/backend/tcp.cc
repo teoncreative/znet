@@ -402,7 +402,7 @@ Result TCPServerBackend::Bind() {
       domain, SOCK_STREAM,
       0);  // SOCK_STREAM for TCP, SOCK_DGRAM for UDP, there is also SOCK_RAW,
            // but we don't care about that.
-  if (server_socket_ == -1) {
+  if (!IsValidSocketHandle(server_socket_)) {
     ZNET_LOG_ERROR("Error creating socket. {}", GetLastErrorInfo());
     return Result::CannotCreateSocket;
   }
