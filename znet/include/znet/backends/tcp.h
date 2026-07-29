@@ -35,7 +35,7 @@ class TCPTransportLayer : public TransportLayer {
 
   Result Close(CloseOptions options = {}) override;
 
-  bool IsClosed() override { return is_closed_; }
+  bool IsClosed() override { return is_closed_.load(std::memory_order_acquire); }
 
   void Update() override;
 
@@ -58,7 +58,9 @@ class TCPTransportLayer : public TransportLayer {
   ssize_t data_size_ = 0;
   std::shared_ptr<Buffer> buffer_;
   SocketHandle socket_;
-  bool is_closed_ = false;
+  // read by IsClosed() from whichever thread owns the application, written by
+  // Close() from the same, so it cannot be a plain bool
+  std::atomic_bool is_closed_{false};
   // Send() may be called from any thread, Update() only from the session's
   // worker, so the queue itself needs a lock. It is never held across a socket
   // write: Update() swaps the queue out and drains the copy.
@@ -133,8 +135,11 @@ class TCPServerBackend : public ServerBackend {
   std::mutex mutex_;
   SessionOptions child_options_;
   std::shared_ptr<InetAddress> bind_address_;
-  bool is_bind_ = false;
-  bool is_listening_ = false;
+  // IsAlive() reads these from the main loop while Close() writes them from
+  // whichever thread stops the server, and that read is outside mutex_, which
+  // the main loop holds across a whole tick
+  std::atomic_bool is_bind_{false};
+  std::atomic_bool is_listening_{false};
   SocketHandle server_socket_ = kSocketInvalid;
 };
 
