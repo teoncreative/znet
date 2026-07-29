@@ -299,6 +299,10 @@ std::shared_ptr<InetAddress> UDPSocket::local_address() {
       InetAddress::from(reinterpret_cast<sockaddr*>(&ss)));
 }
 
+bool UDPSocket::Shutdown() {
+  return ShutdownSocket(socket_);
+}
+
 Result UDPSocket::Close() {
   if (IsValidSocketHandle(socket_)) {
     CloseSocket(socket_);
@@ -459,7 +463,9 @@ void ZDTTransportLayer::ProcessInbound() {
     if (header.flags & kFlagFin) {
       is_closed_ = true;
       if (drains_own_socket_ && socket_) {
-        socket_->Close();
+        // shut down rather than close, as Close() does: the application may be
+        // in SendTo() on this socket, sending its own FIN
+        socket_->Shutdown();
       }
       return;
     }
@@ -1249,7 +1255,9 @@ Result ZDTTransportLayer::Close(CloseOptions options) {
     socket_->SendTo(*peer_, datagram.data(), datagram.size());
   }
   if (drains_own_socket_ && socket_) {
-    socket_->Close();
+    // shut down rather than close: the session's worker may be inside
+    // RecvFrom() on this socket. See UDPSocket::Shutdown().
+    socket_->Shutdown();
   }
   return Result::Success;
 }

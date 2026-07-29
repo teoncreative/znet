@@ -254,15 +254,12 @@ void Server::ProcessSessions() {
 
 bool Server::SubmitSession(TaskData& data, std::shared_ptr<PeerSession> session) {
   std::lock_guard<std::mutex> lock(data.signal_->mutex);
+  auto signal = data.signal_;
+  session->SetWakeCallback([signal]() { signal->Raise(); });
   IncomingClientConnectedEvent event{session};
   event_callback()(event);
   data.sessions_[session->remote_address()] = session;
   data.session_count_.store(data.sessions_.size(), std::memory_order_relaxed);
-  // Send() only queues; without this an outbound message on an idle session
-  // waits out the tick. the callback keeps the signal alive on its own, so a
-  // session the application holds past shutdown still has a valid target.
-  auto signal = data.signal_;
-  session->SetWakeCallback([signal]() { signal->Raise(); });
   ZNET_LOG_DEBUG("New connection is ready. {}", session->remote_address()->readable());
   data.signal_->cv.notify_one();
   return true;

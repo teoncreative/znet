@@ -238,6 +238,16 @@ class UDPSocket {
   // rather than IP-fragmented.
   bool SetDontFragment(bool enabled);
 
+  /**
+   * @brief Wakes a blocked RecvFrom without releasing the descriptor.
+   *
+   * For tearing down a socket another thread may be reading. Close() returns
+   * the descriptor number to the OS, where the next socket or file opened
+   * anywhere in the process can reuse it while that read is still running on
+   * it; the destructor closes it once every holder is gone.
+   */
+  bool Shutdown();
+
   Result Close();
   bool IsValid() const { return IsValidSocketHandle(socket_); }
   SocketHandle handle() const { return socket_; }

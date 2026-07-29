@@ -25,7 +25,11 @@ TCPTransportLayer::TCPTransportLayer(SocketHandle socket) : socket_(socket) {
 }
 
 TCPTransportLayer::~TCPTransportLayer() {
-
+  // where the descriptor is released; see Close() for why not there. The
+  // session owning this transport is gone by now, so no worker can be inside
+  // recv() on the socket.
+  CloseSocket(socket_);
+  socket_ = INVALID_SOCKET;
 }
 
 std::shared_ptr<Buffer> TCPTransportLayer::Receive() {
@@ -233,17 +237,19 @@ void TCPTransportLayer::FillMetrics(SessionMetrics& out) const {
 }
 
 Result TCPTransportLayer::Close(CloseOptions options) {
-  if (is_closed_) {
+  if (is_closed_.exchange(true, std::memory_order_acq_rel)) {
     return Result::AlreadyDisconnected;
   }
   if (options.GetOr<NoLingerKey>(false)) {
     linger l; l.l_onoff = 1; l.l_linger = 0;
     setsockopt(socket_, SOL_SOCKET, SO_LINGER, reinterpret_cast<const char*>(&l), sizeof(l));
   }
-  is_closed_ = true;
+  // shut down but leave the descriptor open. The application closes from its
+  // own thread while the worker may be inside recv() on this socket, and
+  // close() would return the descriptor number to the OS, letting the next
+  // socket or file opened anywhere in the process reuse it while that recv is
+  // still running on it. The destructor releases it instead.
   ShutdownSocket(socket_);
-  CloseSocket(socket_);
-  socket_ = INVALID_SOCKET;
   return Result::Success;
 }
 
@@ -351,6 +357,10 @@ Result TCPClientBackend::Connect() {
       std::make_shared<PeerSession>(local_address_, server_address_,
                                     std::make_unique<TCPTransportLayer>(client_socket_), ConnectionType::TCP, true,
                                     /*self_managed=*/false, options_);
+  // the transport owns the descriptor now and closes it when destroyed.
+  // Dropping our copy keeps CleanupSocket() from closing it a second time,
+  // which would hit whatever reused that number since.
+  client_socket_ = INVALID_SOCKET;
   return Result::Success;
 }
 
