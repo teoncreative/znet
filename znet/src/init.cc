@@ -8,10 +8,6 @@
 //        http://www.apache.org/licenses/LICENSE-2.0
 //
 
-//
-// Created by Metehan Gezer on 02/08/2025.
-//
-
 #include "znet/init.h"
 #include "znet/logger.h"
 #include "znet/version.h"

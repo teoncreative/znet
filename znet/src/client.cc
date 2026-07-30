@@ -25,6 +25,11 @@ Client::Client(const ClientConfig& config) : config_(config) {
 Client::~Client() {
   ZNET_LOG_DEBUG("Destructor of the client is called.");
   Disconnect();
+  // same reason as ~PeerSession: the loop reads signal_, scheduler_ and the
+  // session, all declared after task_ and so destroyed before ~Task would get
+  // round to joining it.
+  task_.RequestStop();
+  task_.Wait();
 }
 
 Result Client::Bind() {
@@ -60,7 +65,7 @@ Result Client::Connect() {
   }
   // registered before Connect() starts any receive thread, which reads it
   auto signal = signal_;
-  backend_->SetWakeCallback([signal]() { signal->RaiseSynchronized(); });
+  backend_->SetWakeCallback([signal]() { signal->Raise(); });
 
   Result result = backend_->Connect();
   if (ZNET_UNLIKELY(result != Result::Success)) ZNET_UNLIKELY_ATTR {
@@ -68,8 +73,9 @@ Result Client::Connect() {
   }
 
   client_session_ = backend_->client_session();
-  // the other direction: the application's own sends on an idle session
-  client_session_->SetWakeCallback([signal]() { signal->RaiseSynchronized(); });
+  // takes over the session's wake callback too, so start it before the session
+  // reaches the application
+  encoder_.Start(client_session_, [signal]() { signal->Raise(); });
   // only worth pacing when something else is taking datagrams off the socket.
   // otherwise reads happen only while this loop runs, and sleeping would add a
   // tick to everything inbound.
@@ -134,7 +140,8 @@ Result Client::Disconnect(CloseOptions options) {
     return Result::Failure;
   }
   Result result = client_session_->Close(options);
-  signal_->RaiseSynchronized();  // sleeping out a tick; do not make it wait
+  signal_->Raise();  // sleeping out a tick; do not make it wait
+  encoder_.Stop();
   return result;
 }
 

@@ -75,8 +75,25 @@ struct ZDTSessionMetrics {
   uint64_t reassemblies_dropped = 0;  /**< Incomplete, timed out or over cap. */
   /** @brief Smoothed round-trip estimate. Sampled, not accumulated. */
   uint32_t srtt_us = 0;
+  /**
+   * @brief Windowed minimum round trip, the baseline congestion is judged
+   *        against. Sampled, not accumulated.
+   *
+   * Read with srtt_us: the controller treats the link as queueing once the
+   * smoothed estimate rises far enough above this, so the two together say why
+   * the window is the size it is.
+   */
+  uint32_t rtt_min_us = 0;
   /** @brief Current retransmit timeout. Sampled, not accumulated. */
   uint32_t rto_us = 0;
+  /**
+   * @brief Congestion window in datagrams. Sampled, not accumulated.
+   *
+   * What actually bounds throughput on a fat link. A window sitting far below
+   * ZDTOptions::max_datagrams_in_flight means the controller is holding it
+   * there, not that the application ran out of things to send.
+   */
+  uint32_t cwnd = 0;
   uint32_t in_flight = 0;  /**< Unacked reliable datagrams. */
   /** @brief MTU the handshake settled on. Sampled, not accumulated. */
   uint32_t mtu = 0;

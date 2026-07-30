@@ -20,7 +20,18 @@ class PacketSerializerBase {
  public:
   virtual ~PacketSerializerBase() = default;
 
+  /**
+   * @brief Turns @p packet into bytes.
+   *
+   * Normally write into @p buffer and return it: the codec has already put the
+   * frame header there, and Buffer grows on write, so there is no size to
+   * respect. A serializer that already holds the bytes may instead return a
+   * buffer of its own, whose readable range the codec copies in behind the
+   * header. Return nullptr to refuse, which drops the packet.
+   */
   virtual std::shared_ptr<Buffer> Serialize(std::shared_ptr<Packet> packet, std::shared_ptr<Buffer> buffer) = 0;
+
+  /** @brief Reads one packet from @p buffer, or nullptr if it is not valid. */
   virtual std::shared_ptr<Packet> Deserialize(std::shared_ptr<Buffer> buffer) = 0;
 };
 

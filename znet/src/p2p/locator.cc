@@ -8,10 +8,6 @@
 //        http://www.apache.org/licenses/LICENSE-2.0
 //
 
-//
-// Created by Metehan Gezer on 08/08/2025.
-//
-
 #include "znet/p2p/locator.h"
 #include "znet/p2p/dialer.h"
 #include "znet/p2p/rendezvous.h"
@@ -43,7 +39,6 @@ class LocatorPacketHandler : public PacketHandler<LocatorPacketHandler, SetPeerN
  private:
   PeerLocator& locator_;
 };
-
 
 PeerLocator::PeerLocator(const PeerLocatorConfig& config)
     : client_(ClientConfig{config.server_ip,         // server_ip

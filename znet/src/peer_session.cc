@@ -17,6 +17,18 @@
 
 namespace znet {
 
+namespace {
+
+// sessions are minted on whichever thread accepted or dialed them, so this
+// counter is shared across threads. A function rather than a local static in
+// the constructor body, so the id exists in time for the member init list.
+SessionId NextSessionId() {
+  static std::atomic<SessionId> counter{1};
+  return counter.fetch_add(1, std::memory_order_relaxed);
+}
+
+}  // namespace
+
 PeerSession::PeerSession(std::shared_ptr<InetAddress> local_address,
                          std::shared_ptr<InetAddress> remote_address,
                          std::unique_ptr<TransportLayer> transport_layer,
@@ -24,18 +36,20 @@ PeerSession::PeerSession(std::shared_ptr<InetAddress> local_address,
                          bool is_initiator,
                          bool self_managed,
                          const SessionOptions& options)
-    : local_address_(std::move(local_address)),
+    : id_(NextSessionId()),
+      local_address_(std::move(local_address)),
       remote_address_(std::move(remote_address)),
       connection_type_(connection_type),
       transport_layer_(std::move(transport_layer)),
+      pipeline_(encryption_layer_, id_),
       encryption_layer_(*this),
       options_(options),
       is_initiator_(is_initiator),
-      connect_time_(std::chrono::steady_clock::now()) {
-  // sessions are minted on whichever thread accepted or dialed them, so this
-  // counter is shared across threads.
-  static std::atomic<SessionId> sIdCount{1};
-  id_ = sIdCount.fetch_add(1, std::memory_order_relaxed);
+      connect_time_(std::chrono::steady_clock::now()),
+      // the parameter, not options_, so this does not depend on declaration
+      // order between the two
+      outbound_(options.common.send_queue_capacity) {
+  pipeline_.SetCompressionThreshold(options_.common.compression_threshold);
   // only the accepting side's options count; an initiator adopts whatever the
   // server announces at handshake
   negotiated_compression_ =
@@ -53,6 +67,12 @@ PeerSession::PeerSession(std::shared_ptr<InetAddress> local_address,
 
 PeerSession::~PeerSession() {
   Close();
+  // A self-managed session runs Process() on task_, which touches almost every
+  // member declared after it. Leaving the join to ~Task would run it once those
+  // members are already destroyed; the destructor body runs first, so stopping
+  // here is in time.
+  task_.RequestStop();
+  task_.Wait();
 }
 
 void PeerSession::Process() {
@@ -74,26 +94,23 @@ void PeerSession::Process() {
     if (!buffer) {
       break;
     }
-    // mirror of the send path: decrypt, then decompress
-    buffer = encryption_layer_.HandleIn(buffer);
+    buffer = pipeline_.Decode(std::move(buffer));
     if (!buffer) {
-      ZNET_LOG_ERROR("Session {} decryption returned null!", id_);
       continue;
     }
-    buffer = compr::HandleInDynamic(buffer);
-    if (!buffer) {
-      ZNET_LOG_ERROR("Session {} decompression returned null!", id_);
-      continue;
-    }
-    if (handler_ && codec_) {
+    if (handler_ && pipeline_.has_codec()) {
       ZNET_METRIC(metrics_.common.messages_received++);
       ZNET_METRIC(metrics_.common.message_bytes_received += buffer->size());
-      codec_->Deserialize(buffer, *handler_);
+      pipeline_.Dispatch(buffer, *handler_);
     }
   }
   // handlers above almost always answer, and Update() already ran, so without
-  // this their replies would sit in the queue until the next tick and every
-  // round trip would cost two.
+  // this their replies would wait out a tick and every round trip would cost
+  // two. A dead session drains anyway, to release what it queued rather than
+  // hold it until destruction. Who encodes is OutboundQueue's rule.
+  if (outbound_.ShouldEncodeInline() || !IsAlive()) {
+    DrainOutbound();
+  }
   if (IsAlive()) {
     transport_layer_->Flush();
   }
@@ -114,56 +131,74 @@ void PeerSession::Ready() {
   if (!IsAlive()) {
     return;
   }
-  is_ready_ = true;
   connect_time_ = std::chrono::steady_clock::now();
   if (negotiated_compression_ != CompressionType::None) {
     SetOutCompression(negotiated_compression_);
   }
+  // last, and with release: the codec, the compression type and the derived
+  // keys are all written above, and this publishes them. SendPacket() refuses
+  // until it sees this.
+  is_ready_.store(true, std::memory_order_release);
 }
 
-bool PeerSession::SendPacket(std::shared_ptr<Packet> packet, SendOptions options) {
+bool PeerSession::EncodeAndSend(const std::shared_ptr<Packet>& packet,
+                                SendOptions options) {
+  auto buffer = pipeline_.Encode(packet);
+  if (!buffer) {
+    return false;
+  }
+  ZNET_METRIC(metrics_.common.message_bytes_sent += buffer->readable_bytes());
+  if (!transport_layer_->Send(buffer, options)) {
+    ZNET_METRIC(metrics_.common.send_failures++);
+    return false;
+  }
+  ZNET_METRIC(metrics_.common.messages_sent++);
+  return true;
+}
+
+bool PeerSession::SendImmediate(std::shared_ptr<Packet> packet,
+                                SendOptions options) {
   if (!packet || !IsAlive()) {
     return false;
   }
-  auto buffer = codec_->Serialize(std::move(packet));
-  if (!buffer) {
+  // Encodes without taking the claim, which is only safe because this runs
+  // during the handshake: SendPacket() refuses until IsReady(), so outbound_ is
+  // empty and no drain can be encoding concurrently. Assert it rather than
+  // leave it to be discovered.
+  assert(!is_ready_.load(std::memory_order_acquire) &&
+         "SendImmediate is handshake-only; use SendPacket once ready");
+  return EncodeAndSend(packet, options);
+}
+
+bool PeerSession::SendPacket(std::shared_ptr<Packet> packet,
+                             SendOptions options) {
+  // the ready gate is what makes the encode path safe to read unguarded, so
+  // this refuses rather than queueing and hoping.
+  if (!packet || !IsReady() || !IsAlive()) {
     return false;
   }
-  // compress before encrypting; ciphertext is incompressible, so the other
-  // order costs a full pass and saves nothing. Small messages skip it: the
-  // coder tables cost more than they can ever save back.
-  CompressionType compression = out_compression_type_;
-  if (buffer->size() < options_.common.compression_threshold) {
-    compression = CompressionType::None;
-  }
-  buffer = compr::HandleOutWithType(compression, std::move(buffer));
-  if (!buffer) {
+  // no lock, no allocation and no encoding below: this runs on the
+  // application's thread and must not block on a worker.
+  if (!outbound_.Push(std::move(packet), options)) {
+    // debug, not a warning: nothing was lost and the caller has been told to
+    // try again, so a caller pushing against a full queue would otherwise turn
+    // its own backpressure into a log flood.
+    ZNET_LOG_DEBUG("Session {} outbound queue is full ({}), refusing the send.",
+                   id_, outbound_.capacity());
     return false;
   }
-  buffer = encryption_layer_.HandleOut(std::move(buffer));
-  if (!buffer) {
-    return false;
-  }
-  ZNET_METRIC(metrics_.common.message_bytes_sent += buffer->size());
-  if (!transport_layer_->Send(buffer, options)) {
-    ZNET_METRIC(metrics_.common.send_failures++);
-    return false;
-  }
-  ZNET_METRIC(metrics_.common.messages_sent++);
   return true;
 }
 
-bool PeerSession::SendRaw(std::shared_ptr<Buffer> buffer, SendOptions options) {
-  if (!buffer || !IsAlive()) {
-    return false;
-  }
-  ZNET_METRIC(metrics_.common.message_bytes_sent += buffer->size());
-  if (!transport_layer_->Send(buffer, options)) {
-    ZNET_METRIC(metrics_.common.send_failures++);
-    return false;
-  }
-  ZNET_METRIC(metrics_.common.messages_sent++);
-  return true;
+bool PeerSession::DrainOutbound() {
+  return outbound_.Drain([this](OutboundQueue::Item& item) {
+    if (!IsAlive()) {
+      return false;  // keep draining, so a dead session releases what it holds
+    }
+    EncodeAndSend(item.packet, item.options);
+    return true;
+  });
 }
+
 
 }

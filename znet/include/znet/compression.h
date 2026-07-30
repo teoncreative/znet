@@ -8,10 +8,6 @@
 //        http://www.apache.org/licenses/LICENSE-2.0
 //
 
-//
-// Created by Metehan Gezer on 06/08/2025.
-//
-
 #ifndef ZNET_PARENT_COMPRESSION_H
 #define ZNET_PARENT_COMPRESSION_H
 
@@ -52,7 +48,6 @@ constexpr CompressionType ResolveCompressionType(CompressionType type) {
   return CompressionType::None;
 #endif
 }
-
 
 CompressionTypeRaw GetCompressionTypeRaw(CompressionType type);
 std::string GetCompressionTypeName(CompressionType type);

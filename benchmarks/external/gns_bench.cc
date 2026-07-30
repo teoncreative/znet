@@ -229,21 +229,40 @@ int main() {
   // internet. Left alone it pins every payload size to the same byte rate and
   // the benchmark measures the rate limiter instead of the protocol, so raise
   // it well past what loopback will need.
-  constexpr int32 kSendRate = 512 * 1024 * 1024;  // bytes/sec
+  // 0x10000000 is the largest value the config accepts; the SNP layer then
+  // clamps whatever it is given to 100 MiB/s anyway (see the note below).
+  int32 send_rate = 0x10000000;  // bytes/sec
+  if (const char* r = getenv("GNS_SEND_RATE")) {
+    send_rate = atoi(r);
+  }
   SteamNetworkingUtils()->SetGlobalConfigValueInt32(
-      k_ESteamNetworkingConfig_SendRateMin, kSendRate);
+      k_ESteamNetworkingConfig_SendRateMin, send_rate);
   SteamNetworkingUtils()->SetGlobalConfigValueInt32(
-      k_ESteamNetworkingConfig_SendRateMax, kSendRate);
+      k_ESteamNetworkingConfig_SendRateMax, send_rate);
   // the send buffer bounds how much reliable data may be outstanding; the
   // 512 KB default can cap throughput independently of the rate limiter
   SteamNetworkingUtils()->SetGlobalConfigValueInt32(
       k_ESteamNetworkingConfig_SendBufferSize, 32 * 1024 * 1024);
+  // The receive side has its own limits, and exceeding either one *drops*
+  // packets rather than applying backpressure, so the reliability layer
+  // retransmits and the byte rate flattens. The 512 KB default leaves room for
+  // only 64 messages of 8 KiB, which caps the large payloads far below what the
+  // protocol can do; the 1024-message default binds at 64 B instead. Both are
+  // anti-flood protections for hostile peers, not throughput settings, so a
+  // benchmark on loopback should raise them out of the way.
+  SteamNetworkingUtils()->SetGlobalConfigValueInt32(
+      k_ESteamNetworkingConfig_RecvBufferSize, 256 * 1024 * 1024);
+  SteamNetworkingUtils()->SetGlobalConfigValueInt32(
+      k_ESteamNetworkingConfig_RecvBufferMessages, 1024 * 1024);
+  // must stay below RecvBufferSize, and above the largest payload benchmarked
+  SteamNetworkingUtils()->SetGlobalConfigValueInt32(
+      k_ESteamNetworkingConfig_RecvMaxMessageSize, 16 * 1024 * 1024);
   // GNS coalesces sends for NagleTime (default 5000us) before putting them on
   // the wire. Left at the default it adds ~5ms per leg, which made the latency
   // row read ~10ms and measured Nagle rather than the protocol - znet's ZDT
   // sends immediately, so the two were not comparable. Turning it off costs GNS
   // nothing on throughput (measured slightly faster) and is the like-for-like
-  // setting. Override with GNS_NAGLE_US to see the default behaviour.
+  // setting. Override with GNS_NAGLE_US to see the default behavior.
   int32 nagle_us = 0;
   if (const char* n = getenv("GNS_NAGLE_US")) {
     nagle_us = atoi(n);

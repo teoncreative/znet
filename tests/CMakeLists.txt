@@ -22,6 +22,19 @@ target_link_libraries(znet-tests-buffer PRIVATE gtest_main znet)
 
 add_test(NAME buffer-tests COMMAND znet-tests-buffer)
 
+# socket-free component tests: milliseconds, and a failure names one component
+add_executable(znet-tests-zdt-unit zdt_unit.cc)
+znet_apply_cxx_standard(znet-tests-zdt-unit)
+target_link_libraries(znet-tests-zdt-unit PRIVATE gtest_main znet)
+
+add_test(NAME zdt-unit-tests COMMAND znet-tests-zdt-unit)
+
+add_executable(znet-tests-session session_unit.cc)
+znet_apply_cxx_standard(znet-tests-session)
+target_link_libraries(znet-tests-session PRIVATE gtest_main znet)
+
+add_test(NAME session-unit-tests COMMAND znet-tests-session)
+
 add_executable(znet-tests-zdt zdt.cc)
 znet_apply_cxx_standard(znet-tests-zdt)
 target_link_libraries(znet-tests-zdt PRIVATE gtest_main znet)

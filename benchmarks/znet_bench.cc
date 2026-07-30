@@ -30,6 +30,8 @@
 #include "znet/version.h"
 
 #include <atomic>
+#include <cctype>
+#include <cstdlib>
 #include <memory>
 #include <string>
 #include <thread>
@@ -158,6 +160,17 @@ struct Harnessed {
 };
 
 // Brings up a loopback server/client pair and blocks until the session is live.
+// Lifts the queue bounds clear of the workload so the table measures protocol
+// cost rather than buffer sizing. The shared loop keeps at most 4096 messages
+// outstanding, and an 8 KiB message spans about six datagrams, so ~25k inbound
+// datagrams is the real ceiling; these sit well above it.
+void ApplyBenchQueueBounds(SessionOptions& options) {
+  options.common.send_queue_capacity = 65536;
+  options.zdt.outbound_queue_capacity = 65536;
+  options.zdt.max_inbox_datagrams = 65536;
+  options.zdt.max_reassemblies = 8192;
+}
+
 // `make_server_handler` decides whether the server sinks or echoes.
 bool Connect(Harnessed& h, ConnectionType type, PortNumber port,
              bool echo, std::atomic_uint32_t* server_received,
@@ -167,6 +180,13 @@ bool Connect(Harnessed& h, ConnectionType type, PortNumber port,
   // Only the server configures these; the client follows whatever it selects.
   server_config.child_options.common.encryption = g_profile.encryption;
   server_config.child_options.common.compression = g_profile.compression;
+  // Queue bounds raised out of the way, matching what the comparison rows do.
+  // These are anti-flood limits, not tuning: a full inbox drops arrivals and a
+  // full send queue refuses, so at the defaults the table would partly measure
+  // whichever library shipped the smaller buffer. The congestion window and
+  // max_datagrams_in_flight are deliberately left alone, since those are
+  // protocol behavior and the impaired runs exist to show what they really do.
+  ApplyBenchQueueBounds(server_config.child_options);
   h.server = std::make_unique<Server>(server_config);
   h.server->SetEventCallback([&, echo](Event& event) {
     EventDispatcher dispatcher{event};
@@ -189,6 +209,8 @@ bool Connect(Harnessed& h, ConnectionType type, PortNumber port,
 
   auto start = bench::Clock::now();
   ClientConfig client_config{"127.0.0.1", port, std::chrono::seconds(10), type};
+  // the sending side, so its queue bounds matter most
+  ApplyBenchQueueBounds(client_config.options);
   h.client = std::make_unique<Client>(client_config);
   h.client->SetEventCallback([&](Event& event) {
     EventDispatcher dispatcher{event};
@@ -269,9 +291,9 @@ void RunThroughput(ConnectionType type, const bench::Workload& w) {
   uint32_t counted = 0;
   auto start = bench::Clock::now();
   // the shared loop, same as every comparison library uses, so the send pacing
-  // and the 4096-message backlog bound are identical across the table. this
-  // used to push all w.messages up front and then wait, which is a different
-  // experiment: it lets znet build a queue no other row is allowed to build.
+  // and the 4096-message backlog bound are identical across the table. Handing
+  // znet the whole workload up front instead would measure a queue no other row
+  // is allowed to build.
   uint32_t delivered = bench::RunThroughputLoop(
       w,
       [&]() {
@@ -302,6 +324,23 @@ void RunThroughput(ConnectionType type, const bench::Workload& w) {
 
   bench::ReportThroughput(LibraryName().c_str(), TransportName(type), w,
                           delivered, elapsed);
+  // ZNET_BENCH_METRICS=1 adds the session's protocol counters after each row,
+  // so a run's throughput can be correlated with the state that produced it.
+  // Off by default: the table is meant to stay diffable.
+  if (getenv("ZNET_BENCH_METRICS") != nullptr && h.client_session) {
+    SessionMetrics m = h.client_session->metrics();
+    std::printf("%-10s %-6s metrics    %-6s  mtu %5u  cwnd %5u  dgram_tx %8llu  "
+                "rtx %6llu  nak_rx %5llu  in_drop %5llu  reasm_drop %5llu  "
+                "srtt %6u us  rtt_min %6u us  rto %7u us\n",
+                LibraryName().c_str(), TransportName(type), w.name,
+                m.zdt.mtu, m.zdt.cwnd,
+                static_cast<unsigned long long>(m.zdt.datagrams_sent),
+                static_cast<unsigned long long>(m.zdt.retransmits),
+                static_cast<unsigned long long>(m.zdt.naks_received),
+                static_cast<unsigned long long>(m.zdt.inbound_dropped),
+                static_cast<unsigned long long>(m.zdt.reassemblies_dropped),
+                m.zdt.srtt_us, m.zdt.rtt_min_us, m.zdt.rto_us);
+  }
   Teardown(h);
 }
 
@@ -361,6 +400,14 @@ int main() {
   bench::Note("default = AES + zstd as shipped; raw = both off, which is what");
   bench::Note("ENet and RakNet do. See README.md.");
 
+  // Narrow the run to one transport and drop the latency case, for profiling.
+  // A full run is dominated by the TCP latency case, two thousand tick-bound
+  // round trips spent spinning, which buries the throughput path.
+  //   ZNET_BENCH_TRANSPORT=zdt ZNET_BENCH_CASE=8KB ZNET_BENCH_SKIP_LATENCY=1
+  const char* only_transport = std::getenv("ZNET_BENCH_TRANSPORT");
+  const char* only_case = std::getenv("ZNET_BENCH_CASE");
+  const bool skip_latency = std::getenv("ZNET_BENCH_SKIP_LATENCY") != nullptr;
+
   const Profile profiles[] = {
       {"", true, CompressionType::Default},
       {"-raw", false, CompressionType::None},
@@ -368,11 +415,25 @@ int main() {
   for (const Profile& profile : profiles) {
     g_profile = profile;
     for (ConnectionType type : {ConnectionType::TCP, ConnectionType::ZDT}) {
+      if (only_transport != nullptr) {
+        std::string want(only_transport);
+        for (char& c : want) {
+          c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+        }
+        if (want != TransportName(type)) {
+          continue;
+        }
+      }
       bench::PrintHeader(LibraryName().c_str(), TransportName(type));
       for (const auto& w : bench::ImpairedThroughputWorkloads(g_impair)) {
+        if (only_case != nullptr && std::string(only_case) != w.name) {
+          continue;
+        }
         RunThroughput(type, w);
       }
-      RunLatency(type, bench::ImpairedLatencyWorkload(g_impair));
+      if (!skip_latency) {
+        RunLatency(type, bench::ImpairedLatencyWorkload(g_impair));
+      }
     }
   }
 

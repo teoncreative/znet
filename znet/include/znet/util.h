@@ -81,6 +81,25 @@ inline bool ShutdownSocket(SocketHandle socket) {
 #endif
 }
 
+/**
+ * @brief Half-closes the receive direction only.
+ *
+ * Wakes a recv() parked on this socket without stopping sends on it, which is
+ * what a listener needs during shutdown: the receive loop must come out of
+ * recvfrom() at once, but the sessions still on that socket have FINs of their
+ * own to put out first.
+ */
+inline bool ShutdownSocketRead(SocketHandle socket) {
+  if (!IsValidSocketHandle(socket)) {
+    return false;
+  }
+#ifdef TARGET_WIN
+  return shutdown(socket, SD_RECEIVE) == 0;
+#else
+  return shutdown(socket, SHUT_RD) == 0;
+#endif
+}
+
 inline void SetTCPNoDelay(SocketHandle socket) {
   int one = 1;
   setsockopt(socket, IPPROTO_TCP, TCP_NODELAY, reinterpret_cast<const char*>(&one), sizeof(one));

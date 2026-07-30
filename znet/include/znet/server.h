@@ -124,21 +124,48 @@ class Server : public Interface {
   }
 
  private:
+  /**
+   * @brief One worker's sessions, plus the size it publishes for the acceptor.
+   *
+   * The published count is what lets the receive thread's wake callback skip
+   * idle workers, and SelectNextTask() pick the emptiest, without taking the
+   * lock. A stale read costs at most a spurious wake or a slightly worse
+   * placement, where locking per datagram would put the receive thread behind
+   * whichever worker is mid-tick. Every mutation goes through With(), which
+   * republishes it, so the two cannot drift.
+   */
+  class SessionSet {
+   public:
+    template <typename Fn>
+    void With(Fn&& fn) {
+      std::lock_guard<std::mutex> lock(mutex_);
+      fn(sessions_);
+      count_.store(sessions_.size(), std::memory_order_relaxed);
+    }
+
+    ZNET_NODISCARD size_t count() const {
+      return count_.load(std::memory_order_relaxed);
+    }
+
+   private:
+    std::mutex mutex_;
+    SessionMap sessions_;
+    std::atomic<size_t> count_{0};
+  };
+
+  // Not movable or copyable: it owns a thread, a mutex and a condition
+  // variable. Held by unique_ptr in tasks_ so the vector never needs to be.
   struct TaskData {
     std::shared_ptr<WorkerSignal> signal_{std::make_shared<WorkerSignal>()};
-    SessionMap sessions_;
+    SessionSet sessions_;
     std::unique_ptr<Task> task_;
     Scheduler scheduler_{120};
-    // lets the wake callback skip workers owning nothing without taking
-    // mutex_. a stale read is safe either way: too low costs one tick of
-    // latency, too high costs a spurious wake.
-    std::atomic<size_t> session_count_{0};
 
     TaskData() = default;
     ~TaskData() {
       if (task_) {
         // the stop flag is part of the wait predicate, so it has to be set with
-        // the mutex held. Signalling outside it lets a worker that is between
+        // the mutex held. signalling outside it lets a worker that is between
         // testing the predicate and sleeping miss the wake and never return.
         {
           std::lock_guard<std::mutex> lock(signal_->mutex);
@@ -147,52 +174,23 @@ class Server : public Interface {
         signal_->cv.notify_all();
         task_->Wait();
       }
-      sessions_.clear();
     }
 
-    TaskData(TaskData&& other) noexcept
-        : signal_(std::move(other.signal_)),
-          sessions_(std::move(other.sessions_)),
-          task_(std::move(other.task_)) {
-      // the count has to be carried by hand or it would say zero while
-      // sessions_ is not empty, and the wake callback would skip this worker.
-      session_count_.store(sessions_.size(), std::memory_order_relaxed);
-      other.session_count_.store(0, std::memory_order_relaxed);
-      other.signal_ = std::make_shared<WorkerSignal>();
-    }
-
-    TaskData& operator=(TaskData&& other) noexcept {
-      if (this != &other) {
-        std::lock_guard<std::mutex> lock(other.signal_->mutex);
-        sessions_ = std::move(other.sessions_);
-        task_ = std::move(other.task_);
-        signal_ = other.signal_;
-        session_count_.store(sessions_.size(), std::memory_order_relaxed);
-        other.session_count_.store(0, std::memory_order_relaxed);
-      }
-      return *this;
-    }
     TaskData(const TaskData&) = delete;
     TaskData& operator=(const TaskData&) = delete;
   };
 
   void MainProcessor();
+  /** @brief One worker's whole life: tick its sessions, sleep out the rest. */
+  void WorkerLoop(TaskData& data);
 
   void CheckNetwork();
   void ProcessSessions();
-  /**
-   * @brief Drops dead sessions from `sessions`, then ticks the survivors.
-   *
-   * @param sessions Map to sweep. Worker-owned or the pending map.
-   * @param published_count Republished with the new size, or null for a map
-   *        nothing reads a count for. Kept as a parameter so the count is
-   *        updated where the erase happens rather than at the call site.
-   */
-  void CleanupAndProcessSessions(SessionMap& sessions,
-                                 std::atomic<size_t>* published_count = nullptr);
+  /** @brief Drops dead sessions from `sessions`, then ticks the survivors. */
+  void CleanupAndProcessSessions(SessionMap& sessions);
   void DisconnectPending();
   void PromoteReady(std::shared_ptr<PeerSession> session);
-  bool SubmitSession(TaskData& data, std::shared_ptr<PeerSession> session);
+  void SubmitSession(TaskData& data, std::shared_ptr<PeerSession> session);
   TaskData* SelectNextTask();
 
  private:
@@ -204,7 +202,7 @@ class Server : public Interface {
   Scheduler scheduler_{60};
   Task task_;
 
-  std::vector<TaskData> tasks_;
+  std::vector<std::unique_ptr<TaskData>> tasks_;
   SessionMap pending_sessions_;
 };
 }  // namespace znet

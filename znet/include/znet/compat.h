@@ -14,7 +14,7 @@
 //
 // The rule for everything in here: the C++20 path must expand to exactly what
 // the code used before this header existed, and the fallback must generate the
-// same machine code, not merely the same behaviour. Nothing here may cost a
+// same machine code, not merely the same behavior. Nothing here may cost a
 // branch, an allocation, or an indirection that the C++20 path does not pay.
 //
 
@@ -84,7 +84,7 @@
 // ---------------------------------------------------------------------------
 // Keywords
 // ---------------------------------------------------------------------------
-// constinit only asserts that no dynamic initialisation happens; dropping it
+// constinit only asserts that no dynamic initialization happens; dropping it
 // pre-C++20 loses the diagnostic, never the semantics.
 #if ZNET_HAS_CXX20
 #define ZNET_CONSTINIT constinit
@@ -93,7 +93,7 @@
 #endif
 
 // consteval degrades to constexpr. Every znet use returns a literal computed
-// from macros, so it still folds at compile time under any optimiser.
+// from macros, so it still folds at compile time under any optimizer.
 #if ZNET_HAS_CXX20
 #define ZNET_CONSTEVAL consteval
 #else

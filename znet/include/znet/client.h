@@ -16,6 +16,7 @@
 #include "znet/peer_session.h"
 #include "znet/precompiled.h"
 #include "znet/scheduler.h"
+#include "znet/session_encoder.h"
 #include "znet/task.h"
 #include "znet/worker_signal.h"
 
@@ -113,7 +114,9 @@ class Client : public Interface {
   Task task_;
   Scheduler scheduler_{120};
   std::shared_ptr<WorkerSignal> signal_{std::make_shared<WorkerSignal>()};
-
+  // a client has one session and one loop, so without this the loop would
+  // serialize encoding behind putting bytes on the wire
+  SessionEncoder encoder_;
 };
 
 }  // namespace znet

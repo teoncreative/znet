@@ -697,6 +697,34 @@ class Buffer {
   ZNET_NODISCARD size_t mem_allocations() const { return mem_allocations_; }
 #endif
 
+  /**
+   * @brief Leaves `bytes` of unwritten space in front of the payload.
+   *
+   * Lets a later stage add a header with PrependInt8 instead of allocating a
+   * second buffer and copying the payload forward to make room. Call on a
+   * fresh buffer, before writing anything. Allocates nothing itself; the first
+   * write sizes the buffer for the headroom and the payload together.
+   */
+  void ReserveHeadroom(size_t bytes) {
+    read_cursor_ = bytes;
+    write_cursor_ = bytes;
+  }
+
+  /**
+   * @brief Writes one byte in front of the read cursor.
+   *
+   * Spends a byte of what ReserveHeadroom set aside. Returns false when none is
+   * left, leaving the buffer untouched so the caller can build a new one.
+   */
+  bool PrependInt8(uint8_t value) {
+    // ReserveHeadroom does not allocate, so data_ is null until the first write
+    if (read_cursor_ == 0 || ZNET_UNLIKELY(!data_)) {
+      return false;
+    }
+    data_[--read_cursor_] = static_cast<char>(value);
+    return true;
+  }
+
   void SkipRead(size_t size) { read_cursor_ += size; }
 
   void SetReadLimit(size_t limit) {
