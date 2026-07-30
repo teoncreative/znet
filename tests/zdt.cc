@@ -731,8 +731,8 @@ TEST(ZDTReliability, FragmentedMessagesStayWithinTheAckWindow) {
   ZDTTransportLayer server(server_socket, client_socket->local_address(), config,
                            false, nullptr, connection);
 
-  // Each message spans several datagrams once fragmented, which is what used to
-  // push the outstanding count past what an ack can report.
+  // Each message spans several datagrams once fragmented, which is what pushes
+  // the outstanding count past what one ack can report.
   const uint32_t kMessages = 60;
   const size_t kPayload = 8192;
   for (uint32_t i = 0; i < kMessages; i++) {
@@ -882,6 +882,33 @@ TEST(ZDTReliability, SequenceWraparoundDoesNotBreakConnection) {
 
 // child_options set on the server config must reach the accepted session's
 // transport, and a client's options must reach its own.
+// MTULadder rungs are link MTUs, but the datagram budget is a UDP payload, and
+// the IP and UDP headers ride outside it. Conflating the two probes a rung with
+// `rung` bytes of payload, putting `rung + 28` on the wire: on a 1500-byte path
+// the 1492 rung comes back EMSGSIZE and the ladder steps down to 1200 for no
+// reason. Pinned here because the symptom is silent: the connection still
+// forms, just smaller.
+TEST(ZDTMtuLadder, RungsAreLinkMTUsNotPayloadSizes) {
+  // 1500 Ethernet: 1472 of payload fits, 1473 does not
+  EXPECT_EQ(ZDTPayloadForLinkMTU(1500, InetProtocolVersion::IPv4), 1472);
+  // IPv6 pays 20 more bytes of header for the same link
+  EXPECT_EQ(ZDTPayloadForLinkMTU(1500, InetProtocolVersion::IPv6), 1452);
+
+  // every default rung, so a change to the ladder has to come past this
+  ZDTOptions options;
+  for (uint16_t rung : options.mtu_ladder) {
+    const uint16_t payload = ZDTPayloadForLinkMTU(rung, InetProtocolVersion::IPv4);
+    EXPECT_LT(payload, rung) << "rung " << rung << " must lose its header";
+    EXPECT_EQ(payload + kZDTIPv4Overhead, rung)
+        << "a datagram of this payload has to be exactly one link MTU on the wire";
+  }
+
+  // a rung too small to hold even the headers yields nothing rather than
+  // wrapping around through zero
+  EXPECT_EQ(ZDTPayloadForLinkMTU(20, InetProtocolVersion::IPv4), 0);
+  EXPECT_EQ(ZDTPayloadForLinkMTU(30, InetProtocolVersion::IPv6), 0);
+}
+
 TEST(ZDTOptionsPlumbing, ChildOptionsReachTheSession) {
   ASSERT_EQ(Init(), Result::Success);
   PortNumber port = FreeUdpPort();
@@ -1182,7 +1209,7 @@ TEST(ZDTMetrics, CountsRetransmitsAndDuplicates) {
 }
 #endif  // ZNET_ENABLE_METRICS
 
-// --- Full application round-trip over ZDT (the "usable TCP-equivalent" proof) --
+// --- Full application round-trip over ZDT (the "usable TCP-equivalent" proof)
 
 TEST(ZDTIntegration, AppPacketRoundTripOverUdp) {
   ASSERT_EQ(Init(), Result::Success);
@@ -2151,4 +2178,258 @@ TEST(ZDTP2P, HolePunchLoopbackReachesReady) {
   session_a->Close();
   session_b->Close();
   std::this_thread::sleep_for(std::chrono::milliseconds(100));
+}
+
+// --- Concurrent sends ---------------------------------------------------------
+
+// SendPacket() is the one part of a session callable from any thread, and
+// everything it touches downstream belongs to the worker, so the queue hand-off
+// is the whole contract. These prove it on both transports: every message
+// arrives exactly once and intact, a torn frame surfacing as a missing or
+// corrupt text.
+namespace {
+
+struct ConcurrentSendState {
+  std::mutex mutex;
+  std::set<std::string> received;
+  std::atomic<int> accepted{0};
+};
+
+class CollectingHandler : public PacketHandler<CollectingHandler, DemoPacket> {
+ public:
+  explicit CollectingHandler(ConcurrentSendState* state) : state_(state) {}
+  void OnPacket(std::shared_ptr<DemoPacket> packet) {
+    std::lock_guard<std::mutex> lock(state_->mutex);
+    state_->received.insert(packet->text);
+  }
+
+ private:
+  ConcurrentSendState* state_;
+};
+
+std::shared_ptr<Codec> MakeDemoCodec() {
+  auto codec = std::make_shared<Codec>();
+  codec->Add(PACKET_DEMO, std::make_unique<DemoSerializer>());
+  return codec;
+}
+
+void RunConcurrentSendTest(ConnectionType type) {
+  constexpr int kThreads = 4;
+  constexpr int kPerThread = 250;
+  constexpr int kTotal = kThreads * kPerThread;
+
+  ASSERT_EQ(Init(), Result::Success);
+  PortNumber port =
+      type == ConnectionType::ZDT ? FreeUdpPort() : FreeTcpPort();
+  ASSERT_NE(port, 0);
+  ConcurrentSendState state;
+
+  ServerConfig server_config{"127.0.0.1", port, std::chrono::seconds(5), type};
+  Server server{server_config};
+  server.SetEventCallback([&](Event& event) {
+    EventDispatcher dispatcher{event};
+    dispatcher.Dispatch<IncomingClientConnectedEvent>(
+        [&](IncomingClientConnectedEvent& ev) {
+          ev.session()->SetCodec(MakeDemoCodec());
+          ev.session()->SetHandler(std::make_shared<CollectingHandler>(&state));
+          return false;
+        });
+  });
+  ASSERT_EQ(server.Bind(), Result::Success);
+  ASSERT_EQ(server.Listen(), Result::Success);
+
+  std::mutex session_mutex;
+  std::shared_ptr<PeerSession> shared_session;
+  ClientConfig client_config{"127.0.0.1", port, std::chrono::seconds(5), type};
+  Client client{client_config};
+  client.SetEventCallback([&](Event& event) {
+    EventDispatcher dispatcher{event};
+    dispatcher.Dispatch<ClientConnectedToServerEvent>(
+        [&](ClientConnectedToServerEvent& ev) {
+          ev.session()->SetCodec(MakeDemoCodec());
+          std::lock_guard<std::mutex> lock(session_mutex);
+          shared_session = ev.session();
+          return false;
+        });
+  });
+  ASSERT_EQ(client.Bind(), Result::Success);
+  ASSERT_EQ(client.Connect(), Result::Success);
+
+  std::shared_ptr<PeerSession> session;
+  auto connect_deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+  while (!session && std::chrono::steady_clock::now() < connect_deadline) {
+    {
+      std::lock_guard<std::mutex> lock(session_mutex);
+      session = shared_session;
+    }
+    if (!session) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+  }
+  ASSERT_TRUE(session) << "client never reached a ready session";
+
+  std::vector<std::thread> senders;
+  senders.reserve(kThreads);
+  for (int t = 0; t < kThreads; t++) {
+    senders.emplace_back([&state, session, t]() {
+      for (int i = 0; i < kPerThread; i++) {
+        auto packet = std::make_shared<DemoPacket>();
+        packet->text = "t" + std::to_string(t) + "-" + std::to_string(i);
+        // a refusal is backpressure, not an error: retry so every message is
+        // eventually accepted and the counts below are exact.
+        while (!session->SendPacket(packet, SendOptions{})) {
+          std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+        state.accepted++;
+      }
+    });
+  }
+  for (std::thread& sender : senders) {
+    sender.join();
+  }
+
+  auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(20);
+  while (std::chrono::steady_clock::now() < deadline) {
+    {
+      std::lock_guard<std::mutex> lock(state.mutex);
+      if (state.received.size() >= static_cast<size_t>(kTotal)) {
+        break;
+      }
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(5));
+  }
+
+  {
+    std::lock_guard<std::mutex> lock(state.mutex);
+    EXPECT_EQ(state.received.size(), static_cast<size_t>(kTotal))
+        << "messages were lost, duplicated or corrupted across threads";
+  }
+  EXPECT_EQ(state.accepted.load(), kTotal);
+
+  client.Disconnect();
+  server.Stop();
+  std::this_thread::sleep_for(std::chrono::milliseconds(100));
+}
+
+}  // namespace
+
+TEST(ConcurrentSend, ManyThreadsOneSessionOverZDT) {
+  RunConcurrentSendTest(ConnectionType::ZDT);
+}
+
+TEST(ConcurrentSend, ManyThreadsOneSessionOverTCP) {
+  RunConcurrentSendTest(ConnectionType::TCP);
+}
+
+// --- Send-pipeline headroom ---------------------------------------------------
+
+// The codec reserves two bytes of headroom, leaving the message at the read
+// cursor rather than at offset zero, and every stage after the serializer has
+// to honour that: one reading data()/size() sends the reserved bytes as though
+// they were payload.
+//
+// Which stages actually spend the headroom depends on the options, and the
+// paths do not overlap: zstd builds a fresh buffer and leaves nothing to
+// prepend into, an encrypted message is rebuilt around its IV, and only the
+// plain path prepends both bytes in place. So the matrix below is not
+// redundant: each row is a different arrangement of buffers reaching the
+// transport.
+namespace {
+
+struct HeadroomCase {
+  const char* name;
+  bool encryption;
+  CompressionType compression;
+  size_t payload_bytes;  // relative to CommonOptions::compression_threshold
+};
+
+void RunHeadroomRoundTrip(ConnectionType type, const HeadroomCase& test_case) {
+  ASSERT_EQ(Init(), Result::Success);
+  PortNumber port = type == ConnectionType::ZDT ? FreeUdpPort() : FreeTcpPort();
+  ASSERT_NE(port, 0);
+
+  // every byte value, so a stage reading from the wrong offset cannot land on
+  // a run of identical bytes and pass anyway
+  std::string payload;
+  payload.reserve(test_case.payload_bytes);
+  for (size_t i = 0; i < test_case.payload_bytes; i++) {
+    payload.push_back(static_cast<char>(i & 0xFFu));
+  }
+
+  RoundTripState state;
+  ServerConfig server_config{"127.0.0.1", port, std::chrono::seconds(5), type};
+  server_config.child_options.common.encryption = test_case.encryption;
+  server_config.child_options.common.compression = test_case.compression;
+  Server server{server_config};
+  server.SetEventCallback([&](Event& event) {
+    EventDispatcher dispatcher{event};
+    dispatcher.Dispatch<IncomingClientConnectedEvent>(
+        [&](IncomingClientConnectedEvent& ev) {
+          ev.session()->SetCodec(MakeDemoCodec());
+          ev.session()->SetHandler(
+              std::make_shared<ServerEchoHandler>(ev.session()));
+          return false;
+        });
+  });
+  ASSERT_EQ(server.Bind(), Result::Success);
+  ASSERT_EQ(server.Listen(), Result::Success);
+
+  ClientConfig client_config{"127.0.0.1", port, std::chrono::seconds(5), type};
+  Client client{client_config};
+  client.SetEventCallback([&](Event& event) {
+    EventDispatcher dispatcher{event};
+    dispatcher.Dispatch<ClientConnectedToServerEvent>(
+        [&](ClientConnectedToServerEvent& ev) {
+          ev.session()->SetCodec(MakeDemoCodec());
+          ev.session()->SetHandler(std::make_shared<ClientReplyHandler>(&state));
+          auto packet = std::make_shared<DemoPacket>();
+          packet->text = payload;
+          ev.session()->SendPacket(packet);
+          return false;
+        });
+  });
+  ASSERT_EQ(client.Bind(), Result::Success);
+  ASSERT_EQ(client.Connect(), Result::Success);
+
+  auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+  while (!state.got_reply.load() &&
+         std::chrono::steady_clock::now() < deadline) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(5));
+  }
+  ASSERT_TRUE(state.got_reply.load())
+      << test_case.name << ": no reply came back";
+  // the echo prefixes, so this checks the payload survived both directions
+  EXPECT_EQ(state.reply_text, "reply:" + payload)
+      << test_case.name << ": the payload did not survive the pipeline";
+
+  client.Disconnect();
+  server.Stop();
+  std::this_thread::sleep_for(std::chrono::milliseconds(100));
+}
+
+// CommonOptions::compression_threshold is 128; sit clearly either side of it.
+const HeadroomCase kHeadroomCases[] = {
+    // both bytes prepended in place, the path the headroom exists for
+    {"plain, under the compression threshold", false, CompressionType::None, 32},
+    {"plain, over the compression threshold", false, CompressionType::None, 2000},
+    // zstd returns a fresh buffer, so encryption has no headroom to spend
+    {"compressed", false, CompressionType::Default, 2000},
+    // encryption rebuilds around the IV, so it consumes the buffer rather than
+    // prepending into it
+    {"encrypted, under the compression threshold", true, CompressionType::None, 32},
+    {"encrypted and compressed", true, CompressionType::Default, 2000},
+};
+
+}  // namespace
+
+TEST(SendPipelineHeadroom, PayloadSurvivesEveryStageOverZDT) {
+  for (const HeadroomCase& test_case : kHeadroomCases) {
+    RunHeadroomRoundTrip(ConnectionType::ZDT, test_case);
+  }
+}
+
+TEST(SendPipelineHeadroom, PayloadSurvivesEveryStageOverTCP) {
+  for (const HeadroomCase& test_case : kHeadroomCases) {
+    RunHeadroomRoundTrip(ConnectionType::TCP, test_case);
+  }
 }

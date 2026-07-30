@@ -9,7 +9,8 @@
 //
 
 //
-// Created by Metehan Gezer on 07/08/2025.
+// How one close should be performed. Keyed like SendOptions, and for the same
+// reason: a transport has to tell an explicit choice from an absent one.
 //
 
 #ifndef ZNET_PARENT_CLOSE_OPTIONS_H
@@ -19,19 +20,31 @@
 #include <cstdint>
 #include <type_traits>
 
+/**
+ * @brief Per-call options for PeerSession::Close().
+ *
+ * Default-constructed sets nothing, leaving every choice to the transport.
+ */
 class CloseOptions {
  public:
+  /**
+   * @brief Sets one option, marking it as explicitly chosen.
+   *
+   * @tparam Key NoLingerKey.
+   */
   template <typename Key>
   void Set(typename Key::type value) {
     bitmask_ |= (1u << Key::id);
     Get<Key>() = value;
   }
 
+  /** @brief The value if it was set, otherwise @p def. What transports call. */
   template <typename Key>
   typename Key::type GetOr(typename Key::type def) const {
     return Has<Key>() ? Get<Key>() : def;
   }
 
+  /** @brief Whether this option was explicitly set. */
   template <typename Key>
   bool Has() const {
     return bitmask_ & (1u << Key::id);
@@ -55,9 +68,14 @@ class CloseOptions {
   }
 };
 
+/**
+ * @brief Discard anything still queued and close at once (SO_LINGER, 0).
+ *
+ * TCP only. The peer sees a reset rather than a clean shutdown, so use it to
+ * drop a connection that is misbehaving, not to end a healthy one.
+ */
 struct NoLingerKey { using type = bool; static constexpr int id = 0; };
 
-// specializations
 template <> inline const bool& CloseOptions::Get<NoLingerKey>() const { return data_.no_linger; }
 
 #endif  //ZNET_PARENT_CLOSE_OPTIONS_H

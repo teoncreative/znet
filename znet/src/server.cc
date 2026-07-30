@@ -26,45 +26,58 @@ Server::Server(const ServerConfig& config) : Interface(), config_(config) {
   if (core_count == 0) {
     core_count = 1;  // unknown, and an empty pool would refuse every connection
   }
-  tasks_.resize(core_count);
-  for (TaskData& data : tasks_) {
+  tasks_.reserve(core_count);
+  for (uint32_t i = 0; i < core_count; i++) {
+    tasks_.push_back(std::make_unique<TaskData>());
+    TaskData& data = *tasks_.back();
     data.task_ = std::make_unique<Task>();
-    data.task_->Run([this, &data]() {
-      data.signal_->owner.store(std::this_thread::get_id(),
-                                std::memory_order_relaxed);
-      std::unique_lock<std::mutex> lock(data.signal_->mutex);
-      while (!data.task_->IsStopRequested()) {
-        if (data.sessions_.empty() || !backend_->IsAlive()) {
-          data.signal_->cv.wait(lock, [&]() {
-            return !data.sessions_.empty() || data.task_->IsStopRequested();
-          });
-          if (data.task_->IsStopRequested()) {
-            break;
-          }
-        }
-
-        // per-task scheduler: Scheduler holds tick state, so workers cannot
-        // share one instance.
-        data.scheduler_.Start();
-        CleanupAndProcessSessions(data.sessions_, &data.session_count_);
-        data.scheduler_.End();
-        // sit out the rest of the tick, but return early when a backend with
-        // its own receive thread reports work; otherwise an arriving datagram
-        // is not looked at, let alone acked, until the next tick
-        auto remaining = data.scheduler_.remaining();
-        if (remaining > Scheduler::Duration::zero()) {
-          data.signal_->cv.wait_for(lock, remaining, [&]() {
-            return data.signal_->woken.load(std::memory_order_relaxed) ||
-                   data.task_->IsStopRequested();
-          });
-        }
-        data.signal_->woken.store(false, std::memory_order_relaxed);
-      }
-      for (auto&& item : data.sessions_) {
-        item.second->Close();
-      }
-    });
+    data.task_->Run([this, &data]() { WorkerLoop(data); });
   }
+}
+
+void Server::WorkerLoop(TaskData& data) {
+  WorkerSignal& signal = *data.signal_;
+  signal.owner.store(std::this_thread::get_id(), std::memory_order_relaxed);
+
+  while (!data.task_->IsStopRequested()) {
+    // nothing to drive yet: sleep until a session is handed over, with no
+    // deadline, since no tick is owed on an empty worker
+    if (data.sessions_.count() == 0 || !backend_->IsAlive()) {
+      std::unique_lock<std::mutex> lock(signal.mutex);
+      signal.cv.wait(lock, [&]() {
+        return data.sessions_.count() != 0 || data.task_->IsStopRequested();
+      });
+      if (data.task_->IsStopRequested()) {
+        break;
+      }
+    }
+
+    // per-task scheduler: Scheduler holds tick state, so workers cannot share
+    // one instance.
+    data.scheduler_.Start();
+    data.sessions_.With(
+        [this](SessionMap& sessions) { CleanupAndProcessSessions(sessions); });
+    data.scheduler_.End();
+
+    // sit out the rest of the tick, but return early when a backend with its
+    // own receive thread reports work; otherwise an arriving datagram is not
+    // looked at, let alone acked, until the next tick
+    const auto remaining = data.scheduler_.remaining();
+    if (remaining > Scheduler::Duration::zero()) {
+      std::unique_lock<std::mutex> lock(signal.mutex);
+      signal.cv.wait_for(lock, remaining, [&]() {
+        return signal.woken.load(std::memory_order_relaxed) ||
+               data.task_->IsStopRequested();
+      });
+      signal.woken.store(false, std::memory_order_relaxed);
+    }
+  }
+
+  data.sessions_.With([](SessionMap& sessions) {
+    for (auto&& item : sessions) {
+      item.second->Close();
+    }
+  });
 }
 
 Server::~Server() {
@@ -85,14 +98,14 @@ Result Server::Bind() {
     bind_address_ = backend_->bind_address();
     // registered before Listen() starts any receive thread
     backend_->SetWakeCallback([this]() {
-      for (TaskData& data : tasks_) {
+      for (auto& data : tasks_) {
         // skip workers holding no sessions: they cannot be the datagram's
-        // owner, and waking them costs a thread switch each. see
-        // TaskData::session_count_ for why a stale read is safe.
-        if (data.session_count_.load(std::memory_order_relaxed) == 0) {
+        // owner, and waking them costs a thread switch each. see SessionSet
+        // for why a stale count is safe here.
+        if (data->sessions_.count() == 0) {
           continue;
         }
-        data.signal_->Raise();
+        data->signal_->Raise();
       }
     });
   }
@@ -125,8 +138,8 @@ Result Server::Stop() {
 }
 
 void Server::SetTicksPerSecond(uint16_t tps) {
-  for (TaskData& data : tasks_) {
-    data.scheduler_.SetTicksPerSecond(tps);
+  for (auto& data : tasks_) {
+    data->scheduler_.SetTicksPerSecond(tps);
   }
 }
 
@@ -140,15 +153,10 @@ void Server::MainProcessor() {
   event_callback()(startup_event);
 
   while (backend_->IsAlive() && !task_.IsStopRequested()) {
-    {
-      // hold the backend lock only while touching backend/session state, not
-      // across the pacing wait below.
-      std::lock_guard<std::mutex> lock(backend_->mutex());
-      scheduler_.Start();
-      CheckNetwork();
-      ProcessSessions();
-      scheduler_.End();
-    }
+    scheduler_.Start();
+    CheckNetwork();
+    ProcessSessions();
+    scheduler_.End();
     scheduler_.Wait();
   }
 
@@ -178,8 +186,7 @@ void Server::CheckNetwork() {
   }
 }
 
-void Server::CleanupAndProcessSessions(SessionMap& sessions,
-                                       std::atomic<size_t>* published_count) {
+void Server::CleanupAndProcessSessions(SessionMap& sessions) {
   std::vector<std::shared_ptr<InetAddress>> remove;
   // cleanup dead sessions
   for (auto&& item : sessions) {
@@ -191,18 +198,15 @@ void Server::CleanupAndProcessSessions(SessionMap& sessions,
 
   for (auto&& address : remove) {
     auto session = sessions[address];
+    // one that never became ready died still handshaking, and the application
+    // was never told it connected, so a disconnect event would be unpaired.
     if (session->IsReady()) {
-      // this session was still pending, so no event for you!
-      ServerClientDisconnectedEvent event{sessions[address]};
+      ServerClientDisconnectedEvent event{session};
       event_callback()(event);
-
       ZNET_LOG_DEBUG("Client disconnected: {}",
-                     event.session()->remote_address()->readable());
+                     session->remote_address()->readable());
     }
     sessions.erase(address);
-  }
-  if (published_count) {
-    published_count->store(sessions.size(), std::memory_order_relaxed);
   }
 
   for (auto&& item : sessions) {
@@ -218,12 +222,14 @@ void Server::DisconnectPending() {
 }
 
 void Server::PromoteReady(std::shared_ptr<PeerSession> session) {
-  TaskData* assign_task = SelectNextTask();
-  if (assign_task && SubmitSession(*assign_task, session)) {
+  TaskData* task = SelectNextTask();
+  if (!task) {
+    ZNET_LOG_DEBUG("No worker is available to handle the connection from: {}",
+                   session->remote_address()->readable());
+    session->Close();
     return;
   }
-  ZNET_LOG_DEBUG("No task is available to handle the connection from: {}", session->remote_address()->readable());
-  session->Close();
+  SubmitSession(*task, session);
 }
 
 void Server::ProcessSessions() {
@@ -252,32 +258,31 @@ void Server::ProcessSessions() {
   }
 }
 
-bool Server::SubmitSession(TaskData& data, std::shared_ptr<PeerSession> session) {
-  std::lock_guard<std::mutex> lock(data.signal_->mutex);
+void Server::SubmitSession(TaskData& data, std::shared_ptr<PeerSession> session) {
   auto signal = data.signal_;
   session->SetWakeCallback([signal]() { signal->Raise(); });
   IncomingClientConnectedEvent event{session};
   event_callback()(event);
-  data.sessions_[session->remote_address()] = session;
-  data.session_count_.store(data.sessions_.size(), std::memory_order_relaxed);
+  data.sessions_.With([&](SessionMap& sessions) {
+    sessions[session->remote_address()] = session;
+  });
   ZNET_LOG_DEBUG("New connection is ready. {}", session->remote_address()->readable());
-  data.signal_->cv.notify_one();
-  return true;
+  data.signal_->Raise();
 }
 
 Server::TaskData* Server::SelectNextTask() {
   if (tasks_.empty()) {
     return nullptr;
   }
-  // session_count_, not sessions_.size(): this runs on the acceptor while the
+  // the published count, not the map: this runs on the acceptor while the
   // workers are mutating their own maps under their own locks. a stale count
   // only picks a slightly less idle worker.
-  TaskData* min = &tasks_[0];
-  size_t min_count = min->session_count_.load(std::memory_order_relaxed);
-  for (TaskData& data : tasks_) {
-    const size_t count = data.session_count_.load(std::memory_order_relaxed);
+  TaskData* min = tasks_[0].get();
+  size_t min_count = min->sessions_.count();
+  for (auto& data : tasks_) {
+    const size_t count = data->sessions_.count();
     if (count < min_count) {
-      min = &data;
+      min = data.get();
       min_count = count;
     }
   }

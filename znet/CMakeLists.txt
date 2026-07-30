@@ -43,6 +43,8 @@ set(ZNET_SOURCES
         src/logger.cc
         src/encryption.cc
         src/peer_session.cc
+        src/message_pipeline.cc
+        src/session_encoder.cc
         src/compression.cc
         src/codec.cc
         src/util.cc
@@ -51,7 +53,12 @@ set(ZNET_SOURCES
         src/version.cc
         src/backend/backend.cc
         src/backend/tcp.cc
-        src/backend/zdt.cc
+        src/backend/zdt/zdt_ack_history.cc
+        src/backend/zdt/zdt_congestion.cc
+        src/backend/zdt/zdt_wire.cc
+        src/backend/zdt/zdt_net.cc
+        src/backend/zdt/zdt_transport.cc
+        src/backend/zdt/zdt_backends.cc
         src/p2p/locator.cc
         src/p2p/dialer.cc
         src/p2p/dialer_tcp.cc
@@ -67,6 +74,34 @@ set_target_properties(znet PROPERTIES
     CXX_STANDARD_REQUIRED ON
     CXX_EXTENSIONS OFF  # Disable compiler-specific extensions
 )
+
+# Link-time optimization, optimized configurations only.
+#
+# The hot paths cross translation units: the send pipeline runs through the
+# codec, compression and encryption in three files, and ZDT's flush loop calls
+# helpers that used to sit in the same .cc as their caller. Without this,
+# splitting a file by responsibility costs inlining that the compiler was doing
+# for free, which would make every such split a throughput decision rather than
+# a readability one.
+#
+# Checked rather than assumed: some toolchains in the CI matrix report IPO
+# unsupported, and failing the build there would be worse than the lost
+# inlining. Debug is left alone so it stays fast to build and to step through.
+option(ZNET_ENABLE_LTO "Use link-time optimization in optimized builds" ON)
+if(ZNET_ENABLE_LTO)
+    include(CheckIPOSupported)
+    check_ipo_supported(RESULT ZNET_IPO_SUPPORTED OUTPUT ZNET_IPO_MESSAGE)
+    if(ZNET_IPO_SUPPORTED)
+        set_target_properties(znet PROPERTIES
+            INTERPROCEDURAL_OPTIMIZATION_RELEASE ON
+            INTERPROCEDURAL_OPTIMIZATION_RELWITHDEBINFO ON
+            INTERPROCEDURAL_OPTIMIZATION_MINSIZEREL ON
+        )
+        message(STATUS "znet: link-time optimization enabled for optimized builds")
+    else()
+        message(STATUS "znet: link-time optimization unavailable: ${ZNET_IPO_MESSAGE}")
+    endif()
+endif()
 
 # Consumers must compile at C++14 or newer; compat.h enforces this too, but
 # saying it here gives a CMake-level error instead of a preprocessor one.
@@ -211,14 +246,14 @@ if(ZNET_USE_EXTERNAL_ZSTD)
         target_link_libraries(znet PUBLIC zstd::zstd)
         target_compile_definitions(znet PUBLIC ZNET_USE_ZSTD=1)
     else()
-        message(STATUS "zstd not found — compression disabled.")
+        message(STATUS "zstd not found, compression disabled.")
     endif()
 else()
     if(TARGET libzstd)
         target_link_libraries(znet PUBLIC libzstd)
         target_compile_definitions(znet PUBLIC ZNET_USE_ZSTD=1)
     else()
-        message(STATUS "zstd not found — compression disabled.")
+        message(STATUS "zstd not found, compression disabled.")
     endif()
 endif()
 

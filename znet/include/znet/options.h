@@ -87,6 +87,22 @@ struct CommonOptions {
    * uncompressed ones. Zero compresses everything.
    */
   size_t compression_threshold = 128;
+
+  /**
+   * @brief Packets a session will hold for its worker to encode.
+   *
+   * SendPacket() only queues, and returning false once the queue is full is
+   * how an application learns it is outrunning the link. A transport queues
+   * further messages behind its own congestion window, so this is not the
+   * total a session can hold.
+   *
+   * The queue is a ring allocated whole when the session is constructed,
+   * roughly 32 bytes a slot rounded up to a power of two, and nothing is
+   * allocated per message afterwards. A refusal loses nothing, since the
+   * caller still holds the packet, so this only has to cover the largest burst
+   * worth absorbing between two of the worker's ticks.
+   */
+  size_t send_queue_capacity = 512;
 };
 
 /** @brief TCP-specific socket options. */
@@ -130,7 +146,7 @@ struct MTULadder {
   constexpr bool empty() const { return count == 0; }
 };
 
-/** @brief ZDT tunables. See docs/zdt-design.md for the protocol itself. */
+/** @brief ZDT tunables. */
 struct ZDTOptions {
   /** @brief Candidate MTUs, probed largest first during the handshake. */
   MTULadder mtu_ladder;
@@ -194,8 +210,22 @@ struct ZDTOptions {
 
   /** @brief Raw datagrams queued per connection before arrivals are dropped. */
   size_t max_inbox_datagrams = 4096;
-  /** @brief Application messages queued for send before Send() fails. */
-  size_t max_outbound_messages = 4096;
+  /**
+   * @brief Encoded messages the transport will hold before Send() fails.
+   *
+   * Sizes the ring that whichever thread is encoding pushes into, allocated up
+   * front on the same terms as CommonOptions::send_queue_capacity. The worker
+   * also keeps a staging queue, where a shut congestion window parks messages,
+   * and refills it from the ring only while it holds fewer than this many, so
+   * the transport holds at most twice this figure in total.
+   *
+   * Unlike send_queue_capacity this sits past the point where a caller can be
+   * told to try again: the message is already encoded, so a refusal here
+   * drops it. Hence a default generous rather than tuned to the ~128KiB of
+   * ring it implies. A server holding thousands of idle connections is the
+   * case worth lowering it for.
+   */
+  size_t outbound_queue_capacity = 4096;
   /** @brief Concurrent partially reassembled messages. */
   size_t max_reassemblies = 256;
 };

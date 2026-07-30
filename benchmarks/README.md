@@ -167,15 +167,34 @@ rate. That is real work, but it is measuring aggregation, not the socket. Check
 the MiB/s column and the raw UDP floor together before concluding anything from
 a msg/s number.
 
-**GNS is still rate-limited here, and its rows are a lower bound.** Its byte
-rate barely moves with payload size - 67, 96 and 91 MiB/s at 64 B, 1 KiB and
-8 KiB - which is what a send-rate cap looks like, not what protocol cost looks
-like. znet's rows over the same three sizes go 82, 194 and 333 MB/s, scaling the
-way amortised per-message overhead should. Two GNS limiters are already raised
-in `gns_bench.cc`: the ~256 KB/s default send rate, and `SendBufferSize`, whose
-512 KB default was worth a further 16-31% when it was found. Whatever still caps
-it has not been identified. Until the byte rate stops being flat, do not read
-the 1 KiB and 8 KiB comparisons as a protocol result.
+**GNS is rate-limited by its own design, and its rows are a lower bound.** Its
+byte rate barely moves with payload size, 88, 96 and 91 MiB/s at 64 B, 1 KiB and
+8 KiB, which is what a send-rate cap looks like rather than what protocol cost
+looks like. znet's rows over the same three sizes go 82, 194 and 333 MB/s,
+scaling the way amortised per-message overhead should.
+
+The cap is not a configuration mistake. GNS clamps its send rate internally, in
+`steamnetworkingsockets_snp.cpp`:
+
+```cpp
+int nMin = Clamp( m_connectionConfig.SendRateMin.Get(), 1024, 100*1024*1024 );
+int nMax = Clamp( m_connectionConfig.SendRateMax.Get(), nMin, 100*1024*1024 );
+```
+
+100 MiB/s, whatever `SendRateMin`/`SendRateMax` are set to, and the config
+itself refuses anything above `0x10000000`. Sweeping the setting with
+`GNS_SEND_RATE` shows throughput tracking it linearly at about 96.5% up to the
+clamp and flat above it: 25 MiB/s gives 24.1, 50 gives 48.3, and both 100 and
+256 give 96.5. The missing 3.5% is header overhead. So the 1 KiB and 8 KiB
+comparisons measure the limiter, not the protocol, and no setting available to a
+caller changes that.
+
+`gns_bench.cc` raises everything that *is* reachable: the ~256 KB/s default send
+rate, `SendBufferSize` from its 512 KB default, and the receive-side
+`RecvBufferSize` and `RecvBufferMessages`. The receive limits matter most at
+64 B, where the 1024-message default binds and costs about 20%; both drop
+packets rather than applying backpressure when exceeded, so leaving them at the
+defaults would have measured GNS's anti-flood protection.
 
 Its latency tail is its own, though, not an artifact of the setup. The
 benchmark sets `NagleTime=0` so GNS sends immediately, as ZDT does; left at its
@@ -191,21 +210,30 @@ fallback and certificate auth that nothing here exercises.
 
 - RakNet's 8 KiB throughput case intermittently stalls at 4999 of 5000 delivered
   and runs into the 60 s deadline, reporting ~83 msg/s. Successful runs land
-  near 62,000-67,000. Re-run before trusting that row.
-- The 64 B column needs several runs to mean anything. Scheduler noise
-  dominates when a message costs this little: across the seven runs behind the
-  published table the znet ZDT rows spanned 1.9x, GNS 1.58x and ENet 1.09x. A
-  single run there is an order of magnitude, not a number. The other columns are
-  steadier, GNS 1.00x and 1.02x at 1 KiB and 8 KiB, and read as written.
-- The raw TCP and raw UDP floors in the published table were measured with a
-  core list straddling two L3 domains, which split them into two clusters about
-  2x apart (raw TCP at 1 KiB: four runs near 255,000, three near 508,000) while
-  every library row stayed inside 1.4x. Client and server were landing on
-  different dies. Pinning inside one domain, as above, avoids it.
-
+  near 74,000. One run in three stalled for the published table, so re-run
+  before trusting that row.
+- **znet ZDT collapses intermittently under loss.** This is now the largest
+  caveat in the table. At 5% loss and a 50 ms round trip, single measurements
+  drop to a fraction of the usual rate: 1 KiB fell to ~1,150 msg/s against a
+  healthy ~6,200 in three runs of seven, and 64 B and 8 KiB once each. The raw
+  arm hit it twice of seven at 8 KiB.
+  It is per-measurement, not per-run: a run is routinely fast at one payload
+  and collapsed at the next, which rules out the machine being busy for the
+  duration. It is not the impairment being uneven either, since a collapsed and
+  a healthy measurement sit in the same run under the same qdisc. Note that GNS
+  and ENet are not steadier here: across the same runs ENet spanned 5.4x at 64 B
+  and GNS 3.8x at 8 KiB, so this is a property of running over a lossy link,
+  not something peculiar to ZDT. Unexplained; treat the impaired medians of
+  every library as an average over regimes rather than a steady rate.
+- The 64 B column needs several runs to mean anything. Scheduler noise dominates
+  when a message costs this little. On the clean table the fifteen runs behind
+  the znet ZDT row spanned 1.07x, but under impairment the same column spanned
+  4.6x for znet and 5.4x for ENet. A single run there is not a number.
+- The raw TCP and raw UDP floors span 1.03-1.19x across seven runs with the core
+  list pinned inside one L3 domain. If a floor comes back bimodal, check the core
+  list first: a list straddling two domains lands client and server on different
+  dies and splits the floors into two clusters about 2x apart, while every
+  library row stays inside 1.4x.
 - znet TCP cannot carry the 8KB case: `ZNET_MAX_BUFFER_SIZE` framing requires a
   whole message to fit in one buffer. The row reports `unsupported` rather than
   silently skipping.
-- ZDT's window is counted in datagrams, not bytes, so a half-full datagram
-  costs as much of it as a full one. Bytes in flight are bounded by roughly
-  `max_datagrams_in_flight * MTU` per round trip.

@@ -8,10 +8,6 @@
 //        http://www.apache.org/licenses/LICENSE-2.0
 //
 
-//
-// Created by Metehan Gezer on 08/08/2025.
-//
-
 #ifndef ZNET_PARENT_PUNCH_H
 #define ZNET_PARENT_PUNCH_H
 
@@ -43,7 +39,6 @@ inline bool IsInitiator(uint64_t punch_id,
     }
   }
 }
-
 
 std::shared_ptr<PeerSession> PunchSync(const std::shared_ptr<InetAddress>& local,
                                        const std::shared_ptr<InetAddress>& peer,

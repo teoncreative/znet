@@ -8,10 +8,6 @@
 //        http://www.apache.org/licenses/LICENSE-2.0
 //
 
-//
-// Created by Metehan Gezer on 02/08/2025.
-//
-
 #ifndef ZNET_PARENT_SOCKET_GUARD_H
 #define ZNET_PARENT_SOCKET_GUARD_H
 
@@ -23,7 +19,6 @@ namespace znet {
 Result Init();
 
 void Cleanup();
-
 
 }
 #endif  //ZNET_PARENT_SOCKET_GUARD_H

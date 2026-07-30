@@ -8,10 +8,6 @@
 //        http://www.apache.org/licenses/LICENSE-2.0
 //
 
-//
-// Created by Metehan Gezer on 13/08/2025.
-//
-
 #include "znet/backends/backend.h"
 #include "znet/backends/tcp.h"
 #include "znet/backends/zdt.h"
@@ -42,7 +38,6 @@ std::unique_ptr<ServerBackend> CreateServerFromType(
   }
   return nullptr;
 }
-
 
 }
 }

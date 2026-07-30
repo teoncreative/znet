@@ -8,10 +8,6 @@
 //        http://www.apache.org/licenses/LICENSE-2.0
 //
 
-//
-// Created by Metehan Gezer on 10/08/2025.
-//
-
 #include "znet/p2p/dialer.h"
 
 #include "dialer_internal.h"

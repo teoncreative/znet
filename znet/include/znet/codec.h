@@ -24,7 +24,7 @@ namespace znet {
  */
 class Codec {
  public:
-  Codec();
+  Codec() = default;
   ~Codec() = default;
 
   /**
@@ -48,10 +48,13 @@ class Codec {
    * into a binary buffer. Ensures the serialized size is properly recorded.
    *
    * @param packet A shared pointer to the packet to be serialized.
+   * @param headroom Bytes to leave in front of the payload, for stages that
+   *        prepend a header afterwards. See Buffer::ReserveHeadroom.
    * @return A shared pointer to the resulting serialized buffer.
    *         Returns nullptr if no serializer is found for the packet.
    */
-  std::shared_ptr<Buffer> Serialize(std::shared_ptr<Packet> packet);
+  std::shared_ptr<Buffer> Serialize(std::shared_ptr<Packet> packet,
+                                    size_t headroom = 0);
 
   /**
    * @brief Registers a packet serializer for a specific packet type.

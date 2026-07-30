@@ -28,6 +28,10 @@ endfunction()
 znet_add_benchmark(znet-bench znet_bench.cc)
 target_link_libraries(znet-bench PRIVATE znet)
 
+# the other send shape: one application thread broadcasting to many sessions.
+znet_add_benchmark(fanout-bench fanout_bench.cc)
+target_link_libraries(fanout-bench PRIVATE znet)
+
 znet_add_benchmark(baseline-bench baseline_bench.cc)
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux" OR CMAKE_SYSTEM_NAME STREQUAL "Darwin")
     find_package(Threads REQUIRED)

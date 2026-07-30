@@ -81,9 +81,7 @@ typedef SSIZE_T ssize_t;
 #pragma comment(lib, "Ws2_32.lib")
 #endif
 
-// TODO Deprecated status?
-#if defined(__clang__) || (defined(__GNUC__) && __GNUC__ >= 9) || (_MSC_VER >= 1928 && _MSVC_LANG >= 202002L)
+// keeps a renamed type compiling under its old name. `msg` is carried for the
+// day this grows a real [[deprecated]]; attaching one now would break the
+// -Werror builds of anyone still on the old name.
 #define DEPRECATED_TYPE_ALIAS(old, new, msg) using old = new;
-#else
-#define DEPRECATED_TYPE_ALIAS(old, new, msg) using old = new;
-#endif

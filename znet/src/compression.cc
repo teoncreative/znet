@@ -8,10 +8,6 @@
 //        http://www.apache.org/licenses/LICENSE-2.0
 //
 
-//
-// Created by Metehan Gezer on 06/08/2025.
-//
-
 #include "znet/compression.h"
 
 namespace znet {
@@ -28,10 +24,14 @@ struct CompressionCodec<CompressionType::None> {
   }
 
   static std::shared_ptr<Buffer> HandleOut(std::shared_ptr<Buffer> buffer) {
+    // in place when the serializer left headroom, otherwise a fresh buffer
+    if (buffer->PrependInt8(GetCompressionTypeRaw(type()))) {
+      return buffer;
+    }
     auto out = std::make_shared<Buffer>();
-    out->ReserveExact(buffer->size() + 1);
+    out->ReserveExact(buffer->readable_bytes() + 1);
     out->WriteInt(GetCompressionTypeRaw(type()));
-    out->Write(buffer->data(), buffer->size());
+    out->Write(buffer->read_cursor_data(), buffer->readable_bytes());
     return out;
   }
 };

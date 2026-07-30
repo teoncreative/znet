@@ -14,11 +14,15 @@
 #include "znet/codec.h"
 #include "znet/compression.h"
 #include "znet/encryption.h"
+#include "znet/message_pipeline.h"
+#include "znet/outbound_queue.h"
 #include "znet/options.h"
 #include "znet/packet_handler.h"
 #include "znet/precompiled.h"
 #include "znet/send_options.h"
 #include "znet/transport.h"
+
+#include <vector>
 
 namespace znet {
 
@@ -29,6 +33,12 @@ namespace znet {
  * PeerSession handles communication between two network peers, managing the
  * transport layer, encryption, and packet handling. It also supports session
  * expiration and user-defined data attachment.
+ *
+ * @par Threading
+ * SendPacket() may be called from any thread and only queues. The codec, the
+ * handler and the compression and encryption state belong to the worker
+ * driving Process(), which is where queued packets are encoded, so SetCodec(),
+ * SetHandler() and SetOutCompression() belong in an event or packet handler.
  *
  * The class does not allow copy or move semantics to ensure each session
  * instance is unique.
@@ -52,7 +62,13 @@ class PeerSession {
 
   bool IsAlive();
 
-  bool IsReady() { return is_ready_; }
+  /**
+   * @brief Whether the handshake has settled and the session may be sent to.
+   *
+   * Acquire-loaded, so a thread that sees true also sees the codec, the
+   * negotiated compression and the session keys the worker published before it.
+   */
+  bool IsReady() const { return is_ready_.load(std::memory_order_acquire); }
 
   /** @brief Starts from 1 and increments for each peer constructed. */
   ZNET_NODISCARD SessionId id() const {
@@ -67,12 +83,46 @@ class PeerSession {
     return remote_address_;
   }
 
+  /**
+   * @brief Queues a packet for this session. Callable from any thread.
+   *
+   * Queues and returns; the worker encodes and sends within the same tick.
+   * Nothing here locks or encodes, so a caller is never held up by a worker.
+   * Fire and forget: a packet that fails to encode is logged and dropped.
+   *
+   * @param packet The packet to send.
+   * @param options Per-message delivery options. Ignored by TCP.
+   * @return false when the session is not ready, is closed, or already holds
+   *         CommonOptions::send_queue_capacity packets. Refusal is the
+   *         backpressure signal, and happens before encoding.
+   */
   bool SendPacket(std::shared_ptr<Packet> packet, SendOptions options = {});
 
-  bool SendRaw(std::shared_ptr<Buffer> buffer, SendOptions options = {});
+  /**
+   * @brief Encodes and sends whatever SendPacket() has queued.
+   *
+   * Any thread may call this. Exactly one encodes a session at a time, so
+   * ordering holds whichever one drains.
+   *
+   * @return whether anything was encoded, so a caller can skip waking the
+   *         thread that flushes when there was nothing to flush.
+   */
+  bool DrainOutbound();
+
+  /**
+   * @brief Declares that a thread other than the worker drains this session.
+   *
+   * Set by a client that runs an encoder alongside its loop. Without it both
+   * threads race for the encode claim and whichever wins first fixes the
+   * connection's throughput for its lifetime; with it the worker only encodes
+   * shallow queues, leaving anything deeper to overlap with the flush.
+   */
+  void SetHasDedicatedEncoder(bool has_encoder) {
+    outbound_.SetHasDedicatedEncoder(has_encoder);
+  }
 
   void SetCodec(std::shared_ptr<Codec> codec) {
-    codec_ = std::move(codec);
+    pipeline_.SetCodec(std::move(codec));
   }
 
   void SetHandler(std::shared_ptr<PacketHandlerBase> handler) {
@@ -80,16 +130,15 @@ class PeerSession {
   }
 
   /**
-   * @brief Registers a callback the transport fires when an idle session is
-   *        sent to, so the owning worker flushes without waiting out its tick.
+   * @brief Registers a callback fired when an idle session is sent to, so the
+   *        owning worker encodes without waiting out its tick.
    *
-   * Set by the server when it hands the session to a worker. A session driven
-   * directly, as a client's is, needs none.
+   * Set by the server before it hands the session to the application, and never
+   * replaced, so SendPacket() can read it without synchronizing. A session
+   * driven directly, as a client's is, needs none.
    */
   void SetWakeCallback(std::function<void()> wake) {
-    if (transport_layer_) {
-      transport_layer_->SetWakeCallback(std::move(wake));
-    }
+    outbound_.SetWakeCallback(std::move(wake));
   }
 
   /**
@@ -140,11 +189,11 @@ class PeerSession {
   }
 
   ZNET_NODISCARD CompressionType out_compression_type() const {
-    return out_compression_type_;
+    return pipeline_.out_compression();
   }
 
   void SetOutCompression(CompressionType type) {
-    out_compression_type_ = type;
+    pipeline_.SetOutCompression(type);
     ZNET_LOG_INFO("Set out compression to {} for {}", GetCompressionTypeName(type), id_);
   }
 
@@ -175,6 +224,7 @@ class PeerSession {
     if (transport_layer_) {
       transport_layer_->FillMetrics(out);
     }
+    out.common.outbound_queued = static_cast<uint32_t>(outbound_.size());
     return out;
 #else
     return {};
@@ -185,6 +235,16 @@ class PeerSession {
   friend class EncryptionLayer;
 
   void Ready();
+
+  /**
+   * @brief Encodes and sends a packet on the spot, skipping the queue.
+   *
+   * For the handshake, from the worker only. SendReady() settles
+   * `enable_encryption_` immediately before sending, and one Process() call
+   * dispatches a whole batch, so a queued handshake packet could go out
+   * encrypted under a key the peer has not derived yet.
+   */
+  bool SendImmediate(std::shared_ptr<Packet> packet, SendOptions options = {});
 
   // the compression both directions will use. On an accepting session this is
   // the configured option; on an initiating one it is whatever the server
@@ -207,6 +267,18 @@ class PeerSession {
   // session under load cannot monopolize the worker it shares with others.
   static constexpr uint32_t kMaxReceivesPerProcess = 256;
 
+
+
+ private:
+  /**
+   * @brief The whole send pipeline: serialize, compress, encrypt, transport.
+   *
+   * Runs under the encode claim, which is what lets the codec, the compression
+   * type and the cipher state stay unguarded.
+   */
+  bool EncodeAndSend(const std::shared_ptr<Packet>& packet, SendOptions options);
+
+ protected:
   SessionId id_;
   std::shared_ptr<InetAddress> local_address_;
   PortNumber local_port_;
@@ -214,20 +286,28 @@ class PeerSession {
   PortNumber remote_port_;
   ConnectionType connection_type_;
 
-  std::shared_ptr<Codec> codec_;
   std::shared_ptr<PacketHandlerBase> handler_;
   std::unique_ptr<TransportLayer> transport_layer_;
+  // must stay above encryption_layer_, whose constructor installs the handshake
+  // codec through the session and so needs the pipeline already built. the
+  // reference it binds is not dereferenced until Encode/Decode.
+  MessagePipeline pipeline_;
   EncryptionLayer encryption_layer_;
   SessionOptions options_;
   CompressionType negotiated_compression_ = CompressionType::None;
-  CompressionType out_compression_type_ = CompressionType::None;
   bool is_initiator_;
-  bool is_ready_ = false;
+  // published with release once the handshake settles, so a sender that reads
+  // it sees the codec and keys the worker wrote beforehand. See IsReady().
+  std::atomic_bool is_ready_{false};
   std::chrono::steady_clock::time_point connect_time_;
   std::chrono::steady_clock::time_point expire_at_;
   bool has_expiry_ = false;
   std::shared_ptr<void> user_ptr_;
   Task task_;
+
+  // the thread boundary on the send path: the queue, the encode claim and the
+  // rule for who takes it
+  OutboundQueue outbound_;
 #if ZNET_ENABLE_METRICS
   // touched only by the thread that drives this session
   SessionMetrics metrics_;

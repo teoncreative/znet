@@ -8,10 +8,6 @@
 //        http://www.apache.org/licenses/LICENSE-2.0
 //
 
-//
-// Created by Metehan Gezer on 06/08/2025.
-//
-
 #include "znet/backends/tcp.h"
 #include "znet/transport.h"
 #include "znet/error.h"
@@ -20,6 +16,20 @@
 namespace znet {
 namespace backends {
 
+namespace {
+
+/** @brief Whether the last send() failed only because the buffer was full. */
+inline bool WouldBlockOnSend() {
+#ifdef TARGET_WIN
+  // Windows reports through WSAGetLastError(); send() leaves errno untouched
+  const int err = WSAGetLastError();
+  return err == WSAEWOULDBLOCK || err == WSAENOBUFS;
+#else
+  return errno == EWOULDBLOCK || errno == EAGAIN || errno == ENOBUFS;
+#endif
+}
+
+}  // namespace
 
 TCPTransportLayer::TCPTransportLayer(SocketHandle socket) : socket_(socket) {
 }
@@ -46,10 +56,6 @@ std::shared_ptr<Buffer> TCPTransportLayer::Receive() {
 #endif
                     0);
 
-  //if (data_size_ != -1 || (errno != EWOULDBLOCK && errno != EAGAIN)) {
-  //  ZNET_LOG_DEBUG("recv: socket={}, data_size={}, errno={}", socket_, data_size_, errno);
-  //}
-
   if (data_size_ > ZNET_MAX_BUFFER_SIZE) {
     Close();
     ZNET_LOG_ERROR(
@@ -74,7 +80,7 @@ std::shared_ptr<Buffer> TCPTransportLayer::Receive() {
   }
 
   if (data_size_ == -1) {
-#ifdef WIN32
+#ifdef TARGET_WIN
     int err = WSAGetLastError();
     if (err == WSAEWOULDBLOCK) {
       return nullptr; // no data received
@@ -94,7 +100,7 @@ std::shared_ptr<Buffer> TCPTransportLayer::Receive() {
       return nullptr;
     }
 #endif
-    ZNET_LOG_ERROR("Closing connection due to an error: ", GetLastErrorInfo());
+    ZNET_LOG_ERROR("Closing connection due to an error: {}", GetLastErrorInfo());
     Close();
   }
   return nullptr;
@@ -116,9 +122,8 @@ std::shared_ptr<Buffer> TCPTransportLayer::ReadBuffer() {
     read_offset_ = 0;
     return nullptr;
   }
-  // A read can end anywhere in the stream, so either the length prefix or the
-  // body may still be in flight. Both cases stash the tail and wait, they are
-  // not framing errors.
+  // a read can end anywhere, so either the prefix or the body may still be in
+  // flight. neither is a framing error: stash the tail and wait.
   if (error == BufferError::ReadOutOfBounds || buffer_->readable_bytes() < size) {
     buffer_->set_read_cursor(cursor);
     size_t carry = buffer_->readable_bytes();
@@ -141,15 +146,20 @@ std::shared_ptr<Buffer> TCPTransportLayer::ReadBuffer() {
   return std::make_shared<Buffer>(data_ptr, size);
 }
 
-bool TCPTransportLayer::SendInternal(std::shared_ptr<Buffer> buffer, SendOptions options) {
-  (void)options; // shutup compiler
-  // send() may accept only part of the frame once the socket buffer fills, and
+bool TCPTransportLayer::WriteAll(Buffer& buffer) {
   // a length-prefixed stream cannot survive a dropped tail: the peer would read
-  // the next frame's bytes as this one's body. Loop until it is all gone.
-  const char* data = buffer->data();
-  size_t remaining = buffer->size();
+  // the next frame's bytes as this one's body, so a short send is retried
+  // rather than reported.
+  const char* data = buffer.data();
+  size_t remaining = buffer.size();
   size_t offset = 0;
   while (remaining > 0) {
+    // the application closes from its own thread, so the connection can die
+    // mid-frame. Send()'s check on the way in is not enough against a peer that
+    // stopped reading, since this loop would spin without ever noticing.
+    if (IsClosed()) {
+      return false;
+    }
 #ifdef TARGET_WIN
     int written = send(socket_, data + offset, static_cast<int>(remaining), 0);
 #else
@@ -160,18 +170,19 @@ bool TCPTransportLayer::SendInternal(std::shared_ptr<Buffer> buffer, SendOptions
       remaining -= static_cast<size_t>(written);
       continue;
     }
-    if (written < 0 && (errno == EWOULDBLOCK || errno == EAGAIN)) {
+    if (written < 0 && WouldBlockOnSend()) {
       continue;  // socket buffer is full, spin until it drains
     }
     ZNET_LOG_ERROR("Error sending packet to the server: {}", GetLastErrorInfo());
     return false;
   }
   ZNET_METRIC(metrics_.tcp.writes++);
-  ZNET_METRIC(metrics_.common.wire_bytes_sent += buffer->size());
+  ZNET_METRIC(metrics_.common.wire_bytes_sent += buffer.size());
   return true;
 }
 
 bool TCPTransportLayer::Send(std::shared_ptr<Buffer> buffer, SendOptions options) {
+  (void)options;  // TCP has one stream: no channels, no ordering to choose
   if (IsClosed()) {
     ZNET_LOG_WARN("Tried to send a packet to a closed connection, dropping packet!");
     return false;
@@ -179,58 +190,42 @@ bool TCPTransportLayer::Send(std::shared_ptr<Buffer> buffer, SendOptions options
 
   const size_t header = 48; // usually smaller than this
   const size_t limit = ZNET_MAX_BUFFER_SIZE - header;
-  size_t new_size = buffer->size() + sizeof(size_t);
+  // the message starts at the read cursor: the send pipeline reserves headroom
+  const size_t payload_size = buffer->readable_bytes();
+  size_t new_size = payload_size + sizeof(size_t);
   // intentionally >= limit, not > limit
   if (new_size >= limit) {
-    // Due to the nature of how we read packets, we cannot receive packets
-    // bigger than a frame (MAX_BUFFER_SIZE - HEADER_SIZE).
+    // ReadBuffer() reassembles within one frame buffer, so anything this large
+    // could be sent but never read back
     ZNET_LOG_ERROR("Tried to send buffer size {} but the limit is {}, dropping packet!",
                    new_size, limit);
     return false;
   }
 
-  auto new_buffer = std::make_shared<Buffer>();
-  new_buffer->ReserveExact(new_size);
-  new_buffer->WriteVarInt<size_t>(buffer->size());
-  new_buffer->Write(buffer->data() + buffer->read_cursor(), buffer->size());
-
-  {
-    std::lock_guard<std::mutex> lock(outbound_mutex_);
-    outbound_.push_back(QueuedPacket{new_buffer, options});
+  // straight to the socket: the session already queued on the caller's behalf,
+  // so there is nothing left to hand off
+  Buffer framed;
+  framed.ReserveExact(new_size);
+  framed.WriteVarInt<size_t>(payload_size);
+  framed.Write(buffer->read_cursor_data(), payload_size);
+  if (!WriteAll(framed)) {
+    ZNET_LOG_ERROR("TCPTransport::WriteAll failed, socket={}", socket_);
+    return false;
   }
   return true;
 }
 
-void TCPTransportLayer::Flush() {
-  std::deque<QueuedPacket> pending;
-  {
-    std::lock_guard<std::mutex> lock(outbound_mutex_);
-    pending.swap(outbound_);
-  }
-  while (!pending.empty()) {
-    QueuedPacket& queued = pending.front();
-    if (!SendInternal(queued.buffer, queued.options)) {
-      ZNET_LOG_ERROR("TCPTransport::SendInternal failed, socket={}", socket_);
-    }
-    pending.pop_front();
-  }
-}
+// nothing to do either way: Send() writes straight to the socket, and the
+// kernel owns retransmit and pacing.
+void TCPTransportLayer::Flush() {}
 
-// TCP has no per-tick protocol work of its own, the kernel owns retransmit and
-// pacing, so a tick is just a flush.
-void TCPTransportLayer::Update() {
-  Flush();
-}
+void TCPTransportLayer::Update() {}
 
 void TCPTransportLayer::FillMetrics(SessionMetrics& out) const {
 #if ZNET_ENABLE_METRICS
   out.tcp = metrics_.tcp;
   out.common.wire_bytes_sent = metrics_.common.wire_bytes_sent;
   out.common.wire_bytes_received = metrics_.common.wire_bytes_received;
-  {
-    std::lock_guard<std::mutex> lock(outbound_mutex_);
-    out.common.outbound_queued = static_cast<uint32_t>(outbound_.size());
-  }
 #else
   (void)out;
 #endif
@@ -244,11 +239,10 @@ Result TCPTransportLayer::Close(CloseOptions options) {
     linger l; l.l_onoff = 1; l.l_linger = 0;
     setsockopt(socket_, SOL_SOCKET, SO_LINGER, reinterpret_cast<const char*>(&l), sizeof(l));
   }
-  // shut down but leave the descriptor open. The application closes from its
-  // own thread while the worker may be inside recv() on this socket, and
-  // close() would return the descriptor number to the OS, letting the next
-  // socket or file opened anywhere in the process reuse it while that recv is
-  // still running on it. The destructor releases it instead.
+  // shut down but leave the descriptor open. the application closes from its
+  // own thread while a worker may be inside recv() here, and close() would free
+  // the number for anything in the process to reuse mid-recv. the destructor
+  // releases it instead, once no worker can still be in there.
   ShutdownSocket(socket_);
   return Result::Success;
 }
@@ -357,9 +351,8 @@ Result TCPClientBackend::Connect() {
       std::make_shared<PeerSession>(local_address_, server_address_,
                                     std::make_unique<TCPTransportLayer>(client_socket_), ConnectionType::TCP, true,
                                     /*self_managed=*/false, options_);
-  // the transport owns the descriptor now and closes it when destroyed.
-  // Dropping our copy keeps CleanupSocket() from closing it a second time,
-  // which would hit whatever reused that number since.
+  // the transport owns the descriptor now, so dropping our copy keeps
+  // CleanupSocket() from closing whatever later reused that number
   client_socket_ = INVALID_SOCKET;
   return Result::Success;
 }
@@ -437,7 +430,7 @@ Result TCPServerBackend::Bind() {
                    GetLastErrorInfo());
     return Result::CannotBind;
   }
-  // Get the bind address back so we know the actual port.
+  // read the address back, so a port of 0 resolves to what was assigned
   sockaddr_storage local_ss{};
   socklen_t local_len = sizeof(local_ss);
   if (getsockname(server_socket_, reinterpret_cast<sockaddr*>(&local_ss), &local_len) == 0) {
@@ -489,7 +482,16 @@ void TCPServerBackend::Update() {
 std::shared_ptr<PeerSession> TCPServerBackend::Accept() {
   sockaddr_storage client_address{};
   socklen_t addr_len = sizeof(client_address);
-  SocketHandle client_socket = accept(server_socket_, reinterpret_cast<sockaddr*>(&client_address), &addr_len);
+  SocketHandle client_socket;
+  {
+    // only around accept(), not the session construction below: Close() waits
+    // on this, and building a PeerSession is not something to make it wait for
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!is_listening_) {
+      return nullptr;
+    }
+    client_socket = accept(server_socket_, reinterpret_cast<sockaddr*>(&client_address), &addr_len);
+  }
   if (!IsValidSocketHandle(client_socket)) {
     return nullptr;
   }
@@ -513,6 +515,10 @@ std::shared_ptr<PeerSession> TCPServerBackend::Accept() {
 void TCPServerBackend::AcceptAndReject() {
   sockaddr_storage client_address{};
   socklen_t addr_len = sizeof(client_address);
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (!is_listening_) {
+    return;
+  }
   SocketHandle client_socket = accept(server_socket_, reinterpret_cast<sockaddr*>(&client_address), &addr_len);
   CloseSocket(client_socket);
 }

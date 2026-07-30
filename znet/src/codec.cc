@@ -12,16 +12,11 @@
 
 namespace znet {
 
-Codec::Codec() {
-
-}
-
 void Codec::Deserialize(std::shared_ptr<Buffer> buffer, PacketHandlerBase& handler) {
   while (buffer->readable_bytes() > 0) {
     auto packet_id = buffer->ReadVarInt<PacketId>();
     auto size = buffer->ReadInt<size_t>();
     BufferError error = buffer->GetAndClearLastError();
-    //ZNET_LOG_DEBUG("Codec::Deserialize packet_id={}, size={}, error={}", packet_id, size, static_cast<int>(error));
     if (error != BufferError::None) {
       ZNET_LOG_DEBUG("Reading packet header failed, dropping buffer!");
       break;
@@ -33,18 +28,17 @@ void Codec::Deserialize(std::shared_ptr<Buffer> buffer, PacketHandlerBase& handl
       buffer->SkipRead(size);
       continue;
     }
-    // Set a read limit so the serializer cannot accidentally read more
-    // than it should
+    // fences the serializer inside its own frame, so a malformed one cannot
+    // read into the next packet
     buffer->SetReadLimit(read_cursor + size);
     PacketSerializerBase& serializer = *it->second;
     std::shared_ptr<Packet> pk = serializer.Deserialize(buffer);
     if (!pk) {
       ZNET_LOG_WARN("Packet {} was not deserialized!", packet_id);
-      // We go back to the start, in case it was partially read
+      // it may have read part of the frame, so rewind and skip the whole
+      // declared length to land on the next one
       buffer->set_read_cursor(read_cursor);
-      // Then skip the number of bytes given
       buffer->SkipRead(size);
-      // Disable the read limit
       buffer->SetReadLimit(0);
       continue;
     }
@@ -58,17 +52,18 @@ void Codec::Deserialize(std::shared_ptr<Buffer> buffer, PacketHandlerBase& handl
     } else if (read_bytes > size) {
       ZNET_LOG_WARN("Packet {} size mismatch! Expected {}, read {}. This will drop the packet and rest of the buffer.",
                     packet_id, size, read_bytes);
-      // TODO: Perhaps add an option to dump the buffer when this happens. This might be malicious attempt.
-      // Unlike the other mismatch, we don't need to reset the cursor or anything like that since the buffer will be dropped.
+      // overrunning the read limit means the framing is no longer trustworthy,
+      // so nothing after this point can be located. no rewind: the buffer goes.
+      // TODO: option to dump the buffer here, this can be an attack.
       break;
     }
-    // Disable the read limit
     buffer->SetReadLimit(0);
     handler.Handle(pk);
   }
 }
 
-std::shared_ptr<Buffer> Codec::Serialize(std::shared_ptr<Packet> packet) {
+std::shared_ptr<Buffer> Codec::Serialize(std::shared_ptr<Packet> packet,
+                                         size_t headroom) {
   auto it = serializers_.find(packet->id());
   if (it == serializers_.end()) {
     ZNET_LOG_WARN("Failed to find a serializer for packet {}!", packet->id());
@@ -76,20 +71,30 @@ std::shared_ptr<Buffer> Codec::Serialize(std::shared_ptr<Packet> packet) {
   }
   PacketSerializerBase& serializer = *it->second;
   std::shared_ptr<Buffer> buffer = std::make_shared<Buffer>();
-  buffer->WriteVarInt(packet->id());
-  buffer->WriteInt<size_t>(0);
-  size_t write_cursor = buffer->write_cursor();
-  auto ptr = buffer.get();
-  buffer = serializer.Serialize(packet, buffer);
-  // Serializer can change the buffer, so we need to check if it is changed.
-  if (ptr == buffer.get()) {
-    // We do this only when the buffer is not changed
-    size_t write_cursor_end = buffer->write_cursor();
-    size_t size = write_cursor_end - write_cursor;
-    buffer->set_write_cursor(write_cursor - sizeof(size_t));
-    buffer->WriteInt(size);
-    buffer->set_write_cursor(write_cursor_end);
+  if (headroom != 0) {
+    buffer->ReserveHeadroom(headroom);
   }
+  buffer->WriteVarInt(packet->id());
+  buffer->WriteInt<size_t>(0);  // length placeholder, backfilled below
+  const size_t write_cursor = buffer->write_cursor();
+  const Buffer* framed = buffer.get();
+  std::shared_ptr<Buffer> out = serializer.Serialize(packet, buffer);
+  if (!out) {
+    ZNET_LOG_WARN("Serializer for packet {} produced nothing, dropping packet!",
+                  packet->id());
+    return nullptr;
+  }
+  // a serializer holding the bytes already, a cached encoding or a payload it
+  // is forwarding, can hand back its own buffer rather than write them through
+  // a second time. the frame header is in ours, so copy the body in behind it.
+  if (out.get() != framed) {
+    buffer->Write(out->read_cursor_data(), out->readable_bytes());
+  }
+  const size_t write_cursor_end = buffer->write_cursor();
+  const size_t size = write_cursor_end - write_cursor;
+  buffer->set_write_cursor(write_cursor - sizeof(size_t));
+  buffer->WriteInt(size);
+  buffer->set_write_cursor(write_cursor_end);
   return buffer;
 }
 

@@ -8,10 +8,6 @@
 //        http://www.apache.org/licenses/LICENSE-2.0
 //
 
-//
-// Created by Metehan Gezer on 06/08/2025.
-//
-
 #ifndef ZNET_PARENT_TCP_H
 #define ZNET_PARENT_TCP_H
 
@@ -46,12 +42,8 @@ class TCPTransportLayer : public TransportLayer {
  private:
   std::shared_ptr<Buffer> ReadBuffer();
 
-  struct QueuedPacket {
-    std::shared_ptr<Buffer> buffer;
-    SendOptions options;
-  };
-
-  bool SendInternal(std::shared_ptr<Buffer> buffer, SendOptions options);
+  /** @brief Writes a whole framed message, looping over partial sends. */
+  bool WriteAll(Buffer& buffer);
 
   char data_[ZNET_MAX_BUFFER_SIZE]{};
   ssize_t read_offset_ = 0;
@@ -61,11 +53,6 @@ class TCPTransportLayer : public TransportLayer {
   // read by IsClosed() from whichever thread owns the application, written by
   // Close() from the same, so it cannot be a plain bool
   std::atomic_bool is_closed_{false};
-  // Send() may be called from any thread, Update() only from the session's
-  // worker, so the queue itself needs a lock. It is never held across a socket
-  // write: Update() swaps the queue out and drains the copy.
-  mutable std::mutex outbound_mutex_;
-  std::deque<QueuedPacket> outbound_;
 #if ZNET_ENABLE_METRICS
   SessionMetrics metrics_;
 #endif
@@ -89,8 +76,6 @@ class TCPClientBackend : public ClientBackend {
 
   bool IsAlive() override;
 
-  std::mutex& mutex() override { return mutex_; }
-
   std::shared_ptr<PeerSession> client_session() override { return client_session_; }
 
   std::shared_ptr<InetAddress> local_address() override { return local_address_; }
@@ -98,7 +83,6 @@ class TCPClientBackend : public ClientBackend {
  private:
   void CleanupSocket();
  private:
-  std::mutex mutex_;
   SessionOptions options_;
   std::shared_ptr<InetAddress> server_address_;
   std::shared_ptr<InetAddress> local_address_;
@@ -125,19 +109,19 @@ class TCPServerBackend : public ServerBackend {
 
   bool IsAlive() override;
 
-  std::mutex& mutex() override { return mutex_; }
-
   std::shared_ptr<InetAddress> bind_address() const override {
     return bind_address_;
   }
 
  private:
+  // serializes Close() against Accept(): the server's loop accepts on
+  // server_socket_ while the application may close it from its own thread, and
+  // accept() on a descriptor that has been closed and reused would hand back a
+  // connection belonging to something else.
   std::mutex mutex_;
   SessionOptions child_options_;
   std::shared_ptr<InetAddress> bind_address_;
-  // IsAlive() reads these from the main loop while Close() writes them from
-  // whichever thread stops the server, and that read is outside mutex_, which
-  // the main loop holds across a whole tick
+  // read by IsAlive() outside mutex_, so they cannot be plain bools
   std::atomic_bool is_bind_{false};
   std::atomic_bool is_listening_{false};
   SocketHandle server_socket_ = kSocketInvalid;

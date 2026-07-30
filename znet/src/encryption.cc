@@ -346,9 +346,9 @@ EncryptionLayer::~EncryptionLayer() {
     EVP_CIPHER_CTX_free(dec_ctx_);
     dec_ctx_ = nullptr;
   }
-  // both of these were leaked once per session. they are key material, so they
-  // are wiped rather than just released: a plain delete[] leaves the session
-  // key sitting in freed heap for whatever allocates that block next.
+  // key material, so it is wiped rather than just released: a plain delete[]
+  // leaves the session key sitting in freed heap for whatever allocates that
+  // block next.
   if (key_) {
     OPENSSL_cleanse(key_, key_len_);
     delete[] key_;
@@ -371,7 +371,6 @@ std::shared_ptr<Buffer> EncryptionLayer::HandleDecrypt(
     ZNET_LOG_ERROR("Encryption mode {} is not known/supported!", mode);
     return nullptr;
   }
-  // both of these used to be raw new and never freed, once per inbound message
   unsigned char iv[16];
   if (buffer->readable_bytes() < sizeof(iv)) {
     // Read() would leave iv untouched and only set an error flag, and the
@@ -413,16 +412,16 @@ std::shared_ptr<Buffer> EncryptionLayer::HandleIn(
 
 std::shared_ptr<Buffer> EncryptionLayer::HandleOut(
     std::shared_ptr<Buffer> buffer) {
-  if (buffer->size() > static_cast<size_t>(std::numeric_limits<int>::max())) {
+  // the message starts at the read cursor, not at zero: the send pipeline
+  // reserves headroom for the byte prepended below
+  if (buffer->readable_bytes() >
+      static_cast<size_t>(std::numeric_limits<int>::max())) {
     ZNET_LOG_ERROR("Buffer length is too large");
     return nullptr;
-    }
-  int buffer_len = static_cast<int>(buffer->size());
+  }
+  int buffer_len = static_cast<int>(buffer->readable_bytes());
   std::shared_ptr<Buffer> new_buffer = std::make_shared<Buffer>();
   if (enable_encryption_) {
-    // owned, not raw new: the three buffers here used to be leaked on every
-    // single outgoing message, and so was the plaintext of the round-trip
-    // check below.
     std::vector<unsigned char> ciphertext(
         static_cast<size_t>(CalculateCipherTextLength(buffer_len)));
     unsigned char iv[16];
@@ -441,7 +440,8 @@ std::shared_ptr<Buffer> EncryptionLayer::HandleOut(
       const bool set_key = !cipher_keyed_;
       ciphertext_len =
           EncryptData(enc_ctx_, set_key,
-                      reinterpret_cast<const unsigned char*>(buffer->data()),
+                      reinterpret_cast<const unsigned char*>(
+                          buffer->read_cursor_data()),
                       buffer_len, key_, iv, ciphertext.data());
       if (ciphertext_len > 0) {
         cipher_keyed_ = true;
@@ -458,15 +458,18 @@ std::shared_ptr<Buffer> EncryptionLayer::HandleOut(
     new_buffer->Write(ciphertext.data(), static_cast<size_t>(ciphertext_len));
     return new_buffer;
   }
+  // in place when there is headroom left, otherwise a fresh buffer
+  if (buffer->PrependInt8(0)) {  // no encryption
+    return buffer;
+  }
   new_buffer->ReserveExact(static_cast<size_t>(buffer_len) + 2);
   new_buffer->WriteInt<uint8_t>(0);  // no encryption
-  new_buffer->Write(buffer->data(), static_cast<size_t>(buffer_len));
+  new_buffer->Write(buffer->read_cursor_data(), static_cast<size_t>(buffer_len));
   return new_buffer;
 }
 
 void EncryptionLayer::OnHandshakePacket(
     std::shared_ptr<HandshakePacket> packet) {
-  //ZNET_LOG_DEBUG("OnHandshakePacket: initiator={}, has_peer_key={}, key_filled={}, sent_handshake={}", session_.is_initiator(), (bool)peer_pkey_, key_filled_, sent_handshake_);
   if (peer_pkey_ || key_filled_) {
     ZNET_LOG_ERROR("Received handshake packet twice, closing the connection!");
     session_.Close();
@@ -577,7 +580,7 @@ void EncryptionLayer::SendHandshake() {
   packet->encryption_ = want_encryption_;
   packet->compression_ =
       GetCompressionTypeRaw(session_.negotiated_compression());
-  session_.SendPacket(packet);
+  session_.SendImmediate(packet);
   sent_handshake_ = true;
 }
 
@@ -586,7 +589,7 @@ void EncryptionLayer::SendReady() {
   enable_encryption_ = key_filled_;
   auto packet = std::make_shared<ConnectionReadyPacket>();
   packet->magic_ = "343693b5-2b04-4d56-a3b5-48582ca37c7d";
-  session_.SendPacket(packet);
+  session_.SendImmediate(packet);
   sent_ready_ = true;
 }
 

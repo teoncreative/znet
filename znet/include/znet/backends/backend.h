@@ -8,10 +8,6 @@
 //        http://www.apache.org/licenses/LICENSE-2.0
 //
 
-//
-// Created by Metehan Gezer on 06/08/2025.
-//
-
 #ifndef ZNET_PARENT_BACKEND_H
 #define ZNET_PARENT_BACKEND_H
 
@@ -37,7 +33,6 @@ class ClientBackend {
   virtual std::shared_ptr<PeerSession> client_session() = 0;
   virtual std::shared_ptr<InetAddress> local_address() = 0;
 
-  virtual std::mutex& mutex() = 0;
   /**
    * @brief Installs a callback fired when inbound data arrives.
    *
@@ -75,8 +70,6 @@ class ServerBackend {
   virtual void AcceptAndReject() = 0;
 
   virtual bool IsAlive() = 0;
-
-  virtual std::mutex& mutex() = 0;
 
   /**
    * @brief The address actually bound.

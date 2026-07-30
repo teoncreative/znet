@@ -8,10 +8,6 @@
 //        http://www.apache.org/licenses/LICENSE-2.0
 //
 
-//
-// Created by Metehan Gezer on 02/08/2025.
-//
-
 #ifndef ZNET_PARENT_PLAYER_H
 #define ZNET_PARENT_PLAYER_H
 
@@ -25,6 +21,5 @@ class Player {
   int protocol_ = 0;
   Vec3 pos_;
 };
-
 
 #endif  //ZNET_PARENT_PLAYER_H

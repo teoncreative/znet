@@ -32,9 +32,7 @@ struct WorkerSignal {
   std::mutex mutex;
   std::condition_variable cv;
   // raised by a backend's receive thread, or by Send() on an idle session, to
-  // end the tick sleep early. notifiers deliberately do not take the mutex, so
-  // a wake landing in the window between testing the predicate and sleeping is
-  // lost and costs one tick.
+  // end the tick sleep early.
   std::atomic_bool woken{false};
   // the loop's own thread, so work it queues itself raises no wake. there is
   // nothing asleep to interrupt, PeerSession::Process already flushes replies,
@@ -42,25 +40,15 @@ struct WorkerSignal {
   // as the session had traffic.
   std::atomic<std::thread::id> owner{};
 
-  /** @brief Ends the sleep unless called from the loop's own thread. */
-  void Raise() {
-    if (std::this_thread::get_id() == owner.load(std::memory_order_relaxed)) {
-      return;
-    }
-    woken.store(true, std::memory_order_relaxed);
-    cv.notify_one();
-  }
-
   /**
-   * @brief Raise() that cannot lose the wake, for loops whose mutex guards
-   *        nothing but this.
+   * @brief Ends the sleep unless called from the loop's own thread.
    *
-   * Taking the mutex orders the flag against the sleeper testing it, closing
-   * the window Raise() leaves open. Only usable where the loop releases the
-   * mutex while it works: a loop that holds it across processing would block
-   * the caller for a whole tick instead.
+   * The flag is set under the mutex so it cannot be missed by a sleeper
+   * between testing the predicate and waiting. That obliges every loop using
+   * this to release the mutex while it works. One holding it across
+   * processing would block its notifiers for a whole tick.
    */
-  void RaiseSynchronized() {
+  void Raise() {
     if (std::this_thread::get_id() == owner.load(std::memory_order_relaxed)) {
       return;
     }

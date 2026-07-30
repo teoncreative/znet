@@ -19,13 +19,25 @@
 
 namespace znet {
 
+/**
+ * @brief Moves encoded bytes between a session and the wire.
+ *
+ * @par Threading
+ * Every method belongs to the worker driving the owning session's Process(), so
+ * a transport needs no locking of its own. The exceptions are Close(), callable
+ * from the application's thread, and ZDT's OnDatagram(), called by its receive
+ * thread; both say so at their declarations.
+ */
 class TransportLayer {
  public:
   virtual ~TransportLayer() = default;
 
   virtual std::shared_ptr<Buffer> Receive() = 0;
+
+  /** @brief Hands one encoded message to the transport. Worker thread only. */
   virtual bool Send(std::shared_ptr<Buffer> buffer, SendOptions options = {}) = 0;
 
+  /** @brief Shuts the transport down. Callable from any thread. */
   virtual Result Close(CloseOptions options = {}) = 0;
 
   virtual bool IsClosed() = 0;
@@ -50,28 +62,6 @@ class TransportLayer {
    * @param out Destination, which the caller may have pre-filled.
    */
   virtual void FillMetrics(SessionMetrics& out) const { (void)out; }
-
-  /**
-   * @brief Registers a callback that ends the owning worker's tick sleep.
-   *
-   * Send() only queues, and the worker is what puts bytes on the wire, so
-   * without this an outbound message on an otherwise idle session waits for
-   * the next tick. Set once when the session is handed to a worker and never
-   * replaced, so it needs no synchronisation; the callback owns whatever it
-   * signals, so it stays valid after the server is gone.
-   */
-  void SetWakeCallback(std::function<void()> wake) { wake_ = std::move(wake); }
-
- protected:
-  /** @brief Called when a Send() finds the outbound queue empty. */
-  void WakeWorker() const {
-    if (wake_) {
-      wake_();
-    }
-  }
-
- private:
-  std::function<void()> wake_;
 };
 
 }

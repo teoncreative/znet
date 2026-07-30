@@ -12,7 +12,7 @@
 // A minimal std::format stand-in for pre-C++20 builds.
 //
 // This is only ever reached by the logging macros, and only when neither
-// <format> nor fmtlib is available, so it optimises for having no dependency
+// <format> nor fmtlib is available, so it optimizes for having no dependency
 // rather than for speed. It understands `{}`, the `{{`/`}}` escapes, and it
 // tolerates (by ignoring) a format spec such as `{:.2f}` so that a call site
 // written for std::format still produces readable output here instead of
