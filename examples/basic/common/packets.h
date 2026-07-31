@@ -14,13 +14,13 @@
 
 using namespace znet;
 
-enum PacketType {
-  PACKET_DEMO
+enum PacketType : PacketId {
+  kPacketDemo
 };
 
 class DemoPacket : public Packet {
  public:
-  DemoPacket() : Packet(PACKET_DEMO) { }
+  DemoPacket() : Packet(kPacketDemo) { }
 
   std::string text;
 };

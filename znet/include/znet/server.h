@@ -26,7 +26,7 @@ struct ServerConfig {
   std::string bind_ip;
   PortNumber bind_port;
   std::chrono::steady_clock::duration connection_timeout;
-  ConnectionType connection_type = ConnectionType::TCP;
+  ConnectionType connection_type = ConnectionType::ZDT;
   ServerOptions options;         // the listener itself
   SessionOptions child_options;  // every session the listener accepts
 };

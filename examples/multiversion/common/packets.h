@@ -18,11 +18,11 @@
 using namespace znet;
 
 enum PacketType : PacketId {
-  PACKET_NETWORK_SETTINGS,
-  PACKET_START_GAME,
-  PACKET_CLIENT_READY,
-  PACKET_MOVE,
-  PACKET_TELEPORT,
+  kPacketNetworkSettings,
+  kPacketStartGame,
+  kPacketClientReady,
+  kPacketMove,
+  kPacketTeleport,
 
 };
 
@@ -38,7 +38,7 @@ Vec3 ReadVec3(std::shared_ptr<Buffer> buffer) {
 
 class NetworkSettingsPacket : public Packet {
  public:
-  NetworkSettingsPacket() : Packet(PACKET_NETWORK_SETTINGS) { }
+  NetworkSettingsPacket() : Packet(kPacketNetworkSettings) { }
 
   int protocol_;
 
@@ -63,7 +63,7 @@ class NetworkSettingsSerializer_v1 : public PacketSerializer<NetworkSettingsPack
 // Spawns the player
 class StartGamePacket : public Packet {
  public:
-  StartGamePacket() : Packet(PACKET_START_GAME) { }
+  StartGamePacket() : Packet(kPacketStartGame) { }
 
   std::string level_name_;
   int game_mode_;
@@ -75,7 +75,7 @@ class StartGamePacket : public Packet {
 // Moves the player by the delta amount
 class MovePacket : public Packet {
  public:
-  MovePacket() : Packet(PACKET_MOVE) { }
+  MovePacket() : Packet(kPacketMove) { }
 
   Vec3 delta;
 };
@@ -84,14 +84,14 @@ class MovePacket : public Packet {
 // Teleports the player to a position
 class TeleportPacket : public Packet {
  public:
-  TeleportPacket() : Packet(PACKET_TELEPORT) { }
+  TeleportPacket() : Packet(kPacketTeleport) { }
 
   Vec3 pos;
 };
 
 class ClientReadyPacket : public Packet {
  public:
-  ClientReadyPacket() : Packet(PACKET_CLIENT_READY) { }
+  ClientReadyPacket() : Packet(kPacketClientReady) { }
 
 };
 
@@ -168,18 +168,18 @@ struct Codecs {
 
   Codecs() {
     codec_v1 = std::make_shared<Codec>();
-    codec_v1->Add(PACKET_NETWORK_SETTINGS,
+    codec_v1->Add(kPacketNetworkSettings,
                   std::make_unique<NetworkSettingsSerializer_v1>());
-    codec_v1->Add(PACKET_START_GAME, std::make_unique<StartGameSerializer_v1>());
-    codec_v1->Add(PACKET_CLIENT_READY, std::make_unique<ClientReadySerializer_v1>());
-    codec_v1->Add(PACKET_MOVE, std::make_unique<MoveSerializer_v1>());
+    codec_v1->Add(kPacketStartGame, std::make_unique<StartGameSerializer_v1>());
+    codec_v1->Add(kPacketClientReady, std::make_unique<ClientReadySerializer_v1>());
+    codec_v1->Add(kPacketMove, std::make_unique<MoveSerializer_v1>());
 
     codec_v2 = std::make_shared<Codec>();
-    codec_v2->Add(PACKET_NETWORK_SETTINGS,
+    codec_v2->Add(kPacketNetworkSettings,
                   std::make_unique<NetworkSettingsSerializer_v1>());
-    codec_v2->Add(PACKET_START_GAME, std::make_unique<StartGameSerializer_v2>());
-    codec_v2->Add(PACKET_CLIENT_READY, std::make_unique<ClientReadySerializer_v1>());
-    codec_v2->Add(PACKET_MOVE, std::make_unique<MoveSerializer_v1>());
+    codec_v2->Add(kPacketStartGame, std::make_unique<StartGameSerializer_v2>());
+    codec_v2->Add(kPacketClientReady, std::make_unique<ClientReadySerializer_v1>());
+    codec_v2->Add(kPacketMove, std::make_unique<MoveSerializer_v1>());
 
     codec_latest = codec_v2;
   }

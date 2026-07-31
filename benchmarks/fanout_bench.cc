@@ -43,11 +43,11 @@ using namespace znet;
 
 namespace {
 
-enum FanoutPacketType { PACKET_FANOUT = 1 };
+enum FanoutPacketType : PacketId { kPacketFanout = 1 };
 
 class FanoutPacket : public Packet {
  public:
-  FanoutPacket() : Packet(PACKET_FANOUT) {}
+  FanoutPacket() : Packet(kPacketFanout) {}
   std::string payload;
   uint32_t seq = 0;
 };
@@ -71,7 +71,7 @@ class FanoutSerializer : public PacketSerializer<FanoutPacket> {
 
 std::shared_ptr<Codec> MakeCodec() {
   auto codec = std::make_shared<Codec>();
-  codec->Add(PACKET_FANOUT, std::make_unique<FanoutSerializer>());
+  codec->Add(kPacketFanout, std::make_unique<FanoutSerializer>());
   return codec;
 }
 

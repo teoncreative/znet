@@ -52,7 +52,7 @@ bool OnNewSessionEvent(IncomingClientConnectedEvent& event) {
   // In production, you'd typically share one codec instance among all clients
   // rather than creating a new one for each connection
   std::shared_ptr<Codec> codec = std::make_shared<Codec>();
-  codec->Add(PACKET_DEMO, std::make_unique<DemoSerializer>());
+  codec->Add(kPacketDemo, std::make_unique<DemoSerializer>());
   session.SetCodec(codec);
 
   // Set up the packet handler for this client

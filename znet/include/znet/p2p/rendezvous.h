@@ -32,22 +32,22 @@ namespace p2p {
 // StartPunchRequestPacket S -> C1
 // StartPunchRequestPacket S -> C2
 
-enum PacketType {
-  PACKET_IDENTIFY,
-  PACKET_SET_PEER_NAME,
-  PACKET_CONNECT_PEER,
-  PACKET_START_PUNCH_REQUEST,
+enum PacketType : PacketId {
+  kPacketIdentify,
+  kPacketSetPeerName,
+  kPacketConnectPeer,
+  kPacketStartPunchRequest,
 };
 
 class IdentifyPacket : public Packet {
  public:
-  IdentifyPacket() : Packet(PACKET_IDENTIFY) {}
+  IdentifyPacket() : Packet(kPacketIdentify) {}
 
 };
 
 class SetPeerNamePacket : public Packet {
  public:
-  SetPeerNamePacket() : Packet(PACKET_SET_PEER_NAME) {}
+  SetPeerNamePacket() : Packet(kPacketSetPeerName) {}
 
   std::string peer_name_;
   std::shared_ptr<InetAddress> endpoint_;
@@ -55,14 +55,14 @@ class SetPeerNamePacket : public Packet {
 
 class ConnectPeerPacket : public Packet {
  public:
-  ConnectPeerPacket() : Packet(PACKET_CONNECT_PEER) {}
+  ConnectPeerPacket() : Packet(kPacketConnectPeer) {}
 
   std::string target_peer_;
 };
 
 class StartPunchRequestPacket : public Packet {
  public:
-  StartPunchRequestPacket() : Packet(PACKET_START_PUNCH_REQUEST) {}
+  StartPunchRequestPacket() : Packet(kPacketStartPunchRequest) {}
 
   std::string target_peer_;
   std::shared_ptr<InetAddress> bind_endpoint_;
@@ -149,10 +149,10 @@ class StartPunchRequestSerializer : public PacketSerializer<StartPunchRequestPac
 
 inline std::shared_ptr<Codec> BuildCodec() {
   std::shared_ptr<znet::Codec> codec = std::make_shared<znet::Codec>();
-  codec->Add(PACKET_IDENTIFY, std::make_unique<IdentifySerializer>());
-  codec->Add(PACKET_SET_PEER_NAME, std::make_unique<SetPeerNameSerializer>());
-  codec->Add(PACKET_CONNECT_PEER, std::make_unique<ConnectPeerSerializer>());
-  codec->Add(PACKET_START_PUNCH_REQUEST, std::make_unique<StartPunchRequestSerializer>());
+  codec->Add(kPacketIdentify, std::make_unique<IdentifySerializer>());
+  codec->Add(kPacketSetPeerName, std::make_unique<SetPeerNameSerializer>());
+  codec->Add(kPacketConnectPeer, std::make_unique<ConnectPeerSerializer>());
+  codec->Add(kPacketStartPunchRequest, std::make_unique<StartPunchRequestSerializer>());
   return codec;
 }
 

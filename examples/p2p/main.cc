@@ -28,21 +28,21 @@ static uint64_t NowMicros() {
 }
 
 // Basic setup; locator logic starts below.
-enum PacketType {
-  PACKET_PING,
-  PACKET_PONG,
+enum PacketType : PacketId {
+  kPacketPing,
+  kPacketPong,
 };
 
 class PingPacket : public Packet {
  public:
-  PingPacket() : Packet(PACKET_PING) { }
+  PingPacket() : Packet(kPacketPing) { }
 
   uint64_t time;
 };
 
 class PongPacket : public Packet {
  public:
-  PongPacket() : Packet(PACKET_PONG) { }
+  PongPacket() : Packet(kPacketPong) { }
 
   uint64_t time;
 };
@@ -122,8 +122,8 @@ bool OnConnect(p2p::PeerConnectedEvent& event) {
   ZNET_LOG_INFO("Connected to peer! punch_id: {}", event.punch_id());
 
   std::shared_ptr<Codec> codec = std::make_shared<Codec>();
-  codec->Add(PACKET_PING, std::make_unique<PingSerializer>());
-  codec->Add(PACKET_PONG, std::make_unique<PongSerializer>());
+  codec->Add(kPacketPing, std::make_unique<PingSerializer>());
+  codec->Add(kPacketPong, std::make_unique<PongSerializer>());
   session_->SetCodec(codec);
 
   session_->SetHandler(std::make_shared<MyPacketHandler>(session_));

@@ -37,11 +37,11 @@ using namespace znet::backends;
 
 // A minimal application packet (mirrors examples/basic) used to prove the whole
 // pipeline (codec + encryption + compression + ZDT reliability) over UDP.
-enum ZDTTestPacketType { PACKET_DEMO };
+enum ZDTTestPacketType { kPacketDemo };
 
 class DemoPacket : public Packet {
  public:
-  DemoPacket() : Packet(PACKET_DEMO) {}
+  DemoPacket() : Packet(kPacketDemo) {}
   std::string text;
 };
 
@@ -991,7 +991,7 @@ TEST(ZDTMetrics, CountsRealTraffic) {
     dispatcher.Dispatch<IncomingClientConnectedEvent>(
         [&](IncomingClientConnectedEvent& ev) {
           auto codec = std::make_shared<Codec>();
-          codec->Add(PACKET_DEMO, std::make_unique<DemoSerializer>());
+          codec->Add(kPacketDemo, std::make_unique<DemoSerializer>());
           ev.session()->SetCodec(codec);
           ev.session()->SetHandler(
               std::make_shared<ServerEchoHandler>(ev.session()));
@@ -1011,7 +1011,7 @@ TEST(ZDTMetrics, CountsRealTraffic) {
     dispatcher.Dispatch<ClientConnectedToServerEvent>(
         [&](ClientConnectedToServerEvent& ev) {
           auto codec = std::make_shared<Codec>();
-          codec->Add(PACKET_DEMO, std::make_unique<DemoSerializer>());
+          codec->Add(kPacketDemo, std::make_unique<DemoSerializer>());
           ev.session()->SetCodec(codec);
           ev.session()->SetHandler(std::make_shared<ClientReplyHandler>(&state));
           client_session = ev.session();
@@ -1066,7 +1066,7 @@ TEST(ZDTMetrics, TCPUsesTheSameShape) {
     dispatcher.Dispatch<IncomingClientConnectedEvent>(
         [&](IncomingClientConnectedEvent& ev) {
           auto codec = std::make_shared<Codec>();
-          codec->Add(PACKET_DEMO, std::make_unique<DemoSerializer>());
+          codec->Add(kPacketDemo, std::make_unique<DemoSerializer>());
           ev.session()->SetCodec(codec);
           ev.session()->SetHandler(
               std::make_shared<ServerEchoHandler>(ev.session()));
@@ -1085,7 +1085,7 @@ TEST(ZDTMetrics, TCPUsesTheSameShape) {
     dispatcher.Dispatch<ClientConnectedToServerEvent>(
         [&](ClientConnectedToServerEvent& ev) {
           auto codec = std::make_shared<Codec>();
-          codec->Add(PACKET_DEMO, std::make_unique<DemoSerializer>());
+          codec->Add(kPacketDemo, std::make_unique<DemoSerializer>());
           ev.session()->SetCodec(codec);
           ev.session()->SetHandler(std::make_shared<ClientReplyHandler>(&state));
           client_session = ev.session();
@@ -1224,7 +1224,7 @@ TEST(ZDTIntegration, AppPacketRoundTripOverUdp) {
     dispatcher.Dispatch<IncomingClientConnectedEvent>(
         [&](IncomingClientConnectedEvent& ev) {
           auto codec = std::make_shared<Codec>();
-          codec->Add(PACKET_DEMO, std::make_unique<DemoSerializer>());
+          codec->Add(kPacketDemo, std::make_unique<DemoSerializer>());
           ev.session()->SetCodec(codec);
           ev.session()->SetHandler(
               std::make_shared<ServerEchoHandler>(ev.session()));
@@ -1242,7 +1242,7 @@ TEST(ZDTIntegration, AppPacketRoundTripOverUdp) {
     dispatcher.Dispatch<ClientConnectedToServerEvent>(
         [&](ClientConnectedToServerEvent& ev) {
           auto codec = std::make_shared<Codec>();
-          codec->Add(PACKET_DEMO, std::make_unique<DemoSerializer>());
+          codec->Add(kPacketDemo, std::make_unique<DemoSerializer>());
           ev.session()->SetCodec(codec);
           ev.session()->SetHandler(
               std::make_shared<ClientReplyHandler>(&state));
@@ -2209,7 +2209,7 @@ class CollectingHandler : public PacketHandler<CollectingHandler, DemoPacket> {
 
 std::shared_ptr<Codec> MakeDemoCodec() {
   auto codec = std::make_shared<Codec>();
-  codec->Add(PACKET_DEMO, std::make_unique<DemoSerializer>());
+  codec->Add(kPacketDemo, std::make_unique<DemoSerializer>());
   return codec;
 }
 

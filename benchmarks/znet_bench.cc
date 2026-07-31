@@ -40,11 +40,11 @@ using namespace znet;
 
 namespace {
 
-enum BenchPacketType { PACKET_BENCH = 1 };
+enum BenchPacketType : PacketId { kPacketBench = 1 };
 
 class BenchPacket : public Packet {
  public:
-  BenchPacket() : Packet(PACKET_BENCH) {}
+  BenchPacket() : Packet(kPacketBench) {}
   std::string payload;
   uint32_t seq = 0;
 };
@@ -68,7 +68,7 @@ class BenchSerializer : public PacketSerializer<BenchPacket> {
 
 std::shared_ptr<Codec> MakeCodec() {
   auto codec = std::make_shared<Codec>();
-  codec->Add(PACKET_BENCH, std::make_unique<BenchSerializer>());
+  codec->Add(kPacketBench, std::make_unique<BenchSerializer>());
   return codec;
 }
 

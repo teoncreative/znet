@@ -18,6 +18,10 @@
 #include <ostream>
 #include <sstream>
 
+#ifndef TARGET_WIN
+#include <poll.h>
+#endif
+
 #define ZNET_BIND_FN(fn)                                    \
   [this](auto&&... args) -> decltype(auto) {                \
     return this->fn(std::forward<decltype(args)>(args)...); \
@@ -121,6 +125,34 @@ inline bool SetSocketBlocking(SocketHandle socket, bool blocking) {
     flags |=  O_NONBLOCK;
   }
   return fcntl(socket, F_SETFL, flags) == 0;
+#endif
+}
+
+/**
+ * @brief Waits until the socket will accept more data, or the timeout expires.
+ *
+ * poll rather than select: select's fd_set cannot hold a descriptor at or above
+ * FD_SETSIZE, which a server with a few thousand connections will reach, and
+ * FD_SET on one is undefined rather than an error.
+ *
+ * @return false only on a socket error. A timeout returns true, so the caller
+ *         re-checks its own state and decides whether to keep waiting.
+ */
+inline bool WaitUntilWritable(SocketHandle socket, int timeout_ms) {
+#ifdef TARGET_WIN
+  WSAPOLLFD fds{};
+  fds.fd = socket;
+  fds.events = POLLWRNORM;
+  return WSAPoll(&fds, 1, timeout_ms) >= 0;
+#else
+  pollfd fds{};
+  fds.fd = socket;
+  fds.events = POLLOUT;
+  int ready;
+  do {
+    ready = poll(&fds, 1, timeout_ms);
+  } while (ready < 0 && errno == EINTR);  // a signal is not a send failure
+  return ready >= 0;
 #endif
 }
 

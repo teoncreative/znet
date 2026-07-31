@@ -9,9 +9,18 @@
 //
 
 //
-// ZDT example client. Connects to the ZDT server, then sends one numbered
-// "ping" per second (reliable + ordered by default) and logs each echo. Watching
-// the numbers arrive in order demonstrates reliable delivery over UDP.
+// ZDT example client. Sends three kinds of traffic at once, each asking for the
+// delivery it actually needs, and prints the transport's own counters so the
+// difference is visible rather than asserted.
+//
+// To see it matter, impair the link first:
+//   sudo tc qdisc add dev lo root netem delay 25ms loss 5%
+//   sudo tc qdisc del dev lo root                 # to undo
+//
+// Chat arrives complete and in order. Positions show gaps, because a lost one
+// is never retransmitted. Chunks all arrive; the server counts how many landed
+// behind one already delivered, which is what asking for unordered permits but
+// does not force.
 //
 
 #include "znet/client.h"
@@ -28,42 +37,96 @@
 
 using namespace znet;
 
-// Logs each echo the server sends back.
-class ReplyHandler : public PacketHandler<ReplyHandler, DemoPacket> {
+namespace {
+
+constexpr int kPositionsPerSecond = 20;
+
+class ReplyHandler : public PacketHandler<ReplyHandler, ChatPacket> {
  public:
-  void OnPacket(std::shared_ptr<DemoPacket> packet) {
-    ZNET_LOG_INFO("[client] got {}", packet->text);
+  void OnPacket(std::shared_ptr<ChatPacket> packet) {
+    ZNET_LOG_INFO("[client] server says: {}", packet->text);
   }
 };
 
-bool OnConnected(ClientConnectedToServerEvent& event) {
-  ZNET_LOG_INFO("[client] connected to server over ZDT");
-  auto session = event.session();
+// The transport's own view of the link. cwnd well below the cap means the
+// controller is holding it there; retransmits with srtt near rtt_min means loss
+// without queueing, which is a lossy link rather than a full one.
+void LogMetrics(const std::shared_ptr<PeerSession>& session) {
+  SessionMetrics m = session->metrics();
+  if (m.transport != ConnectionType::ZDT) {
+    return;
+  }
+  ZNET_LOG_INFO(
+      "[client] srtt {}us  rtt_min {}us  cwnd {}  in_flight {}  retransmits {}  "
+      "sent {}  refused {}",
+      m.zdt.srtt_us, m.zdt.rtt_min_us, m.zdt.cwnd, m.zdt.in_flight,
+      m.zdt.retransmits, m.common.messages_sent, m.common.send_failures);
+}
 
-  auto codec = std::make_shared<Codec>();
-  codec->Add(PACKET_DEMO, std::make_unique<DemoSerializer>());
-  session->SetCodec(codec);
+void RunTraffic(std::shared_ptr<PeerSession> session) {
+  // reliable + unordered: every chunk arrives, none waits for its predecessor
+  for (int i = 0; i < kChunkCount; i++) {
+    auto chunk = std::make_shared<ChunkPacket>();
+    chunk->index = static_cast<uint32_t>(i);
+    // sized so each chunk is its own datagram rather than being coalesced with
+    // its neighbours, which is what makes a single loss visible as one late
+    // chunk instead of two
+    chunk->payload = std::string(1100, static_cast<char>('a' + (i % 26)));
+    if (!session->SendPacket(chunk, ChunkOptions())) {
+      // the queue is full, which is the only backpressure signal there is
+      ZNET_LOG_WARN("[client] send queue full, dropping chunk {}", i);
+    }
+  }
+  ZNET_LOG_INFO("[client] queued {} chunks on channel {}", kChunkCount,
+                static_cast<int>(kChunkChannel));
+
+  uint32_t tick = 0;
+  int chat_counter = 0;
+  auto next_chat = std::chrono::steady_clock::now();
+  auto next_metrics = next_chat;
+
+  while (session->IsAlive()) {
+    // unreliable + unordered: a lost sample is replaced by the next one, so
+    // retransmitting it would only add latency to fresher data
+    auto position = std::make_shared<PositionPacket>();
+    position->tick = ++tick;
+    position->x = static_cast<float>(tick);
+    position->y = static_cast<float>(tick) * 0.5f;
+    position->z = 0.0f;
+    session->SendPacket(position, PositionOptions());
+
+    const auto now = std::chrono::steady_clock::now();
+    if (now >= next_chat) {
+      // reliable + ordered: this must arrive, and in the order sent
+      auto chat = std::make_shared<ChatPacket>();
+      chat->text = "message #" + std::to_string(++chat_counter);
+      session->SendPacket(chat, ChatOptions());
+      ZNET_LOG_INFO("[client] sent {}", chat->text);
+      next_chat = now + std::chrono::seconds(1);
+    }
+    if (now >= next_metrics) {
+      LogMetrics(session);
+      next_metrics = now + std::chrono::seconds(5);
+    }
+
+    std::this_thread::sleep_for(
+        std::chrono::milliseconds(1000 / kPositionsPerSecond));
+  }
+}
+
+bool OnConnected(ClientConnectedToServerEvent& event) {
+  ZNET_LOG_INFO("[client] connected over ZDT");
+  auto session = event.session();
+  session->SetCodec(MakeCodec());
   session->SetHandler(std::make_shared<ReplyHandler>());
 
-  // Paced sender: one numbered packet per second while the session is alive.
-  // Capturing `session` keeps it alive for the thread's lifetime.
-  std::thread([session]() {
-    int counter = 0;
-    while (session->IsAlive()) {
-      auto packet = std::make_shared<DemoPacket>();
-      packet->text = "ping #" + std::to_string(++counter);
-      if (!session->SendPacket(packet)) {
-        break;
-      }
-      ZNET_LOG_INFO("[client] sent {}", packet->text);
-      std::this_thread::sleep_for(std::chrono::seconds(1));
-    }
-  }).detach();
+  // capturing the session keeps it alive for as long as the thread runs
+  std::thread([session]() { RunTraffic(session); }).detach();
   return false;
 }
 
 bool OnDisconnected(ClientDisconnectedFromServerEvent&) {
-  ZNET_LOG_INFO("[client] disconnected from server");
+  ZNET_LOG_INFO("[client] disconnected");
   return false;
 }
 
@@ -75,6 +138,8 @@ void OnEvent(Event& event) {
       ZNET_BIND_GLOBAL_FN(OnDisconnected));
 }
 
+}  // namespace
+
 int main() {
   Result result;
   if ((result = znet::Init()) != Result::Success) {
@@ -82,6 +147,7 @@ int main() {
     return 1;
   }
 
+  // ZDT is the default; named here because this example is about it
   ClientConfig config{"127.0.0.1", 25000, std::chrono::seconds(10),
                       ConnectionType::ZDT};
   Client client{config};

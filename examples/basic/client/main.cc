@@ -52,7 +52,7 @@ bool OnConnectEvent(ClientConnectedToServerEvent& event) {
   // between clients, but for this example we create it per-connection
 
   std::shared_ptr<Codec> codec = std::make_shared<Codec>();
-  codec->Add(PACKET_DEMO, std::make_unique<DemoSerializer>());
+  codec->Add(kPacketDemo, std::make_unique<DemoSerializer>());
   session.SetCodec(codec);
 
   // Set up how packets will be processed
