@@ -29,6 +29,10 @@ inline bool WouldBlockOnSend() {
 #endif
 }
 
+// how long one wait for socket room lasts before the send loop rechecks whether
+// the session was closed underneath it
+constexpr int kSendStallWaitMs = 50;
+
 }  // namespace
 
 TCPTransportLayer::TCPTransportLayer(SocketHandle socket) : socket_(socket) {
@@ -171,7 +175,12 @@ bool TCPTransportLayer::WriteAll(Buffer& buffer) {
       continue;
     }
     if (written < 0 && WouldBlockOnSend()) {
-      continue;  // socket buffer is full, spin until it drains
+      if (!WaitUntilWritable(socket_, kSendStallWaitMs)) {
+        ZNET_LOG_ERROR("Waiting on a stalled socket failed: {}",
+                       GetLastErrorInfo());
+        return false;
+      }
+      continue;
     }
     ZNET_LOG_ERROR("Error sending packet to the server: {}", GetLastErrorInfo());
     return false;
