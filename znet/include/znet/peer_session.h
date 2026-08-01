@@ -158,10 +158,9 @@ class PeerSession {
   /**
    * @brief Retrieves the user-defined object associated with the session, cast to the specified type.
    *
-   * The caller should ensure the requested type matches the actual type of the stored object, otherwise it will throw an error.
    *
    * @tparam T The desired type of the user-defined object.
-   * @return std::shared_ptr<T> Pointer to the user-defined object cast to type T.
+   * @return std::shared_ptr<T> Pointer to the user-defined object cast to type T. This cast is unchecked, it is simply undefined behavior if the underlying type does not match the requested T. Returns null only if the pointer was not set. This is done for performance reasons.
    */
   template<typename T>
   ZNET_NODISCARD std::shared_ptr<T> user_ptr_typed() const {
