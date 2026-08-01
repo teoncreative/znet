@@ -40,6 +40,7 @@ if(NOT TARGET Jolt)
             SOURCE_SUBDIR Build
         )
         FetchContent_MakeAvailable(JoltPhysics)
+        znet_ext_relax_dependency_warnings(Jolt)
     else()
         message(STATUS "znet-jolt: Jolt not found and fetching is off, skipping extension")
         return()

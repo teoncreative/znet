@@ -35,6 +35,7 @@ if(NOT TARGET flatbuffers::flatbuffers AND NOT TARGET flatbuffers)
             URL_HASH SHA256=b9c2df49707c57a48fc0923d52b8c73beb72d675f9d44b2211e4569be40a7421
         )
         FetchContent_MakeAvailable(flatbuffers)
+        znet_ext_relax_dependency_warnings(flatbuffers flatc)
     else()
         message(STATUS "znet-flatbuffers: FlatBuffers not found and fetching is off, skipping extension")
         return()

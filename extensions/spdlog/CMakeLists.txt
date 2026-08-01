@@ -25,6 +25,7 @@ if(NOT TARGET spdlog::spdlog AND NOT TARGET spdlog::spdlog_header_only)
             URL_HASH SHA256=25c843860f039a1600f232c6eb9e01e6627f7d030a2ae5e232bdd3c9205d26cc
         )
         FetchContent_MakeAvailable(spdlog)
+        znet_ext_relax_dependency_warnings(spdlog)
     else()
         message(STATUS "znet-spdlog: spdlog not found and fetching is off, skipping extension")
         return()

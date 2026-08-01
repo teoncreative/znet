@@ -49,6 +49,7 @@ if(NOT TARGET LinearMath)
         # Bullet's targets predate usage requirements and carry no interface
         # include directory, so consumers have to be told where the headers are.
         set(ZNET_BULLET_INCLUDE "${bullet3_SOURCE_DIR}/src")
+        znet_ext_relax_dependency_warnings(LinearMath BulletCollision BulletDynamics Bullet3Common)
     else()
         message(STATUS "znet-bullet: Bullet not found and fetching is off, skipping extension")
         return()

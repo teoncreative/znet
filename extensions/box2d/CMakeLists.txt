@@ -33,6 +33,7 @@ if(NOT TARGET box2d)
             URL_HASH SHA256=7fac19801485efb31ee3745b2284d9d4601f9e8138a3383a7b0df6d788ea5785
         )
         FetchContent_MakeAvailable(box2d)
+        znet_ext_relax_dependency_warnings(box2d)
     else()
         message(STATUS "znet-box2d: Box2D not found and fetching is off, skipping extension")
         return()
