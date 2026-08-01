@@ -109,6 +109,12 @@ void TestInetAddress(std::shared_ptr<Buffer> buffer) {
 // accident: an empty string, one with an embedded NUL, and non-ASCII bytes that
 // must not be sign-extended or treated as a terminator.
 void TestStringRoundTrip(std::shared_ptr<Buffer> buffer) {
+  // long enough to exercise the bulk copy, but inside whatever ceiling this
+  // build was configured with
+  const size_t long_case =
+      (ZNET_MAX_READ_STRING_LENGTH != 0 && ZNET_MAX_READ_STRING_LENGTH < 4096)
+          ? size_t{ZNET_MAX_READ_STRING_LENGTH}
+          : size_t{4096};
   const std::string cases[] = {
       "",
       "a",
@@ -116,7 +122,7 @@ void TestStringRoundTrip(std::shared_ptr<Buffer> buffer) {
       std::string("with\0embedded\0nuls", 18),
       std::string("\x01\x02\xfe\xff", 4),
       "unicode: \xc3\xa9\xe2\x82\xac",
-      std::string(4096, 'x'),
+      std::string(long_case, 'x'),
   };
 
   for (const std::string& s : cases) {
@@ -220,4 +226,125 @@ TEST_F(BufferTest, PrependRefusesWithoutHeadroom) {
   unwritten->ReserveHeadroom(2);
   EXPECT_FALSE(unwritten->PrependInt8(0x01));
   EXPECT_EQ(unwritten->readable_bytes(), 0u);
+}
+// ---------------------------------------------------------------------------
+// Container helpers and read limits
+// ---------------------------------------------------------------------------
+
+// a count small enough that any configured ceiling lets it through, so a
+// refusal can only have come from the bytes-on-hand check
+static constexpr size_t kUnderCeiling =
+    (ZNET_MAX_READ_ELEMENTS != 0 && ZNET_MAX_READ_ELEMENTS < 4096)
+        ? size_t{ZNET_MAX_READ_ELEMENTS}
+        : size_t{4096};
+
+TEST_F(BufferTest, ContainerHelpersRoundTrip) {
+  std::vector<char> v{'a', 'b', 'c'};
+  std::map<char, char> m{{'k', 'v'}, {'x', 'y'}};
+  char arr[] = {'1', '2', '3', '4'};
+  std::vector<std::string> strings{"one", "two"};
+
+  buffer_le_->WriteVector(v, &Buffer::WriteChar);
+  buffer_le_->WriteMap(m, &Buffer::WriteChar, &Buffer::WriteChar);
+  buffer_le_->WriteArray(arr, sizeof(arr), &Buffer::WriteChar);
+  buffer_le_->WriteVector(strings, &Buffer::WriteString);
+
+  EXPECT_EQ(buffer_le_->ReadVector<char>(&Buffer::ReadChar), v);
+  auto read_map = buffer_le_->ReadMap<std::map<char, char>>(&Buffer::ReadChar,
+                                                            &Buffer::ReadChar);
+  EXPECT_EQ(read_map, m);
+  auto read_arr = buffer_le_->ReadArray<char>(&Buffer::ReadChar);
+  ASSERT_NE(read_arr, nullptr);
+  EXPECT_EQ(std::string(read_arr.get(), sizeof(arr)), "1234");
+  EXPECT_EQ(buffer_le_->ReadVector<std::string>(&Buffer::ReadString), strings);
+
+  EXPECT_EQ(buffer_le_->GetAndClearLastError(), BufferError::None);
+  EXPECT_EQ(buffer_le_->readable_bytes(), 0u);
+}
+
+// a count nobody paid the bytes for. the reserve in ReadVector is the whole
+// reason this matters: without the check it is one allocation sized by a
+// stranger, from a packet that fits in a datagram.
+TEST_F(BufferTest, ReadRefusesCountLargerThanTheBytesPresent) {
+  buffer_le_->WriteVarInt(kUnderCeiling);
+  EXPECT_TRUE(buffer_le_->ReadVector<char>(&Buffer::ReadChar).empty());
+  EXPECT_EQ(buffer_le_->GetAndClearLastError(), BufferError::ReadOutOfBounds);
+
+  buffer_le_->Reset(true);
+  buffer_le_->WriteVarInt(kUnderCeiling);
+  EXPECT_TRUE((buffer_le_->ReadMap<std::map<char, char>>(&Buffer::ReadChar,
+                                                         &Buffer::ReadChar))
+                  .empty());
+  EXPECT_EQ(buffer_le_->GetAndClearLastError(), BufferError::ReadOutOfBounds);
+
+  buffer_le_->Reset(true);
+  buffer_le_->WriteVarInt(kUnderCeiling);
+  EXPECT_EQ(buffer_le_->ReadArray<char>(&Buffer::ReadChar), nullptr);
+  EXPECT_EQ(buffer_le_->GetAndClearLastError(), BufferError::ReadOutOfBounds);
+
+  buffer_le_->Reset(true);
+  buffer_le_->WriteVarInt(kUnderCeiling);
+  EXPECT_EQ(buffer_le_->ReadString(), "");
+  EXPECT_EQ(buffer_le_->GetAndClearLastError(), BufferError::ReadOutOfBounds);
+}
+
+// a map entry is a key and a value, so half the remaining bytes is already
+// more entries than the buffer can hold
+TEST_F(BufferTest, ReadMapCountsBothHalvesOfAnEntry) {
+  buffer_le_->WriteVarInt<size_t>(3);
+  buffer_le_->WriteChar('a');
+  buffer_le_->WriteChar('b');
+  buffer_le_->WriteChar('c');
+  buffer_le_->WriteChar('d');
+  EXPECT_TRUE((buffer_le_->ReadMap<std::map<char, char>>(&Buffer::ReadChar,
+                                                         &Buffer::ReadChar))
+                  .empty());
+  EXPECT_EQ(buffer_le_->GetAndClearLastError(), BufferError::ReadOutOfBounds);
+}
+
+#if ZNET_MAX_READ_STRING_LENGTH != 0 && ZNET_MAX_READ_STRING_LENGTH <= (1 << 20)
+// the bytes are all there, so only the configured ceiling stands between a
+// peer and an allocation of whatever size it feels like
+TEST_F(BufferTest, ReadStringRefusesBeyondTheConfiguredCeiling) {
+  const std::string at_limit(ZNET_MAX_READ_STRING_LENGTH, 'x');
+  buffer_le_->WriteString(at_limit);
+  EXPECT_EQ(buffer_le_->ReadString().size(), at_limit.size());
+  EXPECT_EQ(buffer_le_->GetAndClearLastError(), BufferError::None);
+
+  buffer_le_->Reset(true);
+  buffer_le_->WriteString(std::string(ZNET_MAX_READ_STRING_LENGTH + 1, 'x'));
+  EXPECT_EQ(buffer_le_->ReadString(), "");
+  EXPECT_EQ(buffer_le_->GetAndClearLastError(), BufferError::ReadLimitExceeded);
+}
+#endif
+
+#if ZNET_MAX_READ_ELEMENTS != 0 && ZNET_MAX_READ_ELEMENTS <= (1 << 20)
+TEST_F(BufferTest, ReadVectorRefusesBeyondTheConfiguredCeiling) {
+  std::vector<char> at_limit(ZNET_MAX_READ_ELEMENTS, 'x');
+  buffer_le_->WriteVector(at_limit, &Buffer::WriteChar);
+  EXPECT_EQ(buffer_le_->ReadVector<char>(&Buffer::ReadChar).size(),
+            at_limit.size());
+  EXPECT_EQ(buffer_le_->GetAndClearLastError(), BufferError::None);
+
+  buffer_le_->Reset(true);
+  std::vector<char> over_limit(size_t{ZNET_MAX_READ_ELEMENTS} + 1, 'x');
+  buffer_le_->WriteVector(over_limit, &Buffer::WriteChar);
+  EXPECT_TRUE(buffer_le_->ReadVector<char>(&Buffer::ReadChar).empty());
+  EXPECT_EQ(buffer_le_->GetAndClearLastError(), BufferError::ReadLimitExceeded);
+}
+#endif
+
+// a read fenced to one packet must not borrow the bytes of the packets behind
+// it in the same buffer
+TEST_F(BufferTest, ReadLimitBoundsTheCountAsWell) {
+  std::vector<char> v(1, 'x');
+  buffer_le_->WriteVector(v, &Buffer::WriteChar);
+  const size_t end_of_count = buffer_le_->write_cursor() - v.size();
+  buffer_le_->WriteVector(v, &Buffer::WriteChar);
+
+  // the fence lands on the count, so the element behind it belongs to the next
+  // packet however plausible the count looks
+  buffer_le_->SetReadLimit(end_of_count);
+  EXPECT_TRUE(buffer_le_->ReadVector<char>(&Buffer::ReadChar).empty());
+  EXPECT_EQ(buffer_le_->GetAndClearLastError(), BufferError::ReadOutOfBounds);
 }

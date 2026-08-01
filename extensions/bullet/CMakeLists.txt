@@ -44,12 +44,21 @@ if(NOT TARGET LinearMath)
         # loosen policy for znet's own targets.
         set(ZNET_SAVED_POLICY_MIN "${CMAKE_POLICY_VERSION_MINIMUM}")
         set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
+        # That version predates CMP0091 (3.15), which is what makes the
+        # MSVC_RUNTIME_LIBRARY property mean anything; without this Bullet's
+        # targets ignore the property and fall back to the compiler's own
+        # default of the static runtime, which does not link against the rest
+        # of the build. See znet_ext_match_msvc_runtime in ../CMakeLists.txt.
+        set(ZNET_SAVED_CMP0091 "${CMAKE_POLICY_DEFAULT_CMP0091}")
+        set(CMAKE_POLICY_DEFAULT_CMP0091 NEW)
         FetchContent_MakeAvailable(bullet3)
         set(CMAKE_POLICY_VERSION_MINIMUM "${ZNET_SAVED_POLICY_MIN}")
+        set(CMAKE_POLICY_DEFAULT_CMP0091 "${ZNET_SAVED_CMP0091}")
         # Bullet's targets predate usage requirements and carry no interface
         # include directory, so consumers have to be told where the headers are.
         set(ZNET_BULLET_INCLUDE "${bullet3_SOURCE_DIR}/src")
         znet_ext_relax_dependency_warnings(LinearMath BulletCollision BulletDynamics Bullet3Common)
+        znet_ext_match_msvc_runtime(LinearMath BulletCollision BulletDynamics Bullet3Common)
     else()
         message(STATUS "znet-bullet: Bullet not found and fetching is off, skipping extension")
         return()
