@@ -92,12 +92,39 @@ concept HasWriteMethod = detail::HasWriteMethodT<T>::value;
 #define ZNET_TPL_HAS_WRITE(T) \
   ZNET_TPL_CONSTRAINED(::znet::HasWriteMethod, ::znet::detail::HasWriteMethodT, T)
 
+// ---------------------------------------------------------------------------
+// Read limits
+// ---------------------------------------------------------------------------
+//
+// every length on the wire is chosen by whoever sent it, and a reader that
+// believes one has handed a stranger control of an allocation and a loop
+// bound. these cap what a single length may claim.
+//
+// the cap is a ceiling, not the only guard: each read also refuses a count the
+// remaining bytes could not possibly back, which needs no configuration and
+// holds whatever these are set to. raising them widens what a peer may ask
+// for, never what it may ask for without paying the bytes.
+//
+// set either to 0 to disable that ceiling, leaving only the bytes-on-hand
+// check. sensible on a trusted link where a legitimate message really is
+// larger than the default.
+
+#ifndef ZNET_MAX_READ_ELEMENTS
+#define ZNET_MAX_READ_ELEMENTS 65536
+#endif
+
+#ifndef ZNET_MAX_READ_STRING_LENGTH
+#define ZNET_MAX_READ_STRING_LENGTH 65536
+#endif
+
 enum class BufferError {
   None,
   WriteAfterSeal,
   CannotAllocate,
   ReadOutOfBounds,
   CorruptedFormat,
+  /** @brief A length on the wire exceeded the configured ZNET_MAX_READ_* cap. */
+  ReadLimitExceeded,
 };
 
 inline std::string GetBufferErrorString(BufferError error) {
@@ -112,6 +139,8 @@ inline std::string GetBufferErrorString(BufferError error) {
       return "ReadOutOfBounds";
     case BufferError::CorruptedFormat:
       return "CorruptedFormat";
+    case BufferError::ReadLimitExceeded:
+      return "ReadLimitExceeded";
     default:
       return "Unknown";
   }
@@ -278,7 +307,9 @@ class Buffer {
   template<size_t N>
   std::bitset<N> ReadBitset() {
     constexpr size_t BYTES = (N + 7) / 8;
-    uint8_t data[BYTES];
+    // a short read leaves Read() with nothing to copy, and the loop below still
+    // runs over every byte
+    uint8_t data[BYTES] = {};
     Read(data, BYTES);
 
     std::bitset<N> bs;
@@ -331,8 +362,7 @@ class Buffer {
 
   std::string ReadString() {
     size_t size = ReadVarInt<size_t>();
-    if (ZNET_UNLIKELY(!CheckReadableBytes(size))) ZNET_UNLIKELY_ATTR {
-      last_error_ = BufferError::ReadOutOfBounds;
+    if (ZNET_UNLIKELY(!CheckReadCount(size, ZNET_MAX_READ_STRING_LENGTH, 1))) ZNET_UNLIKELY_ATTR {
       return "";
     }
     std::string out(data_ + read_cursor_, size);
@@ -343,6 +373,11 @@ class Buffer {
   template <typename Map, typename KeyFunc, typename ValueFunc>
   Map ReadMap(KeyFunc key_func, ValueFunc value_func) {
     size_t size = ReadVarInt<size_t>();
+    // a key and a value, and no reader consumes nothing, so two bytes an entry
+    // is the floor.
+    if (ZNET_UNLIKELY(!CheckReadCount(size, ZNET_MAX_READ_ELEMENTS, 2))) ZNET_UNLIKELY_ATTR {
+      return {};
+    }
     Map map;
     for (size_t i = 0; i < size; i++) {
       auto key = (this->*key_func)();
@@ -355,6 +390,11 @@ class Buffer {
   template <typename T, typename ValueFunc>
   std::vector<T> ReadVector(ValueFunc value_func) {
     size_t size = ReadVarInt<size_t>();
+    // the reserve below is the reason this is checked before anything else:
+    // it is one allocation sized by a stranger.
+    if (ZNET_UNLIKELY(!CheckReadCount(size, ZNET_MAX_READ_ELEMENTS, 1))) ZNET_UNLIKELY_ATTR {
+      return {};
+    }
     std::vector<T> v;
     v.reserve(size);
     for (size_t i = 0; i < size; i++) {
@@ -366,12 +406,10 @@ class Buffer {
   template <typename T, typename ValueFunc>
   std::unique_ptr<T[]> ReadArray(ValueFunc value_func) {
     size_t size = ReadVarInt<size_t>();
-    size_t size_bytes = size * sizeof(T);
-    if (ZNET_UNLIKELY(!CheckReadableBytes(size_bytes))) ZNET_UNLIKELY_ATTR {
-      last_error_ = BufferError::ReadOutOfBounds;
+    if (ZNET_UNLIKELY(!CheckReadCount(size, ZNET_MAX_READ_ELEMENTS, sizeof(T)))) ZNET_UNLIKELY_ATTR {
       return nullptr;
     }
-    T* ptr = new T[size];
+    T* ptr = new (std::nothrow) T[size];
     if (ZNET_UNLIKELY(!ptr)) ZNET_UNLIKELY_ATTR {
       last_error_ = BufferError::CannotAllocate;
       return nullptr;
@@ -386,6 +424,7 @@ class Buffer {
   template <typename T, size_t size, typename ValueFunc>
   std::array<T, size> ReadArray(ValueFunc value_func) {
     size_t size_r = ReadVarInt<size_t>();
+    // the count is fixed by the type, so a mismatch is the only thing to catch.
     if (ZNET_UNLIKELY(size_r != size)) ZNET_UNLIKELY_ATTR {
       ZNET_LOG_ERROR("Array size mismatch. Expected: {}, Actual: {}", size,
                      size_r);
@@ -552,7 +591,7 @@ class Buffer {
     if (ZNET_UNLIKELY(!CheckSeal())) ZNET_UNLIKELY_ATTR {
       return;
     }
-    WriteInt(map.size());
+    WriteVarInt(map.size());
     for (auto& kv : map) {
       (this->*key_func)(kv.first);
       (this->*value_func)(kv.second);
@@ -565,7 +604,7 @@ class Buffer {
       return;
     }
     size_t size = v.size();
-    WriteInt(size);
+    WriteVarInt(size);
     for (auto& value : v) {
       (this->*value_func)(value);
     }
@@ -576,7 +615,7 @@ class Buffer {
     if (ZNET_UNLIKELY(!CheckSeal())) ZNET_UNLIKELY_ATTR {
       return;
     }
-    WriteInt(size);
+    WriteVarInt(size);
     for (size_t i = 0; i < size; i++) {
       auto& value = v[i];
       (this->*value_func)(value);
@@ -589,10 +628,10 @@ class Buffer {
       return;
     }
     if (!v) {
-      WriteInt(0);
+      WriteVarInt<size_t>(0);
       return;
     }
-    WriteInt(size);
+    WriteVarInt(size);
     for (size_t i = 0; i < size; i++) {
       auto& value = v[i];
       (this->*value_func)(value);
@@ -604,7 +643,7 @@ class Buffer {
     if (ZNET_UNLIKELY(!CheckSeal())) ZNET_UNLIKELY_ATTR {
       return;
     }
-    WriteInt(size);
+    WriteVarInt(size);
     for (size_t i = 0; i < size; i++) {
       auto& value = v[i];
       (this->*value_func)(value);
@@ -811,6 +850,35 @@ class Buffer {
 #endif
     return std::min(write_cursor_, read_limit_) >= read_cursor_ + required;
   }
+
+  /**
+   * @brief Whether a length read off the wire may be acted on.
+   *
+   * Two questions, and a count has to survive both. Is it under the configured
+   * ceiling, if one is set -- failing that is @ref BufferError::ReadLimitExceeded.
+   * And could the bytes still in the buffer actually back it: every element
+   * costs at least @p min_bytes_per_element, so a count above what remains is
+   * out of bounds however generous the ceiling is. The second check is the one
+   * that makes a nine-byte packet claiming four billion elements cheap to
+   * refuse, and it holds whatever the ceiling is set to.
+   */
+  ZNET_NODISCARD bool CheckReadCount(size_t count, size_t max_allowed,
+                                     size_t min_bytes_per_element) {
+    if (max_allowed != 0 && count > max_allowed) {
+      last_error_ = BufferError::ReadLimitExceeded;
+      return false;
+    }
+    // division, not multiplication: count * per_element is exactly the product
+    // an attacker would pick to wrap.
+    const size_t per_element =
+        min_bytes_per_element == 0 ? 1 : min_bytes_per_element;
+    if (count > readable_bytes() / per_element) {
+      last_error_ = BufferError::ReadOutOfBounds;
+      return false;
+    }
+    return true;
+  }
+
   ZNET_NODISCARD inline bool CheckSeal() {
     if (ZNET_UNLIKELY(sealed_.load(std::memory_order_acquire))) ZNET_UNLIKELY_ATTR {
       ZNET_LOG_DEBUG("Tried to write to a sealed buffer.");

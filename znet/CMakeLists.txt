@@ -33,6 +33,12 @@ option(ZNET_PREFER_IPV4 "Prefers IPv4 addresses." OFF)
 option(ZNET_ENABLE_STRICT_WARNINGS "Enable strict compiler warnings" ON)
 option(ZNET_ENABLE_METRICS "Collect per-session and per-server counters" ON)
 
+# Ceilings on any length a peer puts on the wire. Both are counts, not bytes,
+# and 0 removes the ceiling. A read is still refused when the bytes present
+# could not back the count it claims, which needs no configuration.
+set(ZNET_MAX_READ_ELEMENTS 65536 CACHE STRING "Largest element count a vector/map/array read will accept (0 = no ceiling)")
+set(ZNET_MAX_READ_STRING_LENGTH 65536 CACHE STRING "Longest string a read will accept, in bytes (0 = no ceiling)")
+
 set(ZNET_SOURCES
         src/scheduler.cc
         src/signal_handler.cc
@@ -227,6 +233,13 @@ if(ZNET_ENABLE_METRICS)
 else()
     target_compile_definitions(znet PUBLIC ZNET_ENABLE_METRICS=0)
 endif()
+
+foreach(limit ZNET_MAX_READ_ELEMENTS ZNET_MAX_READ_STRING_LENGTH)
+    if(NOT ${limit} MATCHES "^[0-9]+$")
+        message(FATAL_ERROR "${limit} must be a non-negative integer, got '${${limit}}'")
+    endif()
+    target_compile_definitions(znet PUBLIC ${limit}=${${limit}})
+endforeach()
 
 ## Dependencies
 if(WIN32)
