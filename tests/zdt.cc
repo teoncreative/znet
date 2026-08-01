@@ -2214,9 +2214,9 @@ std::shared_ptr<Codec> MakeDemoCodec() {
 }
 
 void RunConcurrentSendTest(ConnectionType type) {
-  constexpr int kThreads = 4;
-  constexpr int kPerThread = 250;
-  constexpr int kTotal = kThreads * kPerThread;
+  static constexpr int kThreads = 4;
+  static constexpr int kPerThread = 250;
+  static constexpr int kTotal = kThreads * kPerThread;
 
   ASSERT_EQ(Init(), Result::Success);
   PortNumber port =
