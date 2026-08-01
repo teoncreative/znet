@@ -63,6 +63,8 @@ everything else.
   defining messages
 * [Events](https://github.com/teoncreative/znet/wiki/Events): the six events and
   what to do in each
+* [Session State](https://github.com/teoncreative/znet/wiki/Session-State):
+  attaching your own per-connection object to a session
 * [Choosing a Transport](https://github.com/teoncreative/znet/wiki/Choosing-a-Transport):
   ZDT or TCP, and ZDT's per-message delivery modes
 * [Threading Model](https://github.com/teoncreative/znet/wiki/Threading-Model):
