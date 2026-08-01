@@ -163,13 +163,13 @@ inline void SetLogSink(const LogSink* sink) {
 // is what removes the need for __VA_OPT__ (C++20) to elide the comma when a
 // log call passes no arguments beyond the message.
 //
-// The formatting stays inside the macro rather than moving into a function
+// the formatting stays inside the macro rather than moving into a function
 // that both paths could call: std::format takes its format string as a
 // consteval parameter, so `fmsg` has to still be the literal from the call
 // site. Passing it along as a const char* would compile only on the fmtlib and
 // C++14 shim backends and break the C++20 one.
 //
-// Cost when no sink is installed is one relaxed load and a predictable branch,
+// cost when no sink is installed is one relaxed load and a predictable branch,
 // against a format call and a stream write that were happening anyway.
 #define ZNET_PRINTFN(lvl, fmsg, func, ...)                                     \
   do {                                                                         \

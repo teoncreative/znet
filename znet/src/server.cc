@@ -213,7 +213,7 @@ void Server::CleanupAndProcessSessions(SessionMap& sessions) {
     }
     // the map is about to drop its reference, and a handler holding one back
     // to the session would be the only thing left pointing at either of them.
-    // See PeerSession::ReleaseHandler. this runs on the worker, the same
+    // see PeerSession::ReleaseHandler. this runs on the worker, the same
     // thread that dispatches into the handler, so it cannot race one.
     session->ReleaseHandler();
     sessions.erase(address);

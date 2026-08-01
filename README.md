@@ -75,6 +75,8 @@ everything else.
   what the crypto does and does not give you
 * [Metrics](https://github.com/teoncreative/znet/wiki/Metrics): the counters, and
   reading them honestly
+* [Extensions](https://github.com/teoncreative/znet/wiki/Extensions): optional
+  add-ons for smaller packets, automatic serialization and engine types
 * [Peer-to-Peer](https://github.com/teoncreative/znet/wiki/Peer-to-Peer):
   rendezvous and hole punching
 
