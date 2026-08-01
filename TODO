@@ -16,8 +16,10 @@
 - [x] Documentation
 - [ ] Proxy protocol v2 support
 - [ ] Unix socket support
-- [ ] Limit array/vector/string read sizes
+- [x] Limit array/vector/string read sizes (ZNET_MAX_READ_ELEMENTS / ZNET_MAX_READ_STRING_LENGTH, plus a bytes-on-hand check that needs no configuration)
 - [ ] Connection throttling (IP / CIDR)
+- [ ] Option to dump the received buffer when a packet fails to decode (codec.cc already flags this inline; the bytes are the only evidence once framing is untrustworthy)
+- [ ] Option to close the connection on invalid received packets (a threshold, not the first offence: today a peer can force the rest of a buffer to be discarded repeatedly at no cost, and nothing counts it)
 - [x] Max concurrent connections (ZDT: config max_connections + NoFreeConnections)
 - [x] Peer to peer TCP hole-punching (also UDP/ZDT via PunchSyncZDT)
 - [x] Validate IP addresses
@@ -31,7 +33,7 @@
 - [ ] Graceful Disconnects (?)
 - [x] Version Negotiation (ZDT handshake, strict-equality + IncompatibleProtocolVersion)
 - [ ] Feature flag Negotiation (?)
-- [ ] Automatic serialization of non-complex types
+- [x] Automatic serialization of non-complex types (znet-reflect extension: deduced for aggregates, ZNET_REFLECT for the rest; C++17)
 - [ ] Fully asynchronous P2P hole punching using an event-driven I/O model.
 - [x] Add UDP transport (ZDT) and UDP client/server backends, including UDP hole punching for P2P (PunchSyncZDT).
 - [ ] Enhance error events for P2P connection failures with granular, actionable reasons.
