@@ -12,7 +12,9 @@
 #pragma once
 
 #include "znet/precompiled.h"
+#include <atomic>
 #include <iostream>
+#include <ostream>
 
 // pick a formatting backend. std::format is preferred wherever it exists; the
 // bundled shim keeps the same `{}` call syntax on C++14/17 without pulling in
@@ -74,15 +76,119 @@
 #define ZNET_LOG_LEVEL ZNET_LOG_LEVEL_DEBUG
 #endif
 
+namespace znet {
+
+/**
+ * @brief Where log output goes. std::cout until SetLogStream() says otherwise.
+ *
+ * ZNET_LOG_LEVEL is a compile-time switch and only affects the translation unit
+ * that defines it, so it cannot quiet a znet built separately. This can: it is
+ * read by the library's own log calls too.
+ */
+inline std::atomic<std::ostream*>& LogStreamPtr() {
+  static std::atomic<std::ostream*> stream{&std::cout};
+  return stream;
+}
+
+/**
+ * @brief Sends all znet logging to @p stream instead of std::cout.
+ *
+ * For applications that own the terminal, a full-screen TUI above all, where a
+ * stray log line lands in the middle of the interface. Point this at a file and
+ * the display stays yours.
+ *
+ * @p stream must outlive every later log call, so a namespace-scope or
+ * function-static stream rather than a local one. Set it before starting a
+ * server or client: the pointer is atomic, so changing it while other threads
+ * log is safe, but the change is not ordered against them and a line already in
+ * flight may still reach the old stream.
+ */
+inline void SetLogStream(std::ostream& stream) {
+  LogStreamPtr().store(&stream, std::memory_order_relaxed);
+}
+
+/** @brief The stream logging currently writes to. */
+inline std::ostream& LogStream() {
+  return *LogStreamPtr().load(std::memory_order_relaxed);
+}
+
+/** @brief Severity of a log record, matching the ZNET_LOG_LEVEL_* constants. */
+enum class LogLevel {
+  Debug = ZNET_LOG_LEVEL_DEBUG,
+  Info = ZNET_LOG_LEVEL_INFO,
+  Warn = ZNET_LOG_LEVEL_WARN,
+  Error = ZNET_LOG_LEVEL_ERROR,
+};
+
+/**
+ * @brief Receives log records instead of the stream, with the severity intact.
+ *
+ * SetLogStream is enough to move znet's output somewhere else, but by the time
+ * a line reaches a stream it is one string: the severity has been rendered into
+ * a coloured prefix, and a logging library on the far side would have to parse
+ * it back out to file the record correctly. A sink is handed the level, the
+ * function and the message as separate values, with no ANSI escapes, so it can
+ * hand them straight to spdlog, a structured logger, or a TUI's log pane.
+ *
+ * @p message is owned by the caller and only valid for the duration of the
+ * call; copy it to keep it. Records can arrive from any znet thread, so a sink
+ * that writes anywhere shared has to do its own locking.
+ */
+struct LogSink {
+  void (*write)(LogLevel level, const char* function, const char* message,
+                void* user) = nullptr;
+  void* user = nullptr;
+};
+
+inline std::atomic<const LogSink*>& LogSinkPtr() {
+  static std::atomic<const LogSink*> sink{nullptr};
+  return sink;
+}
+
+/**
+ * @brief Routes logging to @p sink instead of the stream. Null restores it.
+ *
+ * @p sink must outlive every later log call, so a namespace-scope or
+ * function-static object rather than a local one, exactly as with
+ * SetLogStream. A single atomic pointer is stored rather than a std::function
+ * so that swapping sinks cannot be observed half-applied.
+ */
+inline void SetLogSink(const LogSink* sink) {
+  LogSinkPtr().store(sink, std::memory_order_relaxed);
+}
+
+}  // namespace znet
+
 // the message is folded into __VA_ARGS__ rather than named separately, which
 // is what removes the need for __VA_OPT__ (C++20) to elide the comma when a
 // log call passes no arguments beyond the message.
-#define ZNET_PRINTFN(fmsg, func, ...) \
-  std::cout << ZNET_FORMAT(fmsg, func, ZNET_FORMAT(__VA_ARGS__)) << std::flush
+//
+// The formatting stays inside the macro rather than moving into a function
+// that both paths could call: std::format takes its format string as a
+// consteval parameter, so `fmsg` has to still be the literal from the call
+// site. Passing it along as a const char* would compile only on the fmtlib and
+// C++14 shim backends and break the C++20 one.
+//
+// Cost when no sink is installed is one relaxed load and a predictable branch,
+// against a format call and a stream write that were happening anyway.
+#define ZNET_PRINTFN(lvl, fmsg, func, ...)                                     \
+  do {                                                                         \
+    const ::znet::LogSink* znet_sink_ =                                        \
+        ::znet::LogSinkPtr().load(::std::memory_order_relaxed);                \
+    if (znet_sink_ != nullptr && znet_sink_->write != nullptr) {               \
+      const ::std::string znet_message_ = ZNET_FORMAT(__VA_ARGS__);            \
+      znet_sink_->write((lvl), (func), znet_message_.c_str(),                  \
+                        znet_sink_->user);                                     \
+    } else {                                                                   \
+      ::znet::LogStream() << ZNET_FORMAT(fmsg, func, ZNET_FORMAT(__VA_ARGS__)) \
+                          << ::std::flush;                                     \
+    }                                                                          \
+  } while (false)
 
 #if ZNET_LOG_LEVEL <= ZNET_LOG_LEVEL_DEBUG
 #define ZNET_LOG_DEBUG(...)                                             \
-ZNET_PRINTFN("\x1b[44m[debug]\x1b[0m \x1b[35m{}: \x1b[0m{}\x1b[0m\n",   \
+ZNET_PRINTFN(::znet::LogLevel::Debug,                                   \
+"\x1b[44m[debug]\x1b[0m \x1b[35m{}: \x1b[0m{}\x1b[0m\n",   \
 ZNET_FUNC_SIGN, __VA_ARGS__)
 #else
 #define ZNET_LOG_DEBUG(...)
@@ -90,7 +196,8 @@ ZNET_FUNC_SIGN, __VA_ARGS__)
 
 #if ZNET_LOG_LEVEL <= ZNET_LOG_LEVEL_INFO
 #define ZNET_LOG_INFO(...)                                              \
-ZNET_PRINTFN("\x1b[42m[info ]\x1b[0m \x1b[35m{}: \x1b[0m{}\x1b[0m\n",   \
+ZNET_PRINTFN(::znet::LogLevel::Info,                                   \
+"\x1b[42m[info ]\x1b[0m \x1b[35m{}: \x1b[0m{}\x1b[0m\n",   \
 ZNET_FUNC_SIGN, __VA_ARGS__)
 #else
 #define ZNET_LOG_INFO(...)
@@ -98,7 +205,8 @@ ZNET_FUNC_SIGN, __VA_ARGS__)
 
 #if ZNET_LOG_LEVEL <= ZNET_LOG_LEVEL_WARN
 #define ZNET_LOG_WARN(...)                                              \
-ZNET_PRINTFN("\x1b[41m[warn ]\x1b[0m \x1b[35m{}: \x1b[31m{}\x1b[0m\n",  \
+ZNET_PRINTFN(::znet::LogLevel::Warn,                                   \
+"\x1b[41m[warn ]\x1b[0m \x1b[35m{}: \x1b[31m{}\x1b[0m\n",   \
 ZNET_FUNC_SIGN, __VA_ARGS__)
 #else
 #define ZNET_LOG_WARN(...)
@@ -106,7 +214,8 @@ ZNET_FUNC_SIGN, __VA_ARGS__)
 
 #if ZNET_LOG_LEVEL <= ZNET_LOG_LEVEL_ERROR
 #define ZNET_LOG_ERROR(...)                                             \
-ZNET_PRINTFN("\x1b[41m[error]\x1b[0m \x1b[35m{}: \x1b[31m{}\x1b[0m\n",  \
+ZNET_PRINTFN(::znet::LogLevel::Error,                                   \
+"\x1b[41m[error]\x1b[0m \x1b[35m{}: \x1b[31m{}\x1b[0m\n",   \
 ZNET_FUNC_SIGN, __VA_ARGS__)
 #else
 #define ZNET_LOG_ERROR(...)
