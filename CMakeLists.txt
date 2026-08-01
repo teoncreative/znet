@@ -43,6 +43,15 @@ add_subdirectory(examples/multiversion/client-v1)
 enable_testing()
 add_subdirectory(tests)
 
+# extensions: optional add-ons bridging znet to third-party libraries. Added
+# after tests so an extension can reuse the googletest that tests/ set up
+# rather than fetching a second copy. Each one skips itself when its own
+# dependency is missing, so this staying on cannot break a build.
+option(ZNET_BUILD_EXTENSIONS "Build the znet extensions (see extensions/README.md)" ON)
+if(ZNET_BUILD_EXTENSIONS)
+    add_subdirectory(extensions)
+endif()
+
 # benchmarks (off by default; they are slow and can download comparison libraries)
 option(ZNET_BUILD_BENCHMARKS "Build the benchmark suite" OFF)
 if(ZNET_BUILD_BENCHMARKS)

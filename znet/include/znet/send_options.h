@@ -9,12 +9,25 @@
 //
 
 //
-// How one message should be delivered. Only ZDT reads these; TCP is a single
-// reliable ordered stream and ignores them.
+// How one message should be delivered.
+//
+// Every option is advisory: each transport reads the ones it can honor and
+// ignores the rest, silently. Nothing is rejected or logged, so an option a
+// transport does not implement is inert rather than an error, and no call site
+// on the wrong transport will tell you. Which transports honor a given option
+// is documented on that option's own Key below. Today all of them are ZDT-only.
+//
+// Adding an option: a Key struct with the next free id, a field in
+// SendOptionsInit and one in SendOptions::Data, both in id order, a builder,
+// and a Get() specialization. Then say on the Key which transports honor it,
+// and what the ones that do not do instead, since that differs per option and
+// is the part callers get wrong.
 //
 // Keys rather than plain fields because a transport has to tell "the caller
 // asked for this" from "the caller said nothing", and answer the second with
-// its own default rather than with a zero.
+// its own default rather than with a zero. That is also what lets a new
+// transport pick a different default for an existing option without changing
+// the meaning of any call site that never set it.
 //
 
 #ifndef ZNET_PARENT_SEND_OPTIONS_H
@@ -24,14 +37,55 @@
 #include <cstdint>
 #include <type_traits>
 
-struct ReliableKey;
-struct OrderedKey;
-struct ChannelKey;
+/**
+ * @brief Retransmit until acknowledged. Default true.
+ *
+ * **Transports:** ZDT only.
+ *
+ * TCP ignores it and is always reliable, so `false` is not merely unsupported
+ * there, it is inexpressible: there is no way to ask kernel TCP to drop a
+ * message. Code that sets this and then runs on TCP gets reliable delivery and
+ * no indication that it asked for anything else.
+ */
+struct ReliableKey { using type = bool; static constexpr int id = 0; };
+/**
+ * @brief Deliver in send order. Default true.
+ *
+ * **Transports:** ZDT only.
+ *
+ * Without ReliableKey this means *sequenced* rather than ordered: a message
+ * older than one already delivered is dropped instead of held, since waiting
+ * for something that will never be retransmitted would stall the channel.
+ *
+ * TCP ignores it and is always ordered, for the same reason ReliableKey gives.
+ */
+struct OrderedKey  { using type = bool; static constexpr int id = 1; };
+/**
+ * @brief Which of the 256 channels to send on. Default 0.
+ *
+ * **Transports:** ZDT only.
+ *
+ * Channels have independent sequence spaces, so ordered traffic on one never
+ * waits behind another. Allocated lazily, so unused ones cost nothing.
+ *
+ * TCP has one stream and ignores it, which collapses traffic you had
+ * deliberately separated back onto a single ordered pipe. That is the one case
+ * where ignoring an option changes throughput rather than just semantics: a
+ * bulk transfer and chat share a channel again, and head-of-line block each
+ * other.
+ */
+struct ChannelKey  { using type = uint8_t; static constexpr int id = 2; };
 
 /**
  * @brief Plain-field mirror of SendOptions, for designated initializers.
  *
- * Only useful as the argument to SendOptions' converting constructor.
+ * Only useful as the argument to SendOptions' converting constructor. The
+ * builder on SendOptions itself says the same thing in every language mode,
+ * so reach for this only if you specifically want the designated-initializer
+ * spelling on a C++20 build.
+ *
+ * One field per Key, in id order. A new option adds a field here too, and the
+ * order must keep matching, since designated initializers require it.
  */
 struct SendOptionsInit {
   bool reliable = true;
@@ -42,14 +96,26 @@ struct SendOptionsInit {
 /**
  * @brief Per-message delivery options: reliability, ordering and channel.
  *
- * Passed to PeerSession::SendPacket(). An option left unset is not the same as
- * one set to its default value: the transport supplies its own default for
- * anything unset, which for ZDT is reliable, ordered, channel 0.
+ * Passed to PeerSession::SendPacket(). **Every option is currently ZDT-only**,
+ * as documented on each Key. On a TCP session the whole object is ignored,
+ * silently.
+ *
+ * An option left unset is not the same as one set to its default value: the
+ * transport supplies its own default for anything unset, which for ZDT is
+ * reliable, ordered, channel 0.
+ *
+ * Build the handful your application needs once, as constants, and pass those
+ * to every send. Every builder is constexpr, so a namespace-scope constant is
+ * constant-initialized rather than built at each call site:
+ * @code
+ * constexpr SendOptions kPosition = SendOptions().Reliable(false).Channel(1);
+ * session->SendPacket(packet, kPosition);
+ * @endcode
  */
 class SendOptions {
  public:
   /** @brief Sets nothing, so every option is the transport's default. */
-  SendOptions() = default;
+  constexpr SendOptions() = default;
 
   /**
    * @brief Sets all three options at once from a SendOptionsInit.
@@ -58,17 +124,49 @@ class SendOptions {
    * @code
    * SendOptions opts{{.reliable = false, .channel = 2}};
    * @endcode
-   * Note the double brace: the inner one builds the SendOptionsInit. At C++14
-   * and C++17 use Set() instead. GCC and Clang accept the syntax below C++20 as
-   * an extension, but not under -pedantic, and MSVC does not.
+   * Note the double brace: the inner one builds the SendOptionsInit. GCC and
+   * Clang accept the syntax below C++20 as an extension, but not under
+   * -pedantic, and MSVC does not. The builder below compiles everywhere and is
+   * the recommended spelling; this constructor stays for code that prefers
+   * designators on a C++20 build.
    *
    * Unlike the default constructor this marks all three as set, so none of them
    * falls back to the transport's default.
    */
-  explicit SendOptions(const SendOptionsInit& init);
+  constexpr explicit SendOptions(const SendOptionsInit& init)
+      : bitmask_((1u << ReliableKey::id) | (1u << OrderedKey::id) |
+                 (1u << ChannelKey::id)),
+        data_{init.reliable, init.ordered, init.channel} {}
 
   /**
-   * @brief Sets one option, marking it as explicitly chosen.
+   * @brief Returns a copy with reliability set, marking it explicitly chosen.
+   *
+   * @code
+   * constexpr SendOptions kVoice = SendOptions().Reliable(false);
+   * @endcode
+   */
+  ZNET_NODISCARD constexpr SendOptions Reliable(bool value) const {
+    return SendOptions(bitmask_ | (1u << ReliableKey::id),
+                       Data{value, data_.ordered, data_.channel});
+  }
+
+  /** @brief Returns a copy with ordering set, marking it explicitly chosen. */
+  ZNET_NODISCARD constexpr SendOptions Ordered(bool value) const {
+    return SendOptions(bitmask_ | (1u << OrderedKey::id),
+                       Data{data_.reliable, value, data_.channel});
+  }
+
+  /** @brief Returns a copy with the channel set, marking it explicitly chosen. */
+  ZNET_NODISCARD constexpr SendOptions Channel(uint8_t value) const {
+    return SendOptions(bitmask_ | (1u << ChannelKey::id),
+                       Data{data_.reliable, data_.ordered, value});
+  }
+
+  /**
+   * @brief Sets one option in place, marking it as explicitly chosen.
+   *
+   * The mutating counterpart of the builders above, for the rare case where an
+   * option is decided at runtime rather than baked into a constant.
    *
    * @tparam Key ReliableKey, OrderedKey or ChannelKey.
    * @code
@@ -84,23 +182,28 @@ class SendOptions {
 
   /** @brief The value if it was set, otherwise @p def. What transports call. */
   template <typename Key>
-  typename Key::type GetOr(typename Key::type def) const {
+  constexpr typename Key::type GetOr(typename Key::type def) const {
     return Has<Key>() ? Get<Key>() : def;
   }
 
   /** @brief Whether this option was explicitly set. */
   template <typename Key>
-  bool Has() const {
-    return bitmask_ & (1u << Key::id);
+  constexpr bool Has() const {
+    return (bitmask_ & (1u << Key::id)) != 0;
   }
 
  private:
-  uint32_t bitmask_ = 0;
-  struct {
+  struct Data {
     bool reliable = true;
     bool ordered = true;
     uint8_t channel = 0;
-  } data_;
+  };
+
+  constexpr SendOptions(uint32_t bitmask, const Data& data)
+      : bitmask_(bitmask), data_(data) {}
+
+  uint32_t bitmask_ = 0;
+  Data data_;
 
   template <typename Key>
   typename Key::type& Get() {
@@ -109,38 +212,13 @@ class SendOptions {
   }
 
   template <typename Key>
-  const typename Key::type& Get() const {
+  constexpr const typename Key::type& Get() const {
     static_assert(sizeof(Key) == 0, "Unsupported key");
   }
 };
 
-/** @brief Retransmit until acknowledged. Default true. */
-struct ReliableKey { using type = bool; static constexpr int id = 0; };
-/**
- * @brief Deliver in send order. Default true.
- *
- * Without ReliableKey this means *sequenced* rather than ordered: a message
- * older than one already delivered is dropped instead of held, since waiting
- * for something that will never be retransmitted would stall the channel.
- */
-struct OrderedKey  { using type = bool; static constexpr int id = 1; };
-/**
- * @brief Which of the 256 channels to send on. Default 0.
- *
- * Channels have independent sequence spaces, so ordered traffic on one never
- * waits behind another. Allocated lazily, so unused ones cost nothing.
- */
-struct ChannelKey  { using type = uint8_t; static constexpr int id = 2; };
-
-template <> inline const bool& SendOptions::Get<ReliableKey>() const { return data_.reliable; }
-template <> inline const bool& SendOptions::Get<OrderedKey>()  const { return data_.ordered;  }
-template <> inline const uint8_t& SendOptions::Get<ChannelKey>() const { return data_.channel; }
-
-// out of line: the key types have to be complete before Set() can be called
-inline SendOptions::SendOptions(const SendOptionsInit& init) {
-  Set<ReliableKey>(init.reliable);
-  Set<OrderedKey>(init.ordered);
-  Set<ChannelKey>(init.channel);
-}
+template <> constexpr const bool& SendOptions::Get<ReliableKey>() const { return data_.reliable; }
+template <> constexpr const bool& SendOptions::Get<OrderedKey>()  const { return data_.ordered;  }
+template <> constexpr const uint8_t& SendOptions::Get<ChannelKey>() const { return data_.channel; }
 
 #endif  //ZNET_PARENT_SEND_OPTIONS_H

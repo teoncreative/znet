@@ -1,75 +1,42 @@
 # znet
 
-znet is a modern C++ networking library that provides seamless packet serialization, TLS encryption, and cross-platform support. It's designed to be simpler and more approachable than low-level libraries like asio or libuv.
+znet is a modern C++ networking library for applications that send structured
+messages: define a packet, register a serializer, send it. Encryption,
+compression and framing are handled underneath. It is designed to be simpler and
+more approachable than low-level libraries like asio or libuv, which give you a
+socket and an event loop where znet gives you sessions, typed messages and an
+event callback.
 
 ## Features
 
-- ✅ **Simple API**: Clean, event-driven design.
-- 🔒 **TLS Encryption**: Secure communication out of the box.
-- ⚡ **Async Connect**: Non-blocking connections.
-- 📦 **Built-in Packet Serialization**: Define your own packets easily.
-- 🛠 **Cross-Platform**: Windows, Linux, macOS.
+- ✅ **Simple API**: clean, event-driven design.
+- 📦 **Built-in packet serialization**: define your own packets easily.
+- 🔒 **Encryption and compression**: AES-256 and zstd, negotiated during the
+  handshake. Read
+  [what the crypto does and does not give you](https://github.com/teoncreative/znet/wiki/Encryption-and-Compression)
+  before relying on it; it is not TLS and does not authenticate the peer.
+- ⚡ **Async connect**: non-blocking connections.
+- 🛠 **Cross-platform**: Windows, Linux, macOS.
 
 ## Installation
 
-### Using as a Git Submodule
+Requires **C++14 or newer** (C++20 by default), **CMake 3.29+** and **OpenSSL**,
+which is found automatically if installed. zstd is bundled.
 
-1. **Add znet to your project:**
+👉 **[Getting Started](https://github.com/teoncreative/znet/wiki/Getting-Started)**
+has the submodule and CMake steps, using either the bundled zstd or your own,
+plus every build option.
 
-```bash
-git submodule add https://github.com/teoncreative/znet.git external/znet
-git submodule update --init --recursive
-```
-
-2. **Link znet in your `CMakeLists.txt`:**
-
-Example using the bundled `zstd` inside znet
-
-```cmake
-# Example using the bundled zstd inside znet
-add_subdirectory(external/znet/vendor/zstd/build/cmake ${CMAKE_CURRENT_BINARY_DIR}/zstd)
-add_subdirectory(external/znet/znet ${CMAKE_CURRENT_BINARY_DIR}/znet)
-target_link_libraries(your_target PRIVATE znet)
-```
-
-Example using your own `zstd` submodules
-
-```cmake
-# Example using your own submodules
-add_subdirectory(external/zstd/build/cmake)
-add_subdirectory(external/znet/znet)
-target_link_libraries(your_target PRIVATE znet)
-```
-
-Example using system-installed `zstd` (e.g. vcpkg, brew, etc.)
-
-```cmake
-# Example using system-installed zstd (e.g. vcpkg, brew, etc.)
-set(ZNET_USE_EXTERNAL_ZSTD ON)
-add_subdirectory(external/znet/znet)
-target_link_libraries(your_target PRIVATE znet)
-```
-
-3. **Requirements:**
-
-* **C++14 or newer.** The default is C++20; set `-DZNET_CXX_STANDARD=14`, `17`,
-  `20` or `23` to pick one. Raising it only ever adds capability; the API is the same either way.
-* **CMake 3.29+**
-* **OpenSSL**
-  * Install via package manager (e.g. `libssl-dev` on Linux, `vcpkg` on Windows, `brew` on macOS)
-  * znet will automatically detect and link OpenSSL if it's installed
-
-## Quick Example
-
-Below is a minimal overview of how to use znet.
+## What it looks like
 
 **Server:**
+
 ```cpp
 ServerConfig config{"127.0.0.1", 25000};
 Server server{config};
 server.SetEventCallback(...);
 server.Bind();
-server.Listen(); // Async listen
+server.Listen();  // async listen
 ```
 
 **Client:**
@@ -79,64 +46,49 @@ ClientConfig config{"127.0.0.1", 25000};
 Client client{config};
 client.SetEventCallback(...);
 client.Bind();
-client.Connect(); // Async connect
+client.Connect();  // async connect
 ```
 
-**Options:**
-Options are scoped like Netty's: `options` configure the thing you created,
-`child_options` configure each session a server accepts.
+Neither config names a transport, so both get the default, ZDT. See the
+[examples](examples) folder for full working code, and the wiki below for
+everything else.
 
-```cpp
-ServerConfig config{"0.0.0.0", 25000, std::chrono::seconds(10),
-                    ConnectionType::ZDT};      // reliable UDP instead of TCP
-config.options.max_connections = 4096;         // the listener
-config.child_options.tcp.no_delay = true;      // every accepted session
-config.child_options.zdt.max_datagrams_in_flight = 256;
-```
+## Documentation
 
-**Metrics:**
-Counters are pull-based, so sample them on a timer rather than per packet.
-Build with `-DZNET_ENABLE_METRICS=OFF` to compile them out entirely.
+👉 **[Read the Wiki](https://github.com/teoncreative/znet/wiki)**
 
-Counters are grouped like options are: what every transport has lives in
-`common`, and each transport gets its own group. `transport` says which group is
-populated.
-
-```cpp
-SessionMetrics m = session->metrics();
-m.common.messages_sent;   // any transport
-m.tcp.writes;             // TCP only
-m.zdt.retransmits;        // ZDT only
-
-ServerMetrics s = server.metrics();
-s.connections_accepted;
-s.zdt.cookies_rejected;   // ZDT only
-```
-
-**Packets:**
-Implement `Packet` and `PacketSerializer` to define your messages.
-
-See the [examples](examples) folder for full working code.
+* [Getting Started](https://github.com/teoncreative/znet/wiki/Getting-Started):
+  build it, then a server and client that talk
+* [Packets and Serialization](https://github.com/teoncreative/znet/wiki/Packets-and-Serialization):
+  defining messages
+* [Events](https://github.com/teoncreative/znet/wiki/Events): the six events and
+  what to do in each
+* [Choosing a Transport](https://github.com/teoncreative/znet/wiki/Choosing-a-Transport):
+  ZDT or TCP, and ZDT's per-message delivery modes
+* [Threading Model](https://github.com/teoncreative/znet/wiki/Threading-Model):
+  which thread calls your code
+* [Configuration Reference](https://github.com/teoncreative/znet/wiki/Configuration-Reference):
+  every option, including metrics and the per-transport groups
+* [Encryption and Compression](https://github.com/teoncreative/znet/wiki/Encryption-and-Compression):
+  what the crypto does and does not give you
+* [Metrics](https://github.com/teoncreative/znet/wiki/Metrics): the counters, and
+  reading them honestly
+* [Peer-to-Peer](https://github.com/teoncreative/znet/wiki/Peer-to-Peer):
+  rendezvous and hole punching
 
 ## Benchmarks
 
 Two workloads: a clean loopback, and the same traffic over a link with 5% packet
-loss and a 50 ms round trip. Methodology, reproduction and caveats:
-[benchmarks/README.md](benchmarks/README.md).
+loss and a 50 ms round trip. **Methodology, reproduction, per-row caveats and
+known gaps are in [benchmarks/README.md](benchmarks/README.md)**, which is where
+these numbers are explained rather than here.
 
 `znet` is the default build (AES-256 + zstd). `znet-raw` has both off, which is
 the like-for-like row against ENet and RakNet, which send plaintext. Throughput
 is messages per second at three payload sizes; latency is a 64 B ping-pong round
-trip.
-
-Every row in every table below was measured in one sitting on one machine, so
-they can be read against each other. Ryzen 9 9950X3D, Linux 7.1.5, GCC, all
-libraries built from source at the versions
-[benchmarks/external](benchmarks/external/CMakeLists.txt) pins. Medians of 15
-runs for znet clean and 7 impaired, 7 and 5 for the comparison libraries, 3 for
-RakNet either way. Rebuild the whole set rather than editing single rows: the
-numbers move enough between machines and kernels that a table mixing two of them
-says nothing.
+trip. Every row was measured in one sitting on one machine (Ryzen 9 9950X3D,
+Linux 7.1.5, GCC), so they can be read against each other but not against a
+table from anywhere else.
 
 ### Over a lossy link
 
@@ -159,9 +111,9 @@ transports split: znet holds p95 at 151 ms against GNS's 261, and p99 at 251
 against 262. ENet is the tightest at every percentile, at a tenth of znet ZDT's
 throughput at 1 KiB and above.
 
-Read every row here with its spread, not just its median. Five of the twelve
-throughput cells vary by more than a quarter across their runs, and three vary
-by more than half, so a single measurement from any library is not a number.
+Read every row with its spread, not just its median. Five of the twelve
+throughput cells vary by more than a quarter across their runs, and three by more
+than half, so a single measurement from any of these libraries is not a number.
 
 ### Clean loopback
 
@@ -196,48 +148,24 @@ znet ZDT holds p95 within 1.2x of its median and p99 within 1.6x, where GNS sits
 Loopback has no loss and a microsecond round trip, so neither congestion control
 nor loss recovery runs; see
 [why the clean tables flatter TCP](benchmarks/README.md#why-the-clean-tables-flatter-tcp).
-It also flatters the raw-socket floors, which is why raw UDP outruns every
-library at 1 KiB and 8 KiB: it is one `sendto` per message with no sequencing,
-no acknowledgement and no reassembly underneath it.
 
-₁ Collapse mode under loss: individual measurements fall to a fraction of the
-usual rate, independently of each other, so a run can be fast at 64 B and
-collapsed at 8 KiB. znet ZDT hit it in 3 of 7 runs at 1 KiB (~1,150 against
-~6,200) and 1 of 7 at both 64 B and 8 KiB; the raw arm in 2 of 7 at 8 KiB. The
-medians above are the honest summary of what a lossy link delivers, but they are
+Footnotes, each explained in full in [benchmarks/README.md](benchmarks/README.md):
+₁ znet ZDT collapses intermittently under loss, so these medians are honest but
 not a steady state, and the cause is still open.
-₂ Lower bound: GNS clamps its own send rate to 100 MiB/s internally, whatever
-SendRateMin/SendRateMax are set to, so these rows measure that limiter rather
-than the protocol. See benchmarks/README.md.
-₃ Same caveat as 1, measured on the comparison libraries rather than assumed
-absent: ENet spans 2,428 to 13,174 across five runs at 64 B, and GNS 62 to 236
-at 8 KiB. Neither is steadier than znet under loss.
-₄ Did not finish at the 60 s deadline. RakNet: ~4,200 of 8,000 at 1 KiB, ~510 of
-2,000 at 8 KiB, in every run. znet TCP: 2 of 7 runs at 1 KiB, lowest 7,575 of
-8,000; TCP-raw 3 of 7, lowest 7,866.
-₅ Stalls on the tail. One run of three delivered 4,999 of 5,000 messages at full
-speed and then hung on the last one until the 60 s deadline, reporting 83 msg/s;
-the other two finished in 0.067 s. The median above is one of those two, so this
-cell is either ~74,000 or ~83 and never anything between.
-
-## Documentation
-
-👉 [Read the Wiki](https://github.com/teoncreative/znet/wiki)
-
-* [Getting Started](https://github.com/teoncreative/znet/wiki/Getting-Started) — build it, then a server and client that talk
-* [Packets and Serialization](https://github.com/teoncreative/znet/wiki/Packets-and-Serialization) — defining messages
-* [Events](https://github.com/teoncreative/znet/wiki/Events) — the six events and what to do in each
-* [Choosing a Transport](https://github.com/teoncreative/znet/wiki/Choosing-a-Transport) — TCP or ZDT, and ZDT's delivery modes
-* [Threading Model](https://github.com/teoncreative/znet/wiki/Threading-Model) — which thread calls your code
-* [Configuration Reference](https://github.com/teoncreative/znet/wiki/Configuration-Reference) — every option
-* [Encryption and Compression](https://github.com/teoncreative/znet/wiki/Encryption-and-Compression) — what the crypto does and does not give you
-* [Metrics](https://github.com/teoncreative/znet/wiki/Metrics) — the counters, and reading them honestly
-* [Peer-to-Peer](https://github.com/teoncreative/znet/wiki/Peer-to-Peer) — rendezvous and hole punching
+₂ Lower bound: GNS clamps its own send rate internally, so these rows measure
+that limiter rather than the protocol.
+₃ The same intermittent collapse as ZDT, measured on ENet and GNS rather than assumed
+absent. Neither is steadier than znet under loss.
+₄ Did not finish at the 60 s deadline.
+₅ Stalls on the tail, so this cell is either ~74,000 or ~83 and never anything
+between.
 
 ## Contributions
 
-We welcome and encourage community contributions to improve znet. If you find any bugs, have feature requests, or want to contribute in any other way, feel free to open an issue or submit a pull request.
+We welcome and encourage community contributions to improve znet. If you find any
+bugs, have feature requests, or want to contribute in any other way, feel free to
+open an issue or submit a pull request.
 
 ## License
 
-Apache License 2.0 - see [LICENSE](LICENSE) for details.
+Apache License 2.0. See [LICENSE](LICENSE) for details.
