@@ -38,6 +38,9 @@ add_subdirectory(examples/p2p)
 add_subdirectory(examples/multiversion/server)
 add_subdirectory(examples/multiversion/client-v2)
 add_subdirectory(examples/multiversion/client-v1)
+add_subdirectory(examples/userptr/server)
+add_subdirectory(examples/userptr/client)
+add_subdirectory(examples/chat-tui)
 
 # tests
 enable_testing()
