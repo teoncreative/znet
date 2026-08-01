@@ -11,6 +11,7 @@
 #include <gtest/gtest.h>
 
 #include <cmath>
+#include <cstdint>
 #include <limits>
 #include <random>
 #include <vector>
@@ -331,14 +332,24 @@ TEST(BitPack, FloatRangedStaysWithinHalfAStep) {
   const float min = -3.15f;
   const float max = 3.15f;
   for (unsigned width = 4; width <= 24; width += 4) {
-    const float levels = static_cast<float>((UINT64_C(1) << width) - 1);
+    // the codec's own level count, not a second derivation of it. a tolerance
+    // built from a different number than the quantiser rounded against is
+    // measuring something else, and the two only look alike until a compiler
+    // folds one of them differently.
+    const uint64_t levels = znet::ext::quant::LevelsForBits(width);
+
     // half a quantisation step, plus the float32 representation error of the
-    // value being returned. Past about 21 bits over this range the second term
-    // dominates: the quantiser is finer than a float can hold, and spending
-    // more bits buys nothing. See FloatRangedHitsFloatPrecisionAroundTwentyBits.
-    const float tolerance =
-        (max - min) / (2.0f * levels) +
-        std::fabs(max) * std::numeric_limits<float>::epsilon();
+    // value being returned. In double, because at 24 bits over this range the
+    // step is already near what a float can hold and a tolerance that rounds
+    // is a tolerance that lies. Past about 21 bits the second term dominates:
+    // the quantiser is finer than a float can hold, and spending more bits
+    // buys nothing. See FloatRangedHitsFloatPrecisionAroundTwentyBits.
+    const double half_step = (static_cast<double>(max) - static_cast<double>(min)) /
+                             (2.0 * static_cast<double>(levels));
+    const double tolerance =
+        half_step +
+        static_cast<double>(std::fabs(max)) *
+            static_cast<double>(std::numeric_limits<float>::epsilon());
     std::mt19937 rng(width);
     std::uniform_real_distribution<float> dist(min, max);
     for (int i = 0; i < 500; ++i) {
@@ -350,7 +361,8 @@ TEST(BitPack, FloatRangedStaysWithinHalfAStep) {
       }
       BitReader bits(*buffer);
       ASSERT_NEAR(bits.ReadFloatRanged(min, max, width), value, tolerance)
-          << "width " << width << " value " << value;
+          << "width " << width << " levels " << levels << " half step "
+          << half_step << " value " << value;
     }
   }
 }
