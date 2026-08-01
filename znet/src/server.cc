@@ -76,6 +76,11 @@ void Server::WorkerLoop(TaskData& data) {
   data.sessions_.With([](SessionMap& sessions) {
     for (auto&& item : sessions) {
       item.second->Close();
+      // still on the worker, and it is about to exit, so this is the last
+      // chance to break a handler->session cycle before ~TaskData drops the
+      // map. closing alone would not: a cycle keeps both ends alive whether
+      // the transport is open or not.
+      item.second->ReleaseHandler();
     }
   });
 }
@@ -206,6 +211,11 @@ void Server::CleanupAndProcessSessions(SessionMap& sessions) {
       ZNET_LOG_DEBUG("Client disconnected: {}",
                      session->remote_address()->readable());
     }
+    // the map is about to drop its reference, and a handler holding one back
+    // to the session would be the only thing left pointing at either of them.
+    // See PeerSession::ReleaseHandler. this runs on the worker, the same
+    // thread that dispatches into the handler, so it cannot race one.
+    session->ReleaseHandler();
     sessions.erase(address);
   }
 

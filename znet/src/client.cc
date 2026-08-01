@@ -30,6 +30,12 @@ Client::~Client() {
   // round to joining it.
   task_.RequestStop();
   task_.Wait();
+  // after the join, not before: releasing while the loop was still dispatching
+  // would race it. a handler that captured the session keeps both alive
+  // forever otherwise. See PeerSession::ReleaseHandler.
+  if (client_session_) {
+    client_session_->ReleaseHandler();
+  }
 }
 
 Result Client::Bind() {

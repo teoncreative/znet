@@ -130,6 +130,24 @@ class PeerSession {
   }
 
   /**
+   * @brief Drops the packet handler.
+   *
+   * A handler almost always needs its session to reply with, and the obvious
+   * way to arrange that is to hand it a shared_ptr. That closes a cycle: the
+   * session owns the handler and the handler owns the session, so the refcount
+   * on each never reaches zero. Neither is ever destroyed, and everything they
+   * hold goes with them: the outbound queue, the transport, its send window,
+   * the derived keys. Nothing on either side can detect it, and the leak scales
+   * with connections served rather than showing up once.
+   *
+   * So whoever owns a session releases its handler when finished with it, which
+   * for a server is when the session leaves its map. Call it from the thread
+   * that drives Process(), since that is the thread dispatching into the
+   * handler; the server does this from its worker.
+   */
+  void ReleaseHandler() { handler_.reset(); }
+
+  /**
    * @brief Registers a callback fired when an idle session is sent to, so the
    *        owning worker encodes without waiting out its tick.
    *

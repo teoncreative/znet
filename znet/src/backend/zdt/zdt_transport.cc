@@ -103,7 +103,11 @@ void ZDTTransportLayer::FillMetrics(SessionMetrics& out) const {
   out.zdt.rtt_min_us = static_cast<uint32_t>(rtt_.rtt_min_ms() * 1000.0);
   out.zdt.rto_us = static_cast<uint32_t>(rtt_.rto().count() * 1000);
   out.zdt.cwnd = static_cast<uint32_t>(congestion_.cwnd());
-  out.zdt.in_flight = static_cast<uint32_t>(unacked_.size());
+  // datagrams, not messages: this is the quantity the congestion window bounds
+  // and the one worth reading against cwnd and max_datagrams_in_flight.
+  // Coalescing puts many messages in one datagram, so unacked_.size() is a
+  // different and much larger number.
+  out.zdt.in_flight = static_cast<uint32_t>(in_flight_datagrams_);
   out.zdt.mtu = connection_.mtu;
 #else
   (void)out;
@@ -272,7 +276,7 @@ void ZDTTransportLayer::FlushOutbound() {
       // the real congestion window: anything past what an ack can describe is
       // resent for nothing and eventually trips max_retries.
       if (next_reliable &&
-          sent_packets_.size() >= static_cast<size_t>(SendWindow())) {
+          in_flight_datagrams_ >= static_cast<size_t>(SendWindow())) {
         break;
       }
       if (next_reliable && !unacked_.empty()) {
@@ -454,8 +458,29 @@ WireSeq ZDTTransportLayer::SendBatch(uint8_t extra_flags,
   last_send_ = steady_clock::now();
   needs_ack_ = false;  // this datagram piggybacked our current ack
   info.send_time = last_send_;
+  // replacing a live entry would leak its count, though a 16-bit sequence
+  // wrapping onto one still tracked means far worse is already wrong
+  RetireSentPacket(header.packet_seq);
+  if (info.key_count > 0) {
+    in_flight_datagrams_++;
+  }
   sent_packets_[header.packet_seq] = info;
   return header.packet_seq;
+}
+
+void ZDTTransportLayer::RetireSentPacket(
+    std::unordered_map<uint16_t, SentInfo>::iterator it) {
+  if (it == sent_packets_.end()) {
+    return;
+  }
+  if (it->second.key_count > 0 && in_flight_datagrams_ > 0) {
+    in_flight_datagrams_--;
+  }
+  sent_packets_.erase(it);
+}
+
+void ZDTTransportLayer::RetireSentPacket(uint16_t packet_seq) {
+  RetireSentPacket(sent_packets_.find(packet_seq));
 }
 
 
@@ -505,7 +530,7 @@ void ZDTTransportLayer::OnNak(WireSeq packet_seq) {
   }
   // the peer reports this gap until filled, and it never will: the resend goes
   // out under a fresh packet_seq. drop it so one loss triggers one retransmit.
-  sent_packets_.erase(it);
+  RetireSentPacket(it);
   ZNET_METRIC(metrics_.zdt.naks_received++);
 }
 
@@ -540,7 +565,7 @@ bool ZDTTransportLayer::AckPacket(WireSeq packet_seq) {
     return false;
   }
   SentInfo info = it->second;
-  sent_packets_.erase(it);
+  RetireSentPacket(it);
   // packet_seq is unique per transmission, so there is no Karn ambiguity.
   const TimePoint now = steady_clock::now();
   rtt_.OnSample(now - info.send_time, now, config_.rto_min, config_.rto_max);
@@ -553,7 +578,7 @@ bool ZDTTransportLayer::AckPacket(WireSeq packet_seq) {
       continue;
     }
     for (WireSeq seq : msg->second.packets) {
-      sent_packets_.erase(seq);
+      RetireSentPacket(seq);
     }
     unacked_.erase(msg);
   }
@@ -613,7 +638,8 @@ void ZDTTransportLayer::PruneSentPackets() {
   auto max_age = config_.rto_max * 4;
   for (auto it = sent_packets_.begin(); it != sent_packets_.end();) {
     if (now - it->second.send_time > max_age) {
-      it = sent_packets_.erase(it);
+      auto stale = it++;
+      RetireSentPacket(stale);
     } else {
       ++it;
     }

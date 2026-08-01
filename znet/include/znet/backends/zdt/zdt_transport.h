@@ -282,6 +282,19 @@ class ZDTTransportLayer : public TransportLayer {
 
   // reliability, sender: in-flight datagrams and unacked reliable datagrams.
   std::unordered_map<uint16_t, SentInfo> sent_packets_;
+  // datagrams awaiting an acknowledgement, which is what the congestion window
+  // bounds. not sent_packets_.size(): that also holds datagrams carrying no
+  // reliable record, which the peer never acks individually, so they linger
+  // until they age out and would otherwise hold window the whole time. On a
+  // path whose window sits near the floor, a couple of keepalives were enough
+  // to stall every reliable send until the next one happened to be acked.
+  size_t in_flight_datagrams_ = 0;
+
+  // Erases a sent_packets_ entry, keeping in_flight_datagrams_ true.
+  void RetireSentPacket(std::unordered_map<uint16_t, SentInfo>::iterator it);
+  // Same as above, by sequence; does nothing when the entry is already gone.
+  void RetireSentPacket(uint16_t packet_seq);
+
   std::map<MsgKey, OutReliable> unacked_;
   // soonest moment any unacked message can fall due; before it, the retransmit
   // scan has nothing to find and is skipped entirely
