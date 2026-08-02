@@ -16,8 +16,10 @@
 // measuring znet as configured rather than the transport in isolation.
 //
 
+#include "common/congestion.h"
 #include "common/harness.h"
 #include "common/impairment.h"
+#include "common/znet_tuning.h"
 
 #include "znet/client.h"
 #include "znet/client_events.h"
@@ -35,6 +37,7 @@
 #include <memory>
 #include <string>
 #include <thread>
+#include <vector>
 
 using namespace znet;
 
@@ -72,23 +75,6 @@ std::shared_ptr<Codec> MakeCodec() {
   return codec;
 }
 
-PortNumber FreePort() {
-  // Bind an ephemeral port, note what the OS picked, and release it. The port
-  // can be taken again before we rebind it, so callers go through
-  // ConnectWithRetry rather than trusting one attempt.
-  int fd = socket(AF_INET, SOCK_DGRAM, 0);
-  sockaddr_in addr{};
-  addr.sin_family = AF_INET;
-  addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-  addr.sin_port = 0;
-  bind(fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr));
-  socklen_t len = sizeof(addr);
-  getsockname(fd, reinterpret_cast<sockaddr*>(&addr), &len);
-  PortNumber port = ntohs(addr.sin_port);
-  close(fd);
-  return port;
-}
-
 // Counts what the server receives.
 class SinkHandler : public PacketHandler<SinkHandler, BenchPacket> {
  public:
@@ -121,13 +107,36 @@ class ReplyHandler : public PacketHandler<ReplyHandler, BenchPacket> {
   std::atomic_uint32_t* replies_;
 };
 
+// Congestion case: bulk and probe share a session, told apart by size. Probes
+// return on channel 1 so ZDT keeps them off the bulk sequence space; TCP
+// ignores the channel and has one stream.
+const SendOptions kProbeOptions = SendOptions().Channel(1);
+
+class CongestionHandler : public PacketHandler<CongestionHandler, BenchPacket> {
+ public:
+  CongestionHandler(std::shared_ptr<PeerSession> session, size_t probe_bytes,
+                    std::atomic_uint32_t* bulk)
+      : session_(std::move(session)), probe_bytes_(probe_bytes), bulk_(bulk) {}
+  void OnPacket(std::shared_ptr<BenchPacket> packet) {
+    if (packet->payload.size() == probe_bytes_) {
+      session_->SendPacket(packet, kProbeOptions);
+      return;
+    }
+    bulk_->fetch_add(1, std::memory_order_relaxed);
+  }
+
+ private:
+  std::shared_ptr<PeerSession> session_;
+  size_t probe_bytes_;
+  std::atomic_uint32_t* bulk_;
+};
+
 const char* TransportName(ConnectionType type) {
   return type == ConnectionType::ZDT ? "ZDT" : "TCP";
 }
 
-// What the server applies to accepted sessions. ENet and RakNet send plaintext
-// and uncompressed, so the "raw" profile is the like-for-like comparison
-// against them; the default profile shows what znet costs as shipped.
+// Server-side profile. "raw" (no crypto, no compression) is the like-for-like
+// row against ENet and RakNet; the default shows znet as shipped.
 struct Profile {
   const char* suffix;
   bool encryption;
@@ -136,68 +145,66 @@ struct Profile {
 
 Profile g_profile{"", true, CompressionType::Default};
 
-// Appended to the library column so profiles are distinguishable in one table.
 std::string LibraryName() {
   return std::string("znet") + g_profile.suffix;
 }
 
-// znet's TCP framing keeps a whole message inside one buffer, so anything at or
-// above this cannot be sent over TCP at all. ZDT fragments instead.
+// znet's TCP framing keeps a whole message in one buffer; ZDT fragments.
 bool TCPCanCarry(size_t payload_bytes) {
   const size_t framing_slack = 64;  // packet id, length prefix, string prefix
   return payload_bytes + framing_slack < ZNET_MAX_BUFFER_SIZE;
 }
 
-// impairment is read once; an empty config leaves the relay out of the path
-// entirely, so a clean run is byte-for-byte the old direct-to-server setup.
 bench::Impairment g_impair;
+
+// What the server does with what it receives.
+enum class ServerRole {
+  Sink,        // count it; the throughput case
+  Echo,        // bounce it back; the latency case
+  Congestion,  // echo probes, count the rest
+};
 
 struct Harnessed {
   std::unique_ptr<Server> server;
   std::unique_ptr<Client> client;
   std::shared_ptr<PeerSession> client_session;
   std::atomic_bool ready{false};
+
+  // Read by the event callbacks, which outlive Connect()'s stack frame, so run
+  // state lives here rather than in Connect() parameters.
+  ServerRole role = ServerRole::Sink;
+  size_t probe_bytes = 0;
+  std::atomic_uint32_t* server_received = nullptr;
+  std::atomic_uint32_t* client_replies = nullptr;
 };
 
 // Brings up a loopback server/client pair and blocks until the session is live.
-// Lifts the queue bounds clear of the workload so the table measures protocol
-// cost rather than buffer sizing. The shared loop keeps at most 4096 messages
-// outstanding, and an 8 KiB message spans about six datagrams, so ~25k inbound
-// datagrams is the real ceiling; these sit well above it.
-void ApplyBenchQueueBounds(SessionOptions& options) {
-  options.common.send_queue_capacity = 65536;
-  options.zdt.outbound_queue_capacity = 65536;
-  options.zdt.max_inbox_datagrams = 65536;
-  options.zdt.max_reassemblies = 8192;
-}
-
-// `make_server_handler` decides whether the server sinks or echoes.
 bool Connect(Harnessed& h, ConnectionType type, PortNumber port,
-             bool echo, std::atomic_uint32_t* server_received,
-             std::atomic_uint32_t* client_replies,
              bench::Clock::duration* connect_time) {
   ServerConfig server_config{"127.0.0.1", port, std::chrono::seconds(10), type};
-  // Only the server configures these; the client follows whatever it selects.
+  // Only the server configures these; the client adopts what it announces.
   server_config.child_options.common.encryption = g_profile.encryption;
   server_config.child_options.common.compression = g_profile.compression;
-  // Queue bounds raised out of the way, matching what the comparison rows do.
-  // These are anti-flood limits, not tuning: a full inbox drops arrivals and a
-  // full send queue refuses, so at the defaults the table would partly measure
-  // whichever library shipped the smaller buffer. The congestion window and
-  // max_datagrams_in_flight are deliberately left alone, since those are
-  // protocol behavior and the impaired runs exist to show what they really do.
-  ApplyBenchQueueBounds(server_config.child_options);
+  bench::ApplyBenchQueueBounds(server_config.child_options);
   h.server = std::make_unique<Server>(server_config);
-  h.server->SetEventCallback([&, echo](Event& event) {
+  h.server->SetEventCallback([&h](Event& event) {
     EventDispatcher dispatcher{event};
     dispatcher.Dispatch<IncomingClientConnectedEvent>(
-        [&, echo](IncomingClientConnectedEvent& ev) {
+        [&h](IncomingClientConnectedEvent& ev) {
           ev.session()->SetCodec(MakeCodec());
-          if (echo) {
-            ev.session()->SetHandler(std::make_shared<EchoHandler>(ev.session()));
-          } else {
-            ev.session()->SetHandler(
-                std::make_shared<SinkHandler>(server_received));
+          switch (h.role) {
+            case ServerRole::Echo:
+              ev.session()->SetHandler(
+                  std::make_shared<EchoHandler>(ev.session()));
+              break;
+            case ServerRole::Congestion:
+              ev.session()->SetHandler(std::make_shared<CongestionHandler>(
+                  ev.session(), h.probe_bytes, h.server_received));
+              break;
+            case ServerRole::Sink:
+              ev.session()->SetHandler(
+                  std::make_shared<SinkHandler>(h.server_received));
+              break;
           }
           return false;
         });
@@ -210,14 +217,15 @@ bool Connect(Harnessed& h, ConnectionType type, PortNumber port,
   auto start = bench::Clock::now();
   ClientConfig client_config{"127.0.0.1", port, std::chrono::seconds(10), type};
   // the sending side, so its queue bounds matter most
-  ApplyBenchQueueBounds(client_config.options);
+  bench::ApplyBenchQueueBounds(client_config.options);
   h.client = std::make_unique<Client>(client_config);
-  h.client->SetEventCallback([&](Event& event) {
+  h.client->SetEventCallback([&h](Event& event) {
     EventDispatcher dispatcher{event};
     dispatcher.Dispatch<ClientConnectedToServerEvent>(
-        [&](ClientConnectedToServerEvent& ev) {
+        [&h](ClientConnectedToServerEvent& ev) {
           ev.session()->SetCodec(MakeCodec());
-          ev.session()->SetHandler(std::make_shared<ReplyHandler>(client_replies));
+          ev.session()->SetHandler(
+              std::make_shared<ReplyHandler>(h.client_replies));
           h.client_session = ev.session();
           h.ready = true;
           return false;
@@ -249,17 +257,13 @@ void Teardown(Harnessed& h) {
   h.server.reset();
 }
 
-// A port picked by FreePort() can be taken by another process before the server
-// binds it, which shows up as a spurious "FAILED to connect" row. Retrying with
-// a fresh port keeps a comparison table from silently losing a case.
-bool ConnectWithRetry(Harnessed& h, ConnectionType type, bool echo,
-                      std::atomic_uint32_t* server_received,
-                      std::atomic_uint32_t* client_replies,
+// FreePort() races other processes; retry with a fresh port rather than lose a
+// table row to a spurious failure.
+bool ConnectWithRetry(Harnessed& h, ConnectionType type,
                       bench::Clock::duration* connect_time) {
   constexpr int kAttempts = 5;
   for (int attempt = 0; attempt < kAttempts; attempt++) {
-    if (Connect(h, type, FreePort(), echo, server_received, client_replies,
-                connect_time)) {
+    if (Connect(h, type, bench::FreePort(), connect_time)) {
       return true;
     }
     Teardown(h);
@@ -268,123 +272,196 @@ bool ConnectWithRetry(Harnessed& h, ConnectionType type, bool echo,
   return false;
 }
 
+// ZNET_BENCH_METRICS=1: protocol counters after each rep, for correlating a
+// rate with the state that produced it. Off by default to keep tables diffable.
+void MaybePrintMetrics(const Harnessed& h, ConnectionType type,
+                       const char* case_name) {
+  if (std::getenv("ZNET_BENCH_METRICS") == nullptr || !h.client_session) {
+    return;
+  }
+  SessionMetrics m = h.client_session->metrics();
+  std::printf("%-10s %-6s metrics    %-6s  mtu %5u  cwnd %5u  dgram_tx %8llu  "
+              "rtx %6llu  nak_rx %5llu  in_drop %5llu  reasm_drop %5llu  "
+              "srtt %6u us  rtt_min %6u us  rto %7u us\n",
+              LibraryName().c_str(), TransportName(type), case_name,
+              m.zdt.mtu, m.zdt.cwnd,
+              static_cast<unsigned long long>(m.zdt.datagrams_sent),
+              static_cast<unsigned long long>(m.zdt.retransmits),
+              static_cast<unsigned long long>(m.zdt.naks_received),
+              static_cast<unsigned long long>(m.zdt.inbound_dropped),
+              static_cast<unsigned long long>(m.zdt.reassemblies_dropped),
+              m.zdt.srtt_us, m.zdt.rtt_min_us, m.zdt.rto_us);
+}
+
 void RunThroughput(ConnectionType type, const bench::Workload& w) {
   if (type == ConnectionType::TCP && !TCPCanCarry(w.payload_bytes)) {
     std::printf("%-10s %-6s throughput %-6s  unsupported (exceeds ZNET_MAX_BUFFER_SIZE framing)\n",
                 LibraryName().c_str(), TransportName(type), w.name);
     return;
   }
-  std::atomic_uint32_t received{0};
-  std::atomic_uint32_t replies{0};
-  bench::Clock::duration connect_time{};
-  Harnessed h;
-  if (!ConnectWithRetry(h, type, /*echo=*/false, &received, &replies,
-                        &connect_time)) {
-    std::printf("%-10s %-6s throughput %-6s  FAILED to connect\n",
-                LibraryName().c_str(), TransportName(type), w.name);
-    Teardown(h);
-    return;
-  }
-
   const std::string payload = bench::MakePayload(w.payload_bytes);
-  uint32_t seq = 0;
-  uint32_t counted = 0;
-  auto start = bench::Clock::now();
-  // the shared loop, same as every comparison library uses, so the send pacing
-  // and the 4096-message backlog bound are identical across the table. Handing
-  // znet the whole workload up front instead would measure a queue no other row
-  // is allowed to build.
-  uint32_t delivered = bench::RunThroughputLoop(
-      w,
-      [&]() {
-        if (!h.client_session->IsAlive()) {
-          return false;
-        }
-        auto packet = std::make_shared<BenchPacket>();
-        packet->seq = seq;
-        packet->payload = payload;
-        // Send refuses when the transport's outbound queue is full; that is the
-        // backpressure signal the loop drains on.
-        if (!h.client_session->SendPacket(packet)) {
-          return false;
-        }
-        seq++;
-        return true;
-      },
-      [&]() {
-        // znet services its own sockets on its own threads, so unlike the
-        // libraries the application drives, there is nothing to pump here; the
-        // loop only needs to be told how many arrived since it last asked.
-        uint32_t now = received.load();
-        uint32_t progress = now - counted;
-        counted = now;
-        return progress;
-      });
-  auto elapsed = bench::Clock::now() - start;
+  std::vector<bench::LoopResult> reps;
+  for (int rep = 0; rep < bench::Reps(); rep++) {
+    std::atomic_uint32_t received{0};
+    std::atomic_uint32_t replies{0};
+    bench::Clock::duration connect_time{};
+    Harnessed h;
+    h.role = ServerRole::Sink;
+    h.server_received = &received;
+    h.client_replies = &replies;
+    if (!ConnectWithRetry(h, type, &connect_time)) {
+      std::printf("%-10s %-6s throughput %-6s  FAILED to connect\n",
+                  LibraryName().c_str(), TransportName(type), w.name);
+      Teardown(h);
+      continue;
+    }
 
-  bench::ReportThroughput(LibraryName().c_str(), TransportName(type), w,
-                          delivered, elapsed);
-  // ZNET_BENCH_METRICS=1 adds the session's protocol counters after each row,
-  // so a run's throughput can be correlated with the state that produced it.
-  // Off by default: the table is meant to stay diffable.
-  if (getenv("ZNET_BENCH_METRICS") != nullptr && h.client_session) {
-    SessionMetrics m = h.client_session->metrics();
-    std::printf("%-10s %-6s metrics    %-6s  mtu %5u  cwnd %5u  dgram_tx %8llu  "
-                "rtx %6llu  nak_rx %5llu  in_drop %5llu  reasm_drop %5llu  "
-                "srtt %6u us  rtt_min %6u us  rto %7u us\n",
-                LibraryName().c_str(), TransportName(type), w.name,
-                m.zdt.mtu, m.zdt.cwnd,
-                static_cast<unsigned long long>(m.zdt.datagrams_sent),
-                static_cast<unsigned long long>(m.zdt.retransmits),
-                static_cast<unsigned long long>(m.zdt.naks_received),
-                static_cast<unsigned long long>(m.zdt.inbound_dropped),
-                static_cast<unsigned long long>(m.zdt.reassemblies_dropped),
-                m.zdt.srtt_us, m.zdt.rtt_min_us, m.zdt.rto_us);
+    uint32_t seq = 0;
+    uint32_t counted = 0;
+    reps.push_back(bench::RunThroughputLoop(
+        w,
+        [&]() {
+          if (!h.client_session->IsAlive()) {
+            return false;
+          }
+          auto packet = std::make_shared<BenchPacket>();
+          packet->seq = seq;
+          packet->payload = payload;
+          // refusal is the backpressure signal the loop drains on
+          if (!h.client_session->SendPacket(packet)) {
+            return false;
+          }
+          seq++;
+          return true;
+        },
+        [&]() {
+          // znet services its own sockets; only counters to read here
+          uint32_t now = received.load();
+          uint32_t progress = now - counted;
+          counted = now;
+          return progress;
+        },
+        bench::ThroughputWarmup(g_impair)));
+    MaybePrintMetrics(h, type, w.name);
+    Teardown(h);
   }
-  Teardown(h);
+  bench::ReportThroughput(LibraryName().c_str(), TransportName(type), w, reps);
 }
 
 void RunLatency(ConnectionType type, const bench::Workload& w) {
-  std::atomic_uint32_t received{0};
-  std::atomic_uint32_t replies{0};
-  bench::Clock::duration connect_time{};
-  Harnessed h;
-  if (!ConnectWithRetry(h, type, /*echo=*/true, &received, &replies,
-                        &connect_time)) {
-    std::printf("%-10s %-6s latency    %-6s  FAILED to connect\n",
-                LibraryName().c_str(), TransportName(type), w.name);
-    Teardown(h);
-    return;
-  }
-  bench::ReportConnect(LibraryName().c_str(), TransportName(type), connect_time);
-
   const std::string payload = bench::MakePayload(w.payload_bytes);
-  std::vector<double> samples;
-  samples.reserve(w.messages);
-  for (uint32_t i = 0; i < w.messages; i++) {
-    uint32_t before = replies.load();
-    auto sent = bench::Clock::now();
-    auto packet = std::make_shared<BenchPacket>();
-    packet->seq = i;
-    packet->payload = payload;
-    if (!h.client_session->SendPacket(packet)) {
-      break;
+  std::vector<std::vector<double>> rep_samples;
+  for (int rep = 0; rep < bench::Reps(); rep++) {
+    std::atomic_uint32_t received{0};
+    std::atomic_uint32_t replies{0};
+    bench::Clock::duration connect_time{};
+    Harnessed h;
+    h.role = ServerRole::Echo;
+    h.server_received = &received;
+    h.client_replies = &replies;
+    if (!ConnectWithRetry(h, type, &connect_time)) {
+      std::printf("%-10s %-6s latency    %-6s  FAILED to connect\n",
+                  LibraryName().c_str(), TransportName(type), w.name);
+      Teardown(h);
+      continue;
     }
-    auto deadline = sent + std::chrono::seconds(5);
-    while (replies.load() == before && bench::Clock::now() < deadline &&
-           h.client_session->IsAlive()) {
-      std::this_thread::yield();
+    if (rep == 0) {
+      bench::ReportConnect(LibraryName().c_str(), TransportName(type),
+                           connect_time);
     }
-    if (replies.load() == before) {
-      break;  // timed out, stop rather than record a bogus sample
-    }
-    samples.push_back(
-        std::chrono::duration<double, std::micro>(bench::Clock::now() - sent)
-            .count());
+
+    uint32_t seq = 0;
+    uint32_t before = 0;
+    rep_samples.push_back(bench::RunLatencyLoop(
+        w,
+        [&]() {
+          if (!h.client_session->IsAlive()) {
+            return false;
+          }
+          before = replies.load();
+          auto packet = std::make_shared<BenchPacket>();
+          packet->seq = seq++;
+          packet->payload = payload;
+          return h.client_session->SendPacket(packet);
+        },
+        [&]() {
+          std::this_thread::yield();
+          return replies.load() != before;
+        }));
+    Teardown(h);
   }
   bench::ReportLatency(LibraryName().c_str(), TransportName(type), w,
-                       bench::Percentiles(samples));
-  Teardown(h);
+                       rep_samples);
+}
+
+void RunCongestion(ConnectionType type, const bench::CongestionCase& c) {
+  if (type == ConnectionType::TCP && !TCPCanCarry(c.bulk_bytes)) {
+    std::printf("%-10s %-6s congestion %-6s  unsupported (exceeds ZNET_MAX_BUFFER_SIZE framing)\n",
+                LibraryName().c_str(), TransportName(type), c.name);
+    return;
+  }
+  const std::string bulk_payload = bench::MakePayload(c.bulk_bytes);
+  const std::string probe_payload = bench::MakePayload(c.probe_bytes);
+  std::vector<bench::CongestionResult> reps;
+  for (int rep = 0; rep < bench::Reps(); rep++) {
+    std::atomic_uint32_t bulk{0};
+    std::atomic_uint32_t probes{0};
+    bench::Clock::duration connect_time{};
+    Harnessed h;
+    h.role = ServerRole::Congestion;
+    h.probe_bytes = c.probe_bytes;
+    h.server_received = &bulk;
+    h.client_replies = &probes;
+    if (!ConnectWithRetry(h, type, &connect_time)) {
+      std::printf("%-10s %-6s congestion %-6s  FAILED to connect\n",
+                  LibraryName().c_str(), TransportName(type), c.name);
+      Teardown(h);
+      continue;
+    }
+
+    uint32_t seq = 0;
+    uint32_t bulk_counted = 0;
+    uint32_t probe_counted = 0;
+    reps.push_back(bench::RunCongestionLoop(
+        c,
+        [&]() {
+          if (!h.client_session->IsAlive()) {
+            return false;
+          }
+          auto packet = std::make_shared<BenchPacket>();
+          packet->seq = seq;
+          packet->payload = bulk_payload;
+          if (!h.client_session->SendPacket(packet)) {
+            return false;
+          }
+          seq++;
+          return true;
+        },
+        [&]() {
+          if (!h.client_session->IsAlive()) {
+            return false;
+          }
+          auto packet = std::make_shared<BenchPacket>();
+          packet->seq = seq;
+          packet->payload = probe_payload;
+          return h.client_session->SendPacket(packet, kProbeOptions);
+        },
+        [&]() {
+          bench::PumpCounts counts;
+          uint32_t now_bulk = bulk.load();
+          counts.bulk = now_bulk - bulk_counted;
+          bulk_counted = now_bulk;
+          uint32_t now_probes = probes.load();
+          counts.probes = now_probes - probe_counted;
+          probe_counted = now_probes;
+          return counts;
+        }));
+    MaybePrintMetrics(h, type, c.name);
+    Teardown(h);
+  }
+  bench::ReportCongestionCase(LibraryName().c_str(), TransportName(type), c,
+                              reps,
+                              type == ConnectionType::ZDT ? "channel" : "none");
 }
 
 }  // namespace
@@ -397,16 +474,18 @@ int main() {
   std::printf("znet %s\n", VersionString());
   g_impair = bench::Impairment::FromEnv();
   bench::NoteImpairment(g_impair);
+  bench::AnnounceRunSettings();
   bench::Note("default = AES + zstd as shipped; raw = both off, which is what");
   bench::Note("ENet and RakNet do. See README.md.");
 
-  // Narrow the run to one transport and drop the latency case, for profiling.
-  // A full run is dominated by the TCP latency case, two thousand tick-bound
-  // round trips spent spinning, which buries the throughput path.
+  // Narrowing knobs, for profiling:
   //   ZNET_BENCH_TRANSPORT=zdt ZNET_BENCH_CASE=8KB ZNET_BENCH_SKIP_LATENCY=1
   const char* only_transport = std::getenv("ZNET_BENCH_TRANSPORT");
   const char* only_case = std::getenv("ZNET_BENCH_CASE");
   const bool skip_latency = std::getenv("ZNET_BENCH_SKIP_LATENCY") != nullptr;
+  // congestion adds ~20s per transport per profile
+  const bool skip_congestion =
+      std::getenv("ZNET_BENCH_SKIP_CONGESTION") != nullptr;
 
   const Profile profiles[] = {
       {"", true, CompressionType::Default},
@@ -433,6 +512,14 @@ int main() {
       }
       if (!skip_latency) {
         RunLatency(type, bench::ImpairedLatencyWorkload(g_impair));
+      }
+      if (!skip_congestion) {
+        for (const auto& c : bench::DefaultCongestionCases()) {
+          if (only_case != nullptr && std::string(only_case) != c.name) {
+            continue;
+          }
+          RunCongestion(type, c);
+        }
       }
     }
   }

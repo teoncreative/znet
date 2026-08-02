@@ -15,10 +15,26 @@ Benchmarks are off by default:
 cmake -B build -DCMAKE_BUILD_TYPE=Release -DZNET_BUILD_BENCHMARKS=ON
 cmake --build build --target benchmarks
 
-# in a namespace of its own, so the traffic stays off the host's loopback
+# the front door: namespace + core pinning + every built binary in one command
+./benchmarks/run.sh -c 0-7,16-23 build/benchmarks
+
+# or by hand, in a namespace of its own
 unshare -rn sh -c 'ip link set lo up
   taskset -c 0-7,16-23 ./build/benchmarks/znet-bench'
 ```
+
+Knobs, honored by every binary (run.sh has flags for each):
+
+| env | effect |
+| --- | --- |
+| `ZNET_BENCH_REPS=N` | run each case N times; the printed row is the median rep, with the span appended. The 64B column especially is not a number from one run. |
+| `ZNET_BENCH_CSV=path` | append one machine-readable row per rep, for local diffing and aggregation. Not for CI: runner VMs cannot produce stable numbers. |
+| `ZNET_BENCH_PAYLOAD=kind` | `binary` (default), `snapshot` or `text`; reproduces the compression table below |
+| `ZNET_BENCH_SKIP_CONGESTION=1` | skip the congestion pool (~20 s per transport per profile) |
+
+Throughput rows also print `cpu-us/msg`, process-wide CPU time per delivered
+message. znet spreads work over `hardware_concurrency()` threads while ENet is
+single-threaded, so msg/s alone hides efficiency; this column is that axis.
 
 Use a namespace even when not impairing anything: these saturate loopback and
 znet starts `hardware_concurrency()` worker threads, which otherwise competes
@@ -53,7 +69,14 @@ build directory if you want to keep the normal one lean.
 ## Impaired runs
 
 To reach the regimes that separate these protocols, put netem on the loopback
-of an unprivileged network namespace and tell the benchmark what you did:
+of an unprivileged network namespace. The runner takes the spec once and
+applies it to both netem and the benchmarks, so the two cannot disagree:
+
+```sh
+./benchmarks/run.sh -i "delay=25,loss=5" -c 0-7,16-23 build/benchmarks
+```
+
+Or by hand:
 
 ```sh
 unshare -rn sh -c '
@@ -69,9 +92,14 @@ way, so a round trip pays each twice.
 
 The environment variable does not impair anything - netem does. It exists
 because nothing can read netem's settings back, and the benchmark needs them
-for two things: scaling the workloads (the stock 2,000 ping-pongs is ten
-minutes at a 300 ms round trip) and labelling the output. Give it the same
-numbers you gave netem or the counts will be wrong.
+for scaling the workloads and labelling the output. If setting it by hand, give
+it the same numbers you gave netem or the counts will be wrong.
+
+Impaired throughput runs get an untimed warmup (25 RTTs, capped at 4 s)
+followed by a drain before the clock starts, so the scaled-down message counts
+measure the open window rather than slow-start; the congestion pool measures
+the ramp itself. A run that still hits the 60 s harness deadline prints
+`TIMEOUT` on its row instead of passing off the truncated rate as a result.
 
 netem rather than a forwarder inside the benchmark, because it sits below the
 socket and so impairs TCP too. A userspace forwarder can only corrupt a proxied
@@ -101,10 +129,62 @@ Throughput counts messages the *receiver* actually delivered to the
 application, not messages handed to the sender, so silent loss shows up as a
 low count rather than a high rate.
 
+## The congestion pool
+
+The workloads above ask how many messages per second a library manages, and on
+clean loopback every one of them answers with what its memcpy path costs. That
+number says nothing about the controller: a protocol with a fixed 64 KiB window
+and one that grows to fill the link are indistinguishable when the round trip is
+30 microseconds, because neither window is ever the binding constraint.
+
+`common/congestion.h` is a second pool for that. Each case runs a bulk transfer
+for a fixed duration while a small probe travels through it, and reports three
+rows the throughput pool cannot:
+
+| field | what it says |
+| --- | --- |
+| `ramp` | when the sender first reached 90% of its own peak, i.e. how long the controller took to open the window |
+| `steady` | the rate over the second half of the run, so slow-start is not averaged into the number being compared |
+| `loaded-lat` | round trips for a 64 B probe sent *while* the transfer saturates the link |
+
+`loaded-lat` is the one a fixed window and a delay-sensitive controller disagree
+about most. Filling a deep queue and keeping it full costs nothing on the
+throughput row and everything here. Read it against the ordinary `latency` row
+for the same payload size: the difference is the standing queue the transfer
+built.
+
+| case | bulk | probe | duration |
+| --- | --- | --- | --- |
+| 1KB | 1 KiB | 64 B | 10 s |
+| 8KB | 8 KiB | 64 B | 10 s |
+
+Duration-based rather than message-count-based, so a case runs for the same wall
+clock impaired and clean and needs none of the scaling the throughput pool gets.
+`ZNET_BENCH_SKIP_CONGESTION=1` leaves the pool out of a znet run.
+
+**These rows mean the most under impairment.** At a microsecond round trip
+nobody's window binds, every ramp completes inside the first bucket, and the
+loaded latency is the idle latency. Run them under netem or they say very
+little.
+
+**Check the `sep` column before comparing two `loaded-lat` rows.** The probe
+shares the connection with the transfer, on a separate channel where the
+transport has channels (`sep channel`: ZDT, ENet, RakNet) and on the same stream
+where it does not (`sep none`: znet over TCP, GNS). Without channels the probe
+is head-of-line blocked behind the transfer as well as queued behind it, which
+is a property of the transport's delivery model rather than of its controller.
+A `sep none` row against a `sep channel` row is not a controller comparison.
+
+The baseline runs the pool over kernel TCP with the probe on a second
+connection (`sep conn`): both share the netem qdisc, so the probe reads the
+queue the transfer built in the link. That row is cubic, a mature delay-blind
+controller, and is the most direct reference for what ZDT's controller does
+differently under the same impairment.
+
 **Payloads are incompressible by default** (`bench::MakePayload`): one repeated
 byte flatters anything that compresses, since zstd takes 64 bytes of 'x' down to
-about 15. `PayloadKind` also offers `Snapshot` (game entity state) and `Text`,
-because compression is worth wildly different amounts per traffic type:
+about 15. `ZNET_BENCH_PAYLOAD=snapshot|text` switches every binary to the other
+kinds, which is how this table was produced:
 
 | payload | 64 B | 1 KiB | 8 KiB |
 | --- | ---: | ---: | ---: |
@@ -161,6 +241,18 @@ effective on encrypted and unencrypted sessions alike.
   itself and still is, which is why the two znet transports differ by three
   orders of magnitude there. `Server::SetTicksPerSecond()` changes the tick.
 
+**Socket buffers are lifted out of the way for every library.** The bench asks
+16 MB everywhere it can: znet via `ZDTOptions::socket_recv_buffer`/`_send_buffer`
+(library default 4 MB), ENet and RakNet by overriding their socket defaults
+(256 KB for ENet; 256 KB receive and 16 KB send for RakNet) after startup.
+`gns_bench` raises GNS's application-level limits; its socket buffer is a
+hardcoded 256 KB with no config API. The kernel silently clamps every ask to
+`net.core.rmem_max`/`wmem_max` — raise those via sysctl for the asks to matter,
+and check znet's debug log for what was actually granted. Whoever shipped the smallest buffer is not what
+the table is meant to measure. Protocol behavior stays untouched: ENet's 64 KB
+reliable window and every library's congestion controller are properties the
+impaired runs exist to show, so no benchmark reconfigures them.
+
 **Message rate is not byte rate.** A library that packs several small messages
 into one datagram can report a message rate far above the raw UDP datagram
 rate. That is real work, but it is measuring aggregation, not the socket. Check
@@ -196,10 +288,19 @@ rate, `SendBufferSize` from its 512 KB default, and the receive-side
 packets rather than applying backpressure when exceeded, so leaving them at the
 defaults would have measured GNS's anti-flood protection.
 
-Its latency tail is its own, though, not an artifact of the setup. The
-benchmark sets `NagleTime=0` so GNS sends immediately, as ZDT does; left at its
-5 ms default it reports a ~10 ms round trip that measures Nagle rather than the
+Its latency tail is its own, though, not an artifact of the setup. `gns_bench`
+reports two profiles rather than picking one. `gns` sets `NagleTime=0` so GNS
+sends immediately as ZDT does; `gns-nagle` keeps the 5 ms coalescing GNS ships
+with, which reports a ~10 ms round trip that measures Nagle rather than the
 protocol.
+
+Both are run because turning Nagle off is not free in one direction only. It is
+the like-for-like setting against znet on latency, but it also disables the
+coalescing that pays for itself at 64 B — which is the one case GNS's internal
+send-rate clamp does not already pin, and therefore the one case where the
+setting could plausibly change the throughput ranking. Running the pair says
+what it is worth per payload size instead of assuming it is worth nothing.
+`GNS_NAGLE_US` overrides the `gns-nagle` profile's value.
 
 It is also not doing the same work. GNS estimates bandwidth and paces its
 sends where ZDT's controller only reads queueing delay, and GNS carries a
@@ -208,10 +309,17 @@ fallback and certificate auth that nothing here exercises.
 
 ## Known gaps
 
-- RakNet's 8 KiB throughput case intermittently stalls at 4999 of 5000 delivered
-  and runs into the 60 s deadline, reporting ~83 msg/s. Successful runs land
-  near 74,000. One run in three stalled for the published table, so re-run
-  before trusting that row.
+- **RakNet's published 8 KiB throughput row is stale and should be re-measured.**
+  It intermittently stalled at 4999 of 5000 delivered and ran into the 60 s
+  deadline, reporting ~83 msg/s against ~74,000 for a successful run — one run
+  in three for the published table. That was measured while all three throughput
+  cases shared port 47200: `Shutdown(100)` returns before a peer's last
+  datagrams have drained, and the next case binding the same port inherits them.
+  `gns_bench` already gave every case its own port for exactly this reason;
+  `enet_bench` and `raknet_bench` now do too, and RakNet's `Send` return value
+  is no longer discarded, so a refusal shows up instead of quietly advancing the
+  backlog accounting. A run that still stalls now prints `TIMEOUT` on the row
+  rather than a plausible-looking rate. Whether the stall survives is unmeasured.
 - **znet ZDT collapses intermittently under loss.** This is now the largest
   caveat in the table. At 5% loss and a 50 ms round trip, single measurements
   drop to a fraction of the usual rate: 1 KiB fell to ~1,150 msg/s against a
@@ -228,7 +336,8 @@ fallback and certificate auth that nothing here exercises.
 - The 64 B column needs several runs to mean anything. Scheduler noise dominates
   when a message costs this little. On the clean table the fifteen runs behind
   the znet ZDT row spanned 1.07x, but under impairment the same column spanned
-  4.6x for znet and 5.4x for ENet. A single run there is not a number.
+  4.6x for znet and 5.4x for ENet. Run it with `ZNET_BENCH_REPS=5` or more; the
+  row is then the median with the span printed beside it.
 - The raw TCP and raw UDP floors span 1.03-1.19x across seven runs with the core
   list pinned inside one L3 domain. If a floor comes back bimodal, check the core
   list first: a list straddling two domains lands client and server on different

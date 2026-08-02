@@ -52,6 +52,8 @@ Result ZDTClientBackend::BindTo(const InetAddress& address) {
   }
   socket_->SetBlocking(false);
   socket_->SetDontFragment(true);  // make the handshake MTU probe meaningful
+  ApplySocketBufferSizes(*socket_, config_.socket_recv_buffer,
+                         config_.socket_send_buffer);
   result = socket_->Bind(address);
   if (result != Result::Success) {
     return result;
@@ -332,7 +334,8 @@ Result ZDTServerBackend::Bind() {
   // loop a chance to notice shutdown.
   socket_->SetBlocking(true);
   socket_->SetReceiveTimeout(std::chrono::milliseconds(200));
-  socket_->SetReceiveBufferSize(4 * 1024 * 1024);
+  ApplySocketBufferSizes(*socket_, config_.socket_recv_buffer,
+                         config_.socket_send_buffer);
   result = socket_->Bind(*bind_address_);
   if (result != Result::Success) {
     return result;

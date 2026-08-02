@@ -9,16 +9,13 @@
 //
 
 //
-// Fan-out: one application thread broadcasting to many sessions.
-//
-// znet_bench.cc measures one session driven by one sender. This measures the
-// shape a game server actually has, a single simulation thread pushing state to
-// every connected client, which rewards the opposite arrangement: encoding on
-// the calling thread pipelines well with one session but serializes N ways
-// here, while encoding on the session's worker spreads it across the pool.
+// Fan-out: one application thread broadcasting to many sessions, the shape a
+// game server has. Rewards the opposite arrangement from znet_bench's
+// one-session pipeline.
 //
 
 #include "common/harness.h"
+#include "common/znet_tuning.h"
 
 #include "znet/client.h"
 #include "znet/client_events.h"
@@ -75,8 +72,7 @@ std::shared_ptr<Codec> MakeCodec() {
   return codec;
 }
 
-// Every client funnels into one counter; the broadcast is done when it reaches
-// clients * per_client.
+// Every client funnels into one counter.
 class CountingHandler : public PacketHandler<CountingHandler, FanoutPacket> {
  public:
   explicit CountingHandler(std::atomic_uint32_t* received) : received_(received) {}
@@ -88,40 +84,32 @@ class CountingHandler : public PacketHandler<CountingHandler, FanoutPacket> {
   std::atomic_uint32_t* received_;
 };
 
-PortNumber FreePort() {
-  int fd = socket(AF_INET, SOCK_DGRAM, 0);
-  sockaddr_in addr{};
-  addr.sin_family = AF_INET;
-  addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-  addr.sin_port = 0;
-  bind(fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr));
-  socklen_t len = sizeof(addr);
-  getsockname(fd, reinterpret_cast<sockaddr*>(&addr), &len);
-  PortNumber port = ntohs(addr.sin_port);
-  close(fd);
-  return port;
-}
-
 struct FanoutResult {
+  bool ok = false;
   uint32_t delivered = 0;
   double seconds = 0.0;
+  bool timed_out = false;
+  double cpu_seconds = 0.0;
 };
 
 FanoutResult RunFanout(const char* profile, ConnectionType type,
                        uint32_t client_count, uint32_t per_client,
                        size_t payload_bytes, bool secure) {
   const std::string payload = bench::MakePayload(payload_bytes);
+  const char* transport = type == ConnectionType::TCP ? "TCP" : "ZDT";
   std::atomic_uint32_t received{0};
   std::atomic_uint32_t clients_ready{0};
 
   std::mutex sessions_mutex;
   std::vector<std::shared_ptr<PeerSession>> sessions;
 
-  PortNumber port = FreePort();
+  PortNumber port = bench::FreePort();
   ServerConfig server_config{"127.0.0.1", port, std::chrono::seconds(10), type};
   server_config.child_options.common.encryption = secure;
   server_config.child_options.common.compression =
       secure ? CompressionType::Default : CompressionType::None;
+  // same bounds as znet_bench, so the two tables measure the same regime
+  bench::ApplyBenchQueueBounds(server_config.child_options);
 
   Server server{server_config};
   server.SetEventCallback([&](Event& event) {
@@ -134,13 +122,18 @@ FanoutResult RunFanout(const char* profile, ConnectionType type,
           return false;
         });
   });
-  server.Bind();
-  server.Listen();
+  if (server.Bind() != Result::Success ||
+      server.Listen() != Result::Success) {
+    std::printf("%-10s %-6s fanout     %ux%u  FAILED to bind/listen\n", profile,
+                transport, client_count, per_client);
+    return {};
+  }
 
   std::vector<std::unique_ptr<Client>> clients;
   clients.reserve(client_count);
   for (uint32_t i = 0; i < client_count; i++) {
     ClientConfig client_config{"127.0.0.1", port, std::chrono::seconds(10), type};
+    bench::ApplyBenchQueueBounds(client_config.options);
     auto client = std::unique_ptr<Client>(new Client{client_config});
     client->SetEventCallback([&](Event& event) {
       EventDispatcher dispatcher{event};
@@ -157,9 +150,15 @@ FanoutResult RunFanout(const char* profile, ConnectionType type,
     clients.push_back(std::move(client));
   }
 
-  // both sides: the server must hold every session, and every client must have
-  // installed its handler, or the first broadcasts land on a session with no
-  // codec and are silently dropped.
+  auto teardown = [&]() {
+    for (auto& client : clients) {
+      client->Disconnect();
+    }
+    server.Stop();
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+  };
+
+  // both sides ready, or the first broadcasts land on sessions with no codec
   auto connect_deadline = bench::Clock::now() + std::chrono::seconds(30);
   while (bench::Clock::now() < connect_deadline) {
     size_t have = 0;
@@ -180,18 +179,18 @@ FanoutResult RunFanout(const char* profile, ConnectionType type,
   }
   if (targets.size() < client_count) {
     std::printf("%-10s %-6s fanout     %ux%u  only %zu/%u sessions connected\n",
-                profile, type == ConnectionType::TCP ? "TCP" : "ZDT",
-                client_count, per_client, targets.size(), client_count);
+                profile, transport, client_count, per_client, targets.size(),
+                client_count);
+    teardown();
     return {};
   }
 
   const uint32_t total = client_count * per_client;
+  const double cpu_start = bench::ProcessCPUSeconds();
   auto deadline = bench::Clock::now() + std::chrono::seconds(120);
   auto started = bench::Clock::now();
 
-  // the fan-out itself: one thread, every session, round after round. A refusal
-  // is backpressure, so spin on it rather than dropping the message, or the
-  // delivered count stops meaning anything.
+  // a refusal is backpressure: spin, don't drop
   for (uint32_t round = 0; round < per_client; round++) {
     for (std::shared_ptr<PeerSession>& session : targets) {
       auto packet = std::make_shared<FanoutPacket>();
@@ -209,32 +208,107 @@ FanoutResult RunFanout(const char* profile, ConnectionType type,
   while (received.load() < total && bench::Clock::now() < deadline) {
     std::this_thread::sleep_for(std::chrono::milliseconds(1));
   }
-  auto elapsed = std::chrono::duration<double>(bench::Clock::now() - started).count();
 
-  uint32_t delivered = received.load();
-  double rate = elapsed > 0 ? delivered / elapsed : 0;
-  double mib = elapsed > 0
-                   ? (static_cast<double>(delivered) * static_cast<double>(payload_bytes))
-                         / (1024.0 * 1024.0) / elapsed
-                   : 0;
-  std::printf("%-10s %-6s fanout     %4ux%-6u %8u msgs  %8.3f s  %10.0f msg/s  %8.1f MiB/s\n",
-              profile, type == ConnectionType::TCP ? "TCP" : "ZDT", client_count,
-              per_client, delivered, elapsed, rate, mib);
-  std::fflush(stdout);
+  FanoutResult out;
+  out.ok = true;
+  out.delivered = received.load();
+  out.seconds =
+      std::chrono::duration<double>(bench::Clock::now() - started).count();
+  out.cpu_seconds = bench::ProcessCPUSeconds() - cpu_start;
+  out.timed_out = out.delivered < total;
+  teardown();
+  return out;
+}
 
-  for (auto& client : clients) {
-    client->Disconnect();
+// Median rep by msg/s; CSV gets every rep.
+void ReportFanout(const char* profile, ConnectionType type,
+                  uint32_t client_count, uint32_t per_client,
+                  size_t payload_bytes, const std::vector<FanoutResult>& reps) {
+  if (reps.empty()) {
+    return;
   }
-  server.Stop();
-  std::this_thread::sleep_for(std::chrono::milliseconds(200));
-  return {delivered, elapsed};
+  const char* transport = type == ConnectionType::TCP ? "TCP" : "ZDT";
+  char case_name[32];
+  std::snprintf(case_name, sizeof(case_name), "%ux%u", client_count, per_client);
+
+  for (size_t i = 0; i < reps.size(); i++) {
+    bench::CsvRow row;
+    row.kind = "fanout";
+    row.library = profile;
+    row.transport = transport;
+    row.case_name = case_name;
+    row.rep = static_cast<int>(i + 1);
+    row.delivered = reps[i].delivered;
+    row.seconds = reps[i].seconds;
+    row.msg_per_s = reps[i].seconds > 0 ? reps[i].delivered / reps[i].seconds : 0;
+    row.mib_per_s = reps[i].seconds > 0
+                        ? (static_cast<double>(reps[i].delivered) *
+                           static_cast<double>(payload_bytes)) /
+                              reps[i].seconds / (1024.0 * 1024.0)
+                        : 0;
+    row.timed_out = reps[i].timed_out ? 1 : 0;
+    row.cpu_us_per_msg = reps[i].delivered > 0
+                             ? reps[i].cpu_seconds * 1e6 / reps[i].delivered
+                             : NAN;
+    EmitCsv(row);
+  }
+
+  std::vector<FanoutResult> sorted = reps;
+  std::sort(sorted.begin(), sorted.end(),
+            [](const FanoutResult& a, const FanoutResult& b) {
+              double ra = a.seconds > 0 ? a.delivered / a.seconds : 0;
+              double rb = b.seconds > 0 ? b.delivered / b.seconds : 0;
+              return ra < rb;
+            });
+  const FanoutResult& mid = sorted[sorted.size() / 2];
+  double rate = mid.seconds > 0 ? mid.delivered / mid.seconds : 0;
+  double mib = mid.seconds > 0 ? (static_cast<double>(mid.delivered) *
+                                  static_cast<double>(payload_bytes)) /
+                                     (1024.0 * 1024.0) / mid.seconds
+                               : 0;
+  double cpu_us =
+      mid.delivered > 0 ? mid.cpu_seconds * 1e6 / mid.delivered : 0;
+  std::printf("%-10s %-6s fanout     %4ux%-6u %8u msgs  %8.3f s  %10.0f msg/s  %8.1f MiB/s  %7.2f cpu-us/msg",
+              profile, transport, client_count, per_client, mid.delivered,
+              mid.seconds, rate, mib, cpu_us);
+  if (mid.timed_out) {
+    std::printf("  TIMEOUT (%u/%u in 120 s)", mid.delivered,
+                client_count * per_client);
+  }
+  if (reps.size() > 1) {
+    double lo = sorted.front().seconds > 0
+                    ? sorted.front().delivered / sorted.front().seconds
+                    : 0;
+    double hi = sorted.back().seconds > 0
+                    ? sorted.back().delivered / sorted.back().seconds
+                    : 0;
+    std::printf("  [%zu reps: %.0f..%.0f msg/s]", reps.size(), lo, hi);
+  }
+  std::printf("\n");
+  std::fflush(stdout);
+}
+
+void RunCase(const char* profile, ConnectionType type, uint32_t clients,
+             uint32_t per_client, size_t payload, bool secure) {
+  std::vector<FanoutResult> reps;
+  for (int rep = 0; rep < bench::Reps(); rep++) {
+    FanoutResult r = RunFanout(profile, type, clients, per_client, payload, secure);
+    if (r.ok) {
+      reps.push_back(r);
+    }
+  }
+  ReportFanout(profile, type, clients, per_client, payload, reps);
 }
 
 }  // namespace
 
 int main() {
-  Init();
+  if (Init() != Result::Success) {
+    std::fprintf(stderr, "failed to initialize znet\n");
+    return 1;
+  }
   std::printf("znet %s fan-out\n", ZNET_VERSION_STRING);
+  bench::AnnounceRunSettings();
   std::fflush(stdout);
 
   struct Case {
@@ -249,13 +323,15 @@ int main() {
   };
 
   for (const Case& c : cases) {
-    RunFanout("znet", ConnectionType::ZDT, c.clients, c.per_client, c.payload, true);
+    RunCase("znet", ConnectionType::ZDT, c.clients, c.per_client, c.payload, true);
   }
   for (const Case& c : cases) {
-    RunFanout("znet-raw", ConnectionType::ZDT, c.clients, c.per_client, c.payload, false);
+    RunCase("znet-raw", ConnectionType::ZDT, c.clients, c.per_client, c.payload, false);
   }
   for (const Case& c : cases) {
-    RunFanout("znet", ConnectionType::TCP, c.clients, c.per_client, c.payload, true);
+    RunCase("znet", ConnectionType::TCP, c.clients, c.per_client, c.payload, true);
   }
+
+  Cleanup();
   return 0;
 }

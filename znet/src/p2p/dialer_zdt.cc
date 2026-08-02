@@ -57,6 +57,10 @@ std::shared_ptr<PeerSession> PunchSyncZDT(
                 peer->readable(), is_initiator);
 
   ZDTOptions config;
+  // the punched socket carries the whole session afterwards, so it gets the
+  // same buffer treatment as the backend sockets
+  ApplySocketBufferSizes(*socket, config.socket_recv_buffer,
+                         config.socket_send_buffer);
   ZDTConnection connection;
   connection.mtu = 1200;  // conservative; skips the ladder probe for P2P
   connection.local_guid = GenerateGuid();

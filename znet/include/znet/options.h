@@ -205,6 +205,20 @@ struct ZDTOptions {
    */
   size_t max_reassembly_bytes = 16u * 1024u * 1024u;
 
+  /**
+   * @brief SO_RCVBUF asked of the UDP socket. Zero leaves the OS default.
+   *
+   * One socket serves every connection, so this is per-endpoint, not
+   * per-session. It only needs to absorb bursts between receive-thread
+   * drains; max_inbox_datagrams is the designed backpressure point.
+   *
+   * Best-effort: the kernel clamps silently (net.core.rmem_max on Linux),
+   * so the granted size is read back and logged at debug level.
+   */
+  int socket_recv_buffer = 4 * 1024 * 1024;
+  /** @brief SO_SNDBUF, on the same terms as socket_recv_buffer. */
+  int socket_send_buffer = 4 * 1024 * 1024;
+
   // the three below bound a flooding peer and an application that outruns the
   // link; each is a hard cap after which traffic is dropped or refused
 

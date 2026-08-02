@@ -32,14 +32,19 @@ target_link_libraries(znet-bench PRIVATE znet)
 znet_add_benchmark(fanout-bench fanout_bench.cc)
 target_link_libraries(fanout-bench PRIVATE znet)
 
-znet_add_benchmark(baseline-bench baseline_bench.cc)
-if(CMAKE_SYSTEM_NAME STREQUAL "Linux" OR CMAKE_SYSTEM_NAME STREQUAL "Darwin")
+# Declared before the targets attach themselves with add_dependencies().
+add_custom_target(benchmarks)
+add_dependencies(benchmarks znet-bench fanout-bench)
+
+# raw POSIX sockets; no Windows port
+if(UNIX)
+    znet_add_benchmark(baseline-bench baseline_bench.cc)
     find_package(Threads REQUIRED)
     target_link_libraries(baseline-bench PRIVATE Threads::Threads)
+    add_dependencies(benchmarks baseline-bench)
 endif()
 
-# Declared before the subdirectory so the comparison targets can attach
-# themselves to it with add_dependencies().
-add_custom_target(benchmarks DEPENDS znet-bench baseline-bench)
+# runner script next to the binaries; see README.md
+file(COPY run.sh DESTINATION "${CMAKE_BINARY_DIR}/benchmarks")
 
 add_subdirectory(external)

@@ -63,8 +63,12 @@ class UDPSocket {
   bool SetBlocking(bool blocking);
   bool SetReceiveTimeout(std::chrono::milliseconds timeout);
   // headroom for bursts that arrive between drains. Best-effort: the kernel
-  // clamps to its own maximum and reports no error when it does.
+  // clamps to its own maximum and reports no error when it does. The getters
+  // return what was actually granted (-1 on error), so a clamp is visible.
   bool SetReceiveBufferSize(int bytes);
+  bool SetSendBufferSize(int bytes);
+  ZNET_NODISCARD int GetReceiveBufferSize() const;
+  ZNET_NODISCARD int GetSendBufferSize() const;
   // best-effort; the handshake MTU probe needs oversized datagrams dropped
   // rather than IP-fragmented.
   bool SetDontFragment(bool enabled);
@@ -96,6 +100,12 @@ class UDPSocket {
  private:
   std::atomic<SocketHandle> socket_{kSocketInvalid};
 };
+
+// Applies both buffer sizes (0 = leave the OS default) and logs the granted
+// values at debug level; the kernel clamps to its own limits silently, so
+// without the readback a small system limit is invisible. Every socket that
+// carries ZDT traffic goes through this: both backends and the P2P punch.
+void ApplySocketBufferSizes(UDPSocket& socket, int recv_bytes, int send_bytes);
 
 // thread-safe raw-datagram queue, shared by a producer and a consumer running on
 // different threads (see ZDTTransportLayer for the threading rule).

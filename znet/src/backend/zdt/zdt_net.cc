@@ -123,6 +123,45 @@ bool UDPSocket::SetReceiveBufferSize(int bytes) {
                     reinterpret_cast<const char*>(&bytes), sizeof(bytes)) == 0;
 }
 
+bool UDPSocket::SetSendBufferSize(int bytes) {
+  return setsockopt(handle(), SOL_SOCKET, SO_SNDBUF,
+                    reinterpret_cast<const char*>(&bytes), sizeof(bytes)) == 0;
+}
+
+namespace {
+int GetBufferSize(SocketHandle handle, int option) {
+  int bytes = 0;
+  socklen_t len = sizeof(bytes);
+  if (getsockopt(handle, SOL_SOCKET, option, reinterpret_cast<char*>(&bytes),
+                 &len) != 0) {
+    return -1;
+  }
+  return bytes;  // Linux reports double the requested value; log as reported
+}
+}  // namespace
+
+int UDPSocket::GetReceiveBufferSize() const {
+  return GetBufferSize(handle(), SO_RCVBUF);
+}
+
+int UDPSocket::GetSendBufferSize() const {
+  return GetBufferSize(handle(), SO_SNDBUF);
+}
+
+void ApplySocketBufferSizes(UDPSocket& socket, int recv_bytes, int send_bytes) {
+  if (recv_bytes > 0) {
+    socket.SetReceiveBufferSize(recv_bytes);
+  }
+  if (send_bytes > 0) {
+    socket.SetSendBufferSize(send_bytes);
+  }
+  ZNET_LOG_DEBUG(
+      "ZDT socket buffers: asked {}/{}, granted {}/{} (recv/send bytes, "
+      "0=OS default, grant as the OS reports it)",
+      recv_bytes, send_bytes, socket.GetReceiveBufferSize(),
+      socket.GetSendBufferSize());
+}
+
 bool UDPSocket::SetDontFragment(bool enabled) {
 #if defined(TARGET_LINUX)
   int value = enabled ? IP_PMTUDISC_DO : IP_PMTUDISC_WANT;

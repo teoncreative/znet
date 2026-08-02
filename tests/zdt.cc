@@ -302,6 +302,29 @@ static std::shared_ptr<UDPSocket> MakeBoundSocket() {
   return socket;
 }
 
+TEST(UDPSocketTest, SocketBufferSizesApplyAndReadBack) {
+  auto socket = MakeBoundSocket();
+  // small enough that no sane kernel limit clamps it; Linux doubles the value
+  // it reports, so assert >= rather than ==
+  constexpr int kAsk = 64 * 1024;
+  EXPECT_TRUE(socket->SetReceiveBufferSize(kAsk));
+  EXPECT_TRUE(socket->SetSendBufferSize(kAsk));
+  EXPECT_GE(socket->GetReceiveBufferSize(), kAsk);
+  EXPECT_GE(socket->GetSendBufferSize(), kAsk);
+}
+
+TEST(UDPSocketTest, ApplySocketBufferSizesHonorsZeroAsDefault) {
+  auto socket = MakeBoundSocket();
+  const int before_recv = socket->GetReceiveBufferSize();
+  const int before_send = socket->GetSendBufferSize();
+  ASSERT_GT(before_recv, 0);
+  ASSERT_GT(before_send, 0);
+  // zero means "leave the OS default": nothing may change
+  backends::ApplySocketBufferSizes(*socket, 0, 0);
+  EXPECT_EQ(socket->GetReceiveBufferSize(), before_recv);
+  EXPECT_EQ(socket->GetSendBufferSize(), before_send);
+}
+
 // drains every datagram currently queued on `socket`. tests use this to move
 // datagrams between transports by hand, so they can drop/reorder them.
 //

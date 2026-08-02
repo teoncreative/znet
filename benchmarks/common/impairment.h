@@ -91,7 +91,16 @@ struct Impairment {
           cfg.jitter_ms = std::atoi(value.c_str());
         } else if (key == "dup") {
           cfg.dup_percent = std::atof(value.c_str());
+        } else {
+          // a typo here silently produces an unscaled, unlabeled table
+          std::fprintf(stderr,
+                       "ZNET_BENCH_IMPAIR: unknown key '%s' ignored "
+                       "(known: loss, delay, jitter, dup)\n",
+                       key.c_str());
         }
+      } else if (!item.empty()) {
+        std::fprintf(stderr, "ZNET_BENCH_IMPAIR: ignoring '%s' (no '=')\n",
+                     item.c_str());
       }
       pos = comma + 1;
     }
@@ -150,8 +159,27 @@ inline Workload ImpairedLatencyWorkload(const Impairment& cfg) {
   return w;
 }
 
-/** @brief Prints the active impairment once, at the top of a run. */
+/**
+ * @brief Untimed warmup before an impaired throughput measurement.
+ *
+ * Scaled-down impaired counts are small enough that slow-start would otherwise
+ * dominate the row; the congestion pool measures the ramp separately.
+ */
+inline Clock::duration ThroughputWarmup(const Impairment& cfg) {
+  const double rtt_ms = 2.0 * static_cast<double>(cfg.delay_ms);
+  if (!cfg.enabled() || rtt_ms < 1.0) {
+    return Clock::duration::zero();
+  }
+  double ms = 25.0 * rtt_ms;
+  if (ms > 4000.0) {
+    ms = 4000.0;
+  }
+  return std::chrono::milliseconds(static_cast<int64_t>(ms));
+}
+
+/** @brief Prints the active impairment once, and labels the CSV context. */
 inline void NoteImpairment(const Impairment& cfg) {
+  CsvImpairment() = cfg.Describe();
   if (cfg.enabled()) {
     std::printf("  impairment: %s (applied by netem, not by the benchmark)\n",
                 cfg.Describe().c_str());
