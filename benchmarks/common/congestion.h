@@ -14,11 +14,11 @@
 // only), and loaded latency (probe RTT while the link is saturated). Compare
 // `loaded-lat` with the idle `latency` row to read the standing queue.
 //
-// Mostly meaningful under netem: on clean loopback no window binds and the
-// loaded latency is the idle latency. Duration-based, so impaired runs need no
-// workload scaling. The `sep` column says how the probe was kept off the bulk
-// stream (channel / conn / none); rows with different sep are not a controller
-// comparison.
+// Duration-based, so impaired runs need no workload scaling. On a clean link
+// no window binds and every ramp lands in the first bucket, so only
+// `loaded-lat` says much there. The `sep` column says how the probe was kept
+// off the bulk stream (channel / conn / none); rows with different sep are not
+// a controller comparison.
 //
 
 #ifndef ZNET_BENCH_CONGESTION_H
@@ -64,7 +64,6 @@ struct PumpCounts {
 struct CongestionResult {
   uint32_t bulk_delivered = 0;
   Clock::duration elapsed{};
-  double cpu_seconds = 0.0;
   std::vector<uint32_t> buckets;  // bulk deliveries per sampling bucket
   std::vector<double> probe_us;   // loaded round trips
   uint32_t probes_lost = 0;
@@ -79,7 +78,6 @@ CongestionResult RunCongestionLoop(const CongestionCase& c, SendBulk send_bulk,
   constexpr auto kProbeTimeout = std::chrono::seconds(2);
 
   CongestionResult out;
-  const double cpu_start = ProcessCPUSeconds();
   const auto start = Clock::now();
   const auto finish = start + c.duration;
   auto next_bucket = start + c.bucket;
@@ -133,7 +131,6 @@ CongestionResult RunCongestionLoop(const CongestionCase& c, SendBulk send_bulk,
 
   out.bulk_delivered = bulk_done;
   out.elapsed = Clock::now() - start;
-  out.cpu_seconds = ProcessCPUSeconds() - cpu_start;
   return out;
 }
 
@@ -213,10 +210,6 @@ inline void ReportCongestionCase(const char* library, const char* transport,
                            static_cast<double>(c.bulk_bytes)) /
                               seconds / (1024.0 * 1024.0)
                         : 0;
-    row.cpu_us_per_msg = reps[i].bulk_delivered > 0
-                             ? reps[i].cpu_seconds * 1e6 /
-                                   static_cast<double>(reps[i].bulk_delivered)
-                             : NAN;
     row.rtt_count = static_cast<double>(p.count());
     row.mean_us = p.Mean();
     row.p50_us = p.At(0.50);

@@ -65,6 +65,11 @@ class ZDTTransportLayer : public TransportLayer {
 
   std::shared_ptr<Buffer> Receive() override;
   bool Send(std::shared_ptr<Buffer> buffer, SendOptions options = {}) override;
+
+  /** @brief ZDT orders each channel on its own, so the channel is the domain. */
+  uint8_t OrderingDomain(const SendOptions& options) const override {
+    return options.GetOr<ChannelKey>(0);
+  }
   Result Close(CloseOptions options = {}) override;
   bool IsClosed() override { return is_closed_; }
   void Update() override;

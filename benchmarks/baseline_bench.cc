@@ -20,6 +20,7 @@
 #include "common/impairment.h"
 
 #include <arpa/inet.h>
+#include <csignal>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
 #include <sys/socket.h>
@@ -136,7 +137,6 @@ void TCPThroughput(const bench::Workload& w) {
 
     const std::string payload = bench::MakePayload(w.payload_bytes);
     uint32_t net_len = htonl(static_cast<uint32_t>(w.payload_bytes));
-    const double cpu_start = bench::ProcessCPUSeconds();
     auto start = bench::Clock::now();
     for (uint32_t i = 0; i < w.messages; i++) {
       if (!WriteExactly(client, reinterpret_cast<const char*>(&net_len),
@@ -151,7 +151,6 @@ void TCPThroughput(const bench::Workload& w) {
     r.delivered = received.load();
     r.seconds =
         std::chrono::duration<double>(bench::Clock::now() - start).count();
-    r.cpu_seconds = bench::ProcessCPUSeconds() - cpu_start;
     r.timed_out = false;
     reps.push_back(r);
     close(listener);
@@ -326,7 +325,6 @@ void TCPCongestion(const bench::CongestionCase& c) {
     const std::string probe_payload = bench::MakePayload(c.probe_bytes);
     std::vector<char> echo(c.probe_bytes);
     bench::CongestionResult r;
-    const double cpu_start = bench::ProcessCPUSeconds();
     const auto start = bench::Clock::now();
     const auto finish = start + c.duration;
     auto next_bucket = start + c.bucket;
@@ -374,7 +372,6 @@ void TCPCongestion(const bench::CongestionCase& c) {
 
     r.bulk_delivered = delivered.load();
     r.elapsed = bench::Clock::now() - start;
-    r.cpu_seconds = bench::ProcessCPUSeconds() - cpu_start;
     reps.push_back(std::move(r));
   }
   bench::ReportCongestionCase("baseline", "TCP", c, reps, "conn");
@@ -427,7 +424,6 @@ void UDPThroughput(const bench::Workload& w) {
     to.sin_port = htons(port);
 
     const std::string payload = bench::MakePayload(w.payload_bytes);
-    const double cpu_start = bench::ProcessCPUSeconds();
     auto start = bench::Clock::now();
     for (uint32_t i = 0; i < w.messages; i++) {
       sendto(client, payload.data(), payload.size(), 0,
@@ -437,7 +433,6 @@ void UDPThroughput(const bench::Workload& w) {
     while (received.load() < w.messages && bench::Clock::now() < deadline) {
       std::this_thread::sleep_for(std::chrono::microseconds(200));
     }
-    const double cpu_end = bench::ProcessCPUSeconds();
     stop = true;
     server.join();
 
@@ -448,7 +443,6 @@ void UDPThroughput(const bench::Workload& w) {
                    ? bench::Clock::time_point(bench::Clock::duration(last))
                    : bench::Clock::now();
     r.seconds = std::chrono::duration<double>(end - start).count();
-    r.cpu_seconds = cpu_end - cpu_start;
     r.timed_out = false;  // loss is the result, not a failure
     min_delivered = std::min(min_delivered, r.delivered);
     reps.push_back(r);
@@ -523,6 +517,13 @@ void UDPLatency(const bench::Workload& w) {
 }  // namespace
 
 int main() {
+  // Tearing a socket down under a blocked writer is normal here: the congestion
+  // case shuts the bulk socket to stop its sender thread. Without this, that
+  // send() raises SIGPIPE and kills the process instead of returning EPIPE.
+  std::signal(SIGPIPE, SIG_IGN);
+  // line-buffered, so a crash cannot swallow the rows already printed
+  setvbuf(stdout, nullptr, _IOLBF, 0);
+
   std::printf("raw sockets (no reliability, ordering or encryption)\n");
   g_impair = bench::Impairment::FromEnv();
   bench::NoteImpairment(g_impair);

@@ -305,8 +305,10 @@ int main() {
     Throughput(w);
   }
   Latency(bench::ImpairedLatencyWorkload(g_impair));
-  for (const auto& c : bench::DefaultCongestionCases()) {
-    Congestion(c);
+  if (std::getenv("ZNET_BENCH_SKIP_CONGESTION") == nullptr) {
+    for (const auto& c : bench::DefaultCongestionCases()) {
+      Congestion(c);
+    }
   }
   return 0;
 }

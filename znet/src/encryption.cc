@@ -138,12 +138,55 @@ UniquePKey GenerateKey() {
   return UniquePKey(dhkey);
 }
 
-bool GenerateIV(unsigned char* iv, int iv_length) {
-  if (RAND_bytes(iv, iv_length) != 1) {
-    return false;
+namespace {
+
+// Wire layout of an encrypted message, after the mode byte:
+//   [stream:1][counter:7][ciphertext:n][tag:16]
+// `stream` is the ordering domain the transport put this message in (see
+// TransportLayer::OrderingDomain); the cipher never interprets it beyond
+// scoping a sequence to it.
+// The nonce is salt || stream || counter; the salt never goes on the wire,
+// both sides derive it from the shared secret. Counters run per stream, so
+// the stream has to be in the nonce for (key, nonce) pairs to stay unique.
+// It needs no separate authentication: altering it derives a different nonce,
+// and the tag then fails. GCM is a stream cipher, so the ciphertext is exactly
+// as long as the plaintext.
+constexpr size_t kNonceLen = 12;  // 4 salt + 1 stream + 7 counter
+constexpr size_t kNonceSaltLen = 4;
+constexpr size_t kCounterLen = 7;
+constexpr size_t kHeaderLen = 1 + kCounterLen;  // stream + counter, on the wire
+constexpr size_t kTagLen = 16;
+// 7 bytes of counter: 2^56 messages on one stream before it would repeat.
+constexpr uint64_t kMaxCounter = (uint64_t{1} << (8 * kCounterLen)) - 1;
+
+constexpr uint8_t kModePlaintext = 0;
+constexpr uint8_t kModeAesCbc = 1;  // retired: unauthenticated, see HandleDecrypt
+constexpr uint8_t kModeAesGcm = 2;
+
+// Big-endian, so a packet capture reads in order.
+void WriteCounter(unsigned char* out, uint64_t counter) {
+  for (size_t i = 0; i < kCounterLen; i++) {
+    out[i] = static_cast<unsigned char>(
+        (counter >> (8 * (kCounterLen - 1 - i))) & 0xFFu);
   }
-  return true;
 }
+
+uint64_t ReadCounter(const unsigned char* in) {
+  uint64_t counter = 0;
+  for (size_t i = 0; i < kCounterLen; i++) {
+    counter = (counter << 8) | in[i];
+  }
+  return counter;
+}
+
+void BuildNonce(const unsigned char* salt, uint8_t stream, uint64_t counter,
+                unsigned char* out) {
+  memcpy(out, salt, kNonceSaltLen);
+  out[kNonceSaltLen] = stream;
+  WriteCounter(out + kNonceSaltLen + 1, counter);
+}
+
+}  // namespace
 
 unsigned char* ComputeSharedSecret(EVP_PKEY* pkey, EVP_PKEY* peer_pkey,
                                    size_t* secret_len) {
@@ -194,9 +237,13 @@ unsigned char* ComputeSharedSecret(EVP_PKEY* pkey, EVP_PKEY* peer_pkey,
   return secret;
 }
 
+// One HKDF-SHA256 expansion. `label` separates the two directions, so the
+// client-to-server and server-to-client streams never share a key: with a
+// counter nonce, one key used both ways would repeat a (key, nonce) pair, which
+// breaks GCM outright rather than merely weakening it.
 bool DeriveKeyFromSharedSecret(const unsigned char* shared_secret,
-                               size_t secret_len, unsigned char* key,
-                               size_t key_len) {
+                               size_t secret_len, const char* label,
+                               unsigned char* key, size_t key_len) {
   if (secret_len > static_cast<size_t>(std::numeric_limits<int>::max()) ||
       key_len > static_cast<size_t>(std::numeric_limits<int>::max())) {
     ZNET_LOG_ERROR("Secret or key length too large");
@@ -209,14 +256,18 @@ bool DeriveKeyFromSharedSecret(const unsigned char* shared_secret,
     return false;
   }
 
+  static const unsigned char kSalt[] = "znet-session-v1";
   size_t out_len = key_len;  // EVP_PKEY_derive needs size_t*
   if (EVP_PKEY_derive_init(pctx) <= 0 ||
       EVP_PKEY_CTX_set_hkdf_md(pctx, EVP_sha256()) <= 0 ||
-      EVP_PKEY_CTX_set1_hkdf_salt(pctx, reinterpret_cast<const unsigned char*>("salt"), 4) <= 0 ||
+      EVP_PKEY_CTX_set1_hkdf_salt(pctx, kSalt,
+                                  static_cast<int>(sizeof(kSalt) - 1)) <= 0 ||
       EVP_PKEY_CTX_set1_hkdf_key(pctx, shared_secret,
                                  static_cast<int>(secret_len)) <= 0 ||
-      EVP_PKEY_CTX_add1_hkdf_info(pctx, reinterpret_cast<const unsigned char*>("info"), 4) <= 0 ||
-      EVP_PKEY_derive(pctx, key, &out_len) <= 0) {  // THIS WAS MISSING!
+      EVP_PKEY_CTX_add1_hkdf_info(
+          pctx, reinterpret_cast<const unsigned char*>(label),
+          static_cast<int>(strlen(label))) <= 0 ||
+      EVP_PKEY_derive(pctx, key, &out_len) <= 0) {
     ZNET_LOG_ERROR("Failed to derive key using HKDF.");
     EVP_PKEY_CTX_free(pctx);
     return false;
@@ -228,81 +279,123 @@ bool DeriveKeyFromSharedSecret(const unsigned char* shared_secret,
 
 // `ctx` is owned by the caller and reused across messages. `set_key` is true
 // only the first time, so the AES key schedule is derived once per session
-// instead of once per message; later calls reset the IV and nothing else.
-int EncryptData(EVP_CIPHER_CTX* ctx, bool set_key,
-                const unsigned char* plaintext, int plaintext_len,
-                const unsigned char* key, const unsigned char* iv,
-                unsigned char* ciphertext) {
+// instead of once per message; later calls reset the nonce and nothing else.
+//
+// `aad` is authenticated but not encrypted: the mode byte goes through it, so a
+// flipped mode fails the tag instead of steering the receiver somewhere else.
+//
+// Returns the ciphertext length, or -1 on failure. Zero is a valid length (an
+// empty plaintext), which is why failure is not folded into it.
+int EncryptData(EVP_CIPHER_CTX* ctx, bool set_key, const unsigned char* key,
+                const unsigned char* nonce, const unsigned char* aad,
+                int aad_len, const unsigned char* plaintext, int plaintext_len,
+                unsigned char* ciphertext, unsigned char* tag) {
   if (!ctx) {
     ZNET_LOG_ERROR("Failed to create EVP_CIPHER_CTX.");
-    return 0;
+    return -1;
   }
 
-  const int ok = set_key
-                     ? EVP_EncryptInit_ex(ctx, EVP_aes_256_cbc(), nullptr, key, iv)
-                     : EVP_EncryptInit_ex(ctx, nullptr, nullptr, nullptr, iv);
-  if (1 != ok) {
-    ZNET_LOG_ERROR("Failed to initialize encryption.");
-    return 0;
+  if (set_key) {
+    if (1 != EVP_EncryptInit_ex(ctx, EVP_aes_256_gcm(), nullptr, nullptr,
+                                nullptr) ||
+        1 != EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_AEAD_SET_IVLEN,
+                                 static_cast<int>(kNonceLen), nullptr) ||
+        1 != EVP_EncryptInit_ex(ctx, nullptr, nullptr, key, nonce)) {
+      ZNET_LOG_ERROR("Failed to initialize encryption.");
+      return -1;
+    }
+  } else if (1 != EVP_EncryptInit_ex(ctx, nullptr, nullptr, nullptr, nonce)) {
+    ZNET_LOG_ERROR("Failed to set the encryption nonce.");
+    return -1;
+  }
+
+  int scratch = 0;
+  if (aad_len > 0 &&
+      1 != EVP_EncryptUpdate(ctx, nullptr, &scratch, aad, aad_len)) {
+    ZNET_LOG_ERROR("Failed to authenticate associated data.");
+    return -1;
   }
 
   int ciphertext_len = 0;
   if (1 != EVP_EncryptUpdate(ctx, ciphertext, &ciphertext_len, plaintext,
                              plaintext_len)) {
     ZNET_LOG_ERROR("Failed to encrypt data.");
-    return 0;
+    return -1;
   }
 
-  int len;
+  int len = 0;
   if (1 != EVP_EncryptFinal_ex(ctx, ciphertext + ciphertext_len, &len)) {
     ZNET_LOG_ERROR("Failed to finalize encryption.");
-    return 0;
+    return -1;
   }
   ciphertext_len += len;
+
+  if (1 != EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_AEAD_GET_TAG,
+                               static_cast<int>(kTagLen), tag)) {
+    ZNET_LOG_ERROR("Failed to read the authentication tag.");
+    return -1;
+  }
   return ciphertext_len;
 }
 
 // reuses `ctx` the same way EncryptData does; see the note there.
-int DecryptData(EVP_CIPHER_CTX* ctx, bool set_key,
-                const unsigned char* ciphertext, int ciphertext_len,
-                unsigned char* key, unsigned char* iv,
+//
+// Returns the plaintext length, or -1 when the tag does not verify. A failure
+// here means the message was forged, tampered with, or replayed under a
+// different nonce, and the caller must drop it: nothing decrypted is
+// trustworthy until EVP_DecryptFinal_ex has passed.
+int DecryptData(EVP_CIPHER_CTX* ctx, bool set_key, const unsigned char* key,
+                const unsigned char* nonce, const unsigned char* aad,
+                int aad_len, const unsigned char* ciphertext,
+                int ciphertext_len, const unsigned char* tag,
                 unsigned char* plaintext) {
   if (!ctx) {
     ZNET_LOG_ERROR("Failed to create EVP_CIPHER_CTX");
-    return 0;
+    return -1;
   }
 
-  const int ok = set_key
-                     ? EVP_DecryptInit_ex(ctx, EVP_aes_256_cbc(), nullptr, key, iv)
-                     : EVP_DecryptInit_ex(ctx, nullptr, nullptr, nullptr, iv);
-  if (1 != ok) {
-    ZNET_LOG_ERROR("Failed to initialize decryption");
-    return 0;
+  if (set_key) {
+    if (1 != EVP_DecryptInit_ex(ctx, EVP_aes_256_gcm(), nullptr, nullptr,
+                                nullptr) ||
+        1 != EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_AEAD_SET_IVLEN,
+                                 static_cast<int>(kNonceLen), nullptr) ||
+        1 != EVP_DecryptInit_ex(ctx, nullptr, nullptr, key, nonce)) {
+      ZNET_LOG_ERROR("Failed to initialize decryption");
+      return -1;
+    }
+  } else if (1 != EVP_DecryptInit_ex(ctx, nullptr, nullptr, nullptr, nonce)) {
+    ZNET_LOG_ERROR("Failed to set the decryption nonce");
+    return -1;
+  }
+
+  int scratch = 0;
+  if (aad_len > 0 &&
+      1 != EVP_DecryptUpdate(ctx, nullptr, &scratch, aad, aad_len)) {
+    ZNET_LOG_ERROR("Failed to authenticate associated data");
+    return -1;
   }
 
   int plaintext_len = 0;
   if (1 != EVP_DecryptUpdate(ctx, plaintext, &plaintext_len, ciphertext,
                              ciphertext_len)) {
     ZNET_LOG_ERROR("Failed to decrypt data");
-    return 0;
+    return -1;
   }
 
-  int len;
+  // const_cast: OpenSSL's ctrl takes void*, but SET_TAG only reads from it
+  if (1 != EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_AEAD_SET_TAG,
+                               static_cast<int>(kTagLen),
+                               const_cast<unsigned char*>(tag))) {
+    ZNET_LOG_ERROR("Failed to set the authentication tag");
+    return -1;
+  }
+
+  int len = 0;
   if (1 != EVP_DecryptFinal_ex(ctx, plaintext + plaintext_len, &len)) {
-    ZNET_LOG_ERROR("Failed to finalize decryption");
-    return 0;
+    return -1;  // tag mismatch; the caller logs, this is attacker-triggerable
   }
   plaintext_len += len;
   return plaintext_len;
-}
-
-int CalculateCipherTextLength(int plaintext_len) {
-  int block_size = 16;  // Block size in bytes (AES)
-  int iv_size = 16;     // IV size in bytes (16 for CBC, 12 for GCM, etc.)
-
-  int ciphertext_len =
-      plaintext_len + (block_size - (plaintext_len % block_size)) + iv_size;
-  return ciphertext_len;
 }
 
 EncryptionLayer::EncryptionLayer(PeerSession& session) : session_(session) {
@@ -313,9 +406,6 @@ EncryptionLayer::EncryptionLayer(PeerSession& session) : session_(session) {
     session_.Close();
     return;
   }
-
-  key_len_ = 32;
-  key_ = new unsigned char[key_len_];
 
   auto handler = std::make_shared<CallbackPacketHandler>();
   handler->AddShared<HandshakePacket>(ZNET_BIND_FN(OnHandshakePacket));
@@ -346,14 +436,12 @@ EncryptionLayer::~EncryptionLayer() {
     EVP_CIPHER_CTX_free(dec_ctx_);
     dec_ctx_ = nullptr;
   }
-  // key material, so it is wiped rather than just released: a plain delete[]
-  // leaves the session key sitting in freed heap for whatever allocates that
-  // block next.
-  if (key_) {
-    OPENSSL_cleanse(key_, key_len_);
-    delete[] key_;
-    key_ = nullptr;
-  }
+  // key material, so it is wiped rather than just released: leaving it in
+  // freed heap hands it to whatever allocates that block next.
+  OPENSSL_cleanse(tx_key_, sizeof(tx_key_));
+  OPENSSL_cleanse(rx_key_, sizeof(rx_key_));
+  OPENSSL_cleanse(tx_salt_, sizeof(tx_salt_));
+  OPENSSL_cleanse(rx_salt_, sizeof(rx_salt_));
   if (shared_secret_) {
     OPENSSL_cleanse(shared_secret_, shared_secret_len_);
     delete[] shared_secret_;
@@ -361,44 +449,128 @@ EncryptionLayer::~EncryptionLayer() {
   }
 }
 
+// Expands the DH secret into one key+salt per direction. The initiator writes
+// the client-to-server stream and reads the other; the acceptor is the mirror,
+// so both sides agree on which label belongs to which end of the wire.
+bool EncryptionLayer::DeriveDirectionalKeys() {
+  static const char kClientToServer[] = "znet c2s v1";
+  static const char kServerToClient[] = "znet s2c v1";
+  const char* tx_label =
+      session_.is_initiator() ? kClientToServer : kServerToClient;
+  const char* rx_label =
+      session_.is_initiator() ? kServerToClient : kClientToServer;
+
+  // key and nonce salt come from one expansion per direction, so the salt is
+  // as unpredictable as the key and never travels on the wire
+  unsigned char tx_material[sizeof(tx_key_) + sizeof(tx_salt_)];
+  unsigned char rx_material[sizeof(rx_key_) + sizeof(rx_salt_)];
+  if (!DeriveKeyFromSharedSecret(shared_secret_, shared_secret_len_, tx_label,
+                                 tx_material, sizeof(tx_material)) ||
+      !DeriveKeyFromSharedSecret(shared_secret_, shared_secret_len_, rx_label,
+                                 rx_material, sizeof(rx_material))) {
+    OPENSSL_cleanse(tx_material, sizeof(tx_material));
+    OPENSSL_cleanse(rx_material, sizeof(rx_material));
+    return false;
+  }
+  memcpy(tx_key_, tx_material, sizeof(tx_key_));
+  memcpy(tx_salt_, tx_material + sizeof(tx_key_), sizeof(tx_salt_));
+  memcpy(rx_key_, rx_material, sizeof(rx_key_));
+  memcpy(rx_salt_, rx_material + sizeof(rx_key_), sizeof(rx_salt_));
+  OPENSSL_cleanse(tx_material, sizeof(tx_material));
+  OPENSSL_cleanse(rx_material, sizeof(rx_material));
+  return true;
+}
+
+uint64_t& EncryptionLayer::TxCounter(uint8_t stream) {
+  if (stream >= tx_counters_.size()) {
+    tx_counters_.resize(static_cast<size_t>(stream) + 1, 0);
+  }
+  return tx_counters_[stream];
+}
+
+ReplayWindow& EncryptionLayer::RxWindow(uint8_t stream) {
+  if (stream >= rx_replay_.size()) {
+    rx_replay_.resize(static_cast<size_t>(stream) + 1);
+  }
+  return rx_replay_[stream];
+}
+
 std::shared_ptr<Buffer> EncryptionLayer::HandleDecrypt(
     std::shared_ptr<Buffer> buffer) {
   auto mode = buffer->ReadInt<uint8_t>();
-  if (mode == 0) {
-    return buffer;  // no encryption
+  if (mode == kModePlaintext) {
+    // Once keys exist the session is encrypted, and a plaintext message is an
+    // attacker stripping the encryption rather than a peer being helpful.
+    if (key_filled_) {
+      ZNET_LOG_ERROR(
+          "Plaintext message on an encrypted session, dropping (downgrade "
+          "attempt or a peer that lost its keys).");
+      return nullptr;
+    }
+    return buffer;  // handshake, before the mode is settled
   }
-  if (mode != 1) {
+  if (mode == kModeAesCbc) {
+    // Retired in favour of GCM. Still accepting it would hand an attacker an
+    // unauthenticated cipher to downgrade to, so it is refused outright.
+    ZNET_LOG_ERROR(
+        "Peer used the retired unauthenticated AES-CBC mode; it is probably an "
+        "older znet. Dropping.");
+    return nullptr;
+  }
+  if (mode != kModeAesGcm) {
     ZNET_LOG_ERROR("Encryption mode {} is not known/supported!", mode);
     return nullptr;
   }
-  unsigned char iv[16];
-  if (buffer->readable_bytes() < sizeof(iv)) {
-    // Read() would leave iv untouched and only set an error flag, and the
-    // indeterminate bytes would go straight to OpenSSL
-    ZNET_LOG_ERROR("Encrypted message is too short to hold an IV, dropping.");
+  if (!key_filled_) {
+    ZNET_LOG_ERROR("Encrypted message before the key exchange finished, dropping.");
     return nullptr;
   }
-  buffer->Read(iv, sizeof(iv));
-  auto cipher_len = static_cast<int>(buffer->readable_bytes());
-  // OpenSSL documents the output buffer as needing a block of slack beyond the
-  // input, even though CBC with padding cannot use it from a fresh Init.
-  std::vector<unsigned char> actual(static_cast<size_t>(cipher_len) +
-                                    EVP_MAX_BLOCK_LENGTH);
-  const char* data_ptr = buffer->data() + buffer->read_cursor();
+  // Read() only sets an error flag when short, leaving the destination
+  // indeterminate, so the length is checked before anything is copied out.
+  if (buffer->readable_bytes() < kHeaderLen + kTagLen) {
+    ZNET_LOG_ERROR("Encrypted message is too short to hold a nonce and tag, dropping.");
+    return nullptr;
+  }
+  unsigned char header[kHeaderLen];
+  buffer->Read(header, sizeof(header));
+  const uint8_t stream = header[0];
+  const uint64_t counter = ReadCounter(header + 1);
+
+  const size_t remaining = buffer->readable_bytes();
+  const auto cipher_len = static_cast<int>(remaining - kTagLen);
+  const auto* body = reinterpret_cast<const unsigned char*>(
+      buffer->data() + buffer->read_cursor());
+  const unsigned char* tag = body + cipher_len;
+
+  unsigned char nonce[kNonceLen];
+  BuildNonce(rx_salt_, stream, counter, nonce);
+
+  std::vector<unsigned char> actual(static_cast<size_t>(cipher_len));
   if (!dec_ctx_) {
     dec_ctx_ = EVP_CIPHER_CTX_new();
     dec_keyed_ = false;
   }
+  const unsigned char aad[1] = {kModeAesGcm};
   const bool set_dec_key = !dec_keyed_;
-  int actual_len = DecryptData(dec_ctx_, set_dec_key,
-                               reinterpret_cast<const unsigned char*>(data_ptr),
-                               cipher_len, key_, iv, actual.data());
-  if (actual_len > 0) {
+  int actual_len =
+      DecryptData(dec_ctx_, set_dec_key, rx_key_, nonce, aad,
+                  static_cast<int>(sizeof(aad)), body, cipher_len, tag,
+                  actual.data());
+  if (actual_len >= 0) {
     dec_keyed_ = true;
   }
-  buffer->SkipRead(static_cast<size_t>(cipher_len));
-  if (actual_len <= 0) {
-    ZNET_LOG_ERROR("Decryption produced no output, dropping message.");
+  buffer->SkipRead(remaining);
+  if (actual_len < 0) {
+    ZNET_LOG_ERROR(
+        "Message failed authentication (stream {}, counter {}), dropping: it "
+        "was forged or altered in transit.",
+        stream, counter);
+    return nullptr;
+  }
+  // only now, with the tag verified, may the counter move the window
+  if (!RxWindow(stream).Accept(counter)) {
+    ZNET_LOG_ERROR("Replayed or too-old message (stream {}, counter {}), dropping.",
+                   stream, counter);
     return nullptr;
   }
   return std::make_shared<Buffer>(reinterpret_cast<char*>(actual.data()),
@@ -411,7 +583,7 @@ std::shared_ptr<Buffer> EncryptionLayer::HandleIn(
 }
 
 std::shared_ptr<Buffer> EncryptionLayer::HandleOut(
-    std::shared_ptr<Buffer> buffer) {
+    std::shared_ptr<Buffer> buffer, uint8_t stream) {
   // the message starts at the read cursor, not at zero: the send pipeline
   // reserves headroom for the byte prepended below
   if (buffer->readable_bytes() >
@@ -422,40 +594,55 @@ std::shared_ptr<Buffer> EncryptionLayer::HandleOut(
   int buffer_len = static_cast<int>(buffer->readable_bytes());
   std::shared_ptr<Buffer> new_buffer = std::make_shared<Buffer>();
   if (enable_encryption_) {
-    std::vector<unsigned char> ciphertext(
-        static_cast<size_t>(CalculateCipherTextLength(buffer_len)));
-    unsigned char iv[16];
-    if (!GenerateIV(iv, sizeof(iv))) {
-      ZNET_LOG_ERROR("Failed to generate random IV, will use zeros!");
-      memset(iv, 0, sizeof(iv));
-    }
-
+    // GCM is a stream cipher: the ciphertext is exactly as long as the input.
+    std::vector<unsigned char> ciphertext(static_cast<size_t>(buffer_len));
+    unsigned char tag[kTagLen];
+    unsigned char nonce[kNonceLen];
+    const unsigned char aad[1] = {kModeAesGcm};
+    uint64_t counter;
     int ciphertext_len;
     {
       std::lock_guard<std::mutex> lock(enc_mutex_);
+      uint64_t& next = TxCounter(stream);
+      if (next == kMaxCounter) {
+        // Wrapping would repeat a (key, nonce) pair, which breaks GCM
+        // completely. Unreachable in practice at 2^56 messages on one stream,
+        // but the consequence is bad enough to check rather than assume.
+        ZNET_LOG_ERROR("Nonce counter exhausted on stream {}, refusing to send.",
+                       stream);
+        return nullptr;
+      }
+      counter = next++;
+      BuildNonce(tx_salt_, stream, counter, nonce);
       if (!enc_ctx_) {
         enc_ctx_ = EVP_CIPHER_CTX_new();
         cipher_keyed_ = false;
       }
       const bool set_key = !cipher_keyed_;
       ciphertext_len =
-          EncryptData(enc_ctx_, set_key,
+          EncryptData(enc_ctx_, set_key, tx_key_, nonce, aad,
+                      static_cast<int>(sizeof(aad)),
                       reinterpret_cast<const unsigned char*>(
                           buffer->read_cursor_data()),
-                      buffer_len, key_, iv, ciphertext.data());
-      if (ciphertext_len > 0) {
+                      buffer_len, ciphertext.data(), tag);
+      if (ciphertext_len >= 0) {
         cipher_keyed_ = true;
       }
     }
-    if (ciphertext_len <= 0) {
-      ZNET_LOG_ERROR("Encryption produced no output, dropping message.");
+    if (ciphertext_len < 0) {
+      ZNET_LOG_ERROR("Encryption failed, dropping message.");
       return nullptr;
     }
 
-    new_buffer->ReserveExact(static_cast<size_t>(ciphertext_len) + 2 + 8 + 16 + 8);
-    new_buffer->WriteInt<uint8_t>(1);  // encryption enabled
-    new_buffer->Write(iv, sizeof(iv));
+    unsigned char header[kHeaderLen];
+    header[0] = stream;
+    WriteCounter(header + 1, counter);
+    new_buffer->ReserveExact(1 + kHeaderLen + static_cast<size_t>(ciphertext_len) +
+                             kTagLen);
+    new_buffer->WriteInt<uint8_t>(kModeAesGcm);
+    new_buffer->Write(header, sizeof(header));
     new_buffer->Write(ciphertext.data(), static_cast<size_t>(ciphertext_len));
+    new_buffer->Write(tag, sizeof(tag));
     return new_buffer;
   }
   // in place when there is headroom left, otherwise a fresh buffer
@@ -523,8 +710,7 @@ void EncryptionLayer::OnHandshakePacket(
     session_.Close();
     return;
   }
-  if (!DeriveKeyFromSharedSecret(shared_secret_, shared_secret_len_, key_,
-                                 key_len_)) {
+  if (!DeriveDirectionalKeys()) {
     ZNET_LOG_ERROR(
         "Failed to derive key from DH secret, closing the connection!");
     session_.Close();

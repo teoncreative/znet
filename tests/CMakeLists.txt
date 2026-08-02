@@ -43,6 +43,12 @@ target_link_libraries(znet-tests-session PRIVATE gtest_main znet)
 
 add_test(NAME session-unit-tests COMMAND znet-tests-session)
 
+add_executable(znet-tests-encryption encryption.cc)
+znet_apply_cxx_standard(znet-tests-encryption)
+target_link_libraries(znet-tests-encryption PRIVATE gtest_main znet)
+
+add_test(NAME encryption-tests COMMAND znet-tests-encryption)
+
 add_executable(znet-tests-zdt zdt.cc)
 znet_apply_cxx_standard(znet-tests-zdt)
 target_link_libraries(znet-tests-zdt PRIVATE gtest_main znet)

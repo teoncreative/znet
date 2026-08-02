@@ -37,6 +37,22 @@ class TransportLayer {
   /** @brief Hands one encoded message to the transport. Worker thread only. */
   virtual bool Send(std::shared_ptr<Buffer> buffer, SendOptions options = {}) = 0;
 
+  /**
+   * @brief Which independently-ordered stream `options` selects. Defaults to a
+   *        single stream, correct for one ordered pipe.
+   *
+   * Messages in one stream arrive in a defined order relative to each other;
+   * messages in different streams do not, and either may stall while the other
+   * flows. Only the transport knows which is which, so it answers rather than
+   * the session reading SendOptions itself. The session crypto needs it: a
+   * sequence, and the replay window checking it, mean nothing outside one
+   * domain.
+   */
+  virtual uint8_t OrderingDomain(const SendOptions& options) const {
+    (void)options;
+    return 0;
+  }
+
   /** @brief Shuts the transport down. Callable from any thread. */
   virtual Result Close(CloseOptions options = {}) = 0;
 

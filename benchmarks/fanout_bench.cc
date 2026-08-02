@@ -89,7 +89,6 @@ struct FanoutResult {
   uint32_t delivered = 0;
   double seconds = 0.0;
   bool timed_out = false;
-  double cpu_seconds = 0.0;
 };
 
 FanoutResult RunFanout(const char* profile, ConnectionType type,
@@ -186,7 +185,6 @@ FanoutResult RunFanout(const char* profile, ConnectionType type,
   }
 
   const uint32_t total = client_count * per_client;
-  const double cpu_start = bench::ProcessCPUSeconds();
   auto deadline = bench::Clock::now() + std::chrono::seconds(120);
   auto started = bench::Clock::now();
 
@@ -214,7 +212,6 @@ FanoutResult RunFanout(const char* profile, ConnectionType type,
   out.delivered = received.load();
   out.seconds =
       std::chrono::duration<double>(bench::Clock::now() - started).count();
-  out.cpu_seconds = bench::ProcessCPUSeconds() - cpu_start;
   out.timed_out = out.delivered < total;
   teardown();
   return out;
@@ -247,9 +244,6 @@ void ReportFanout(const char* profile, ConnectionType type,
                               reps[i].seconds / (1024.0 * 1024.0)
                         : 0;
     row.timed_out = reps[i].timed_out ? 1 : 0;
-    row.cpu_us_per_msg = reps[i].delivered > 0
-                             ? reps[i].cpu_seconds * 1e6 / reps[i].delivered
-                             : NAN;
     EmitCsv(row);
   }
 
@@ -266,11 +260,9 @@ void ReportFanout(const char* profile, ConnectionType type,
                                   static_cast<double>(payload_bytes)) /
                                      (1024.0 * 1024.0) / mid.seconds
                                : 0;
-  double cpu_us =
-      mid.delivered > 0 ? mid.cpu_seconds * 1e6 / mid.delivered : 0;
-  std::printf("%-10s %-6s fanout     %4ux%-6u %8u msgs  %8.3f s  %10.0f msg/s  %8.1f MiB/s  %7.2f cpu-us/msg",
+  std::printf("%-10s %-6s fanout     %4ux%-6u %8u msgs  %8.3f s  %10.0f msg/s  %8.1f MiB/s",
               profile, transport, client_count, per_client, mid.delivered,
-              mid.seconds, rate, mib, cpu_us);
+              mid.seconds, rate, mib);
   if (mid.timed_out) {
     std::printf("  TIMEOUT (%u/%u in 120 s)", mid.delivered,
                 client_count * per_client);

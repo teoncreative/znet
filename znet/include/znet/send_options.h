@@ -68,6 +68,10 @@ struct OrderedKey  { using type = bool; static constexpr int id = 1; };
  * Channels have independent sequence spaces, so ordered traffic on one never
  * waits behind another. Allocated lazily, so unused ones cost nothing.
  *
+ * ZDT reports the channel as its ordering domain, so an encrypted session gets
+ * a nonce sequence and a replay window per channel too. See
+ * TransportLayer::OrderingDomain().
+ *
  * TCP has one stream and ignores it, which collapses traffic you had
  * deliberately separated back onto a single ordered pipe. That is the one case
  * where ignoring an option changes throughput rather than just semantics: a

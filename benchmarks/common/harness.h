@@ -32,16 +32,6 @@
 #include <string>
 #include <vector>
 
-#ifdef _WIN32
-#ifndef WIN32_LEAN_AND_MEAN
-#define WIN32_LEAN_AND_MEAN
-#endif
-#include <windows.h>
-#else
-#include <sys/resource.h>
-#include <sys/time.h>
-#endif
-
 namespace bench {
 
 using Clock = std::chrono::steady_clock;
@@ -178,33 +168,6 @@ inline std::string MakePayload(size_t bytes) {
   return MakePayload(bytes, PayloadKindFromEnv());
 }
 
-/** @brief User+system CPU seconds for the whole process, all threads. */
-inline double ProcessCPUSeconds() {
-#ifdef _WIN32
-  FILETIME creation, exit_time, kernel, user;
-  if (!GetProcessTimes(GetCurrentProcess(), &creation, &exit_time, &kernel,
-                       &user)) {
-    return 0.0;
-  }
-  auto to_seconds = [](const FILETIME& f) {
-    return static_cast<double>((static_cast<uint64_t>(f.dwHighDateTime) << 32) |
-                               f.dwLowDateTime) *
-           1e-7;
-  };
-  return to_seconds(kernel) + to_seconds(user);
-#else
-  rusage ru{};
-  if (getrusage(RUSAGE_SELF, &ru) != 0) {
-    return 0.0;
-  }
-  auto to_seconds = [](const timeval& tv) {
-    return static_cast<double>(tv.tv_sec) +
-           static_cast<double>(tv.tv_usec) * 1e-6;
-  };
-  return to_seconds(ru.ru_utime) + to_seconds(ru.ru_stime);
-#endif
-}
-
 /** @brief ZNET_BENCH_REPS, clamped to [1, 99]. */
 inline int Reps() {
   static int reps = []() {
@@ -246,7 +209,7 @@ inline FILE* CsvFile() {
       std::fprintf(f,
                    "kind,library,transport,case,rep,payload,impairment,"
                    "delivered,seconds,msg_per_s,mib_per_s,timed_out,"
-                   "cpu_us_per_msg,rtt_count,mean_us,p50_us,p95_us,p99_us,"
+                   "rtt_count,mean_us,p50_us,p95_us,p99_us,"
                    "probes_lost,ramp_ms,steady_msg_per_s,peak_msg_per_s,"
                    "separation\n");
     }
@@ -266,7 +229,6 @@ struct CsvRow {
   double msg_per_s = NAN;
   double mib_per_s = NAN;
   int timed_out = -1;  // -1 = not applicable
-  double cpu_us_per_msg = NAN;
   double rtt_count = NAN;
   double mean_us = NAN;
   double p50_us = NAN;
@@ -301,7 +263,6 @@ inline void EmitCsv(const CsvRow& r) {
     std::fprintf(f, "%d", r.timed_out);
   }
   std::fputc(',', f);
-  num(r.cpu_us_per_msg);
   num(r.rtt_count);
   num(r.mean_us);
   num(r.p50_us);
@@ -317,12 +278,11 @@ inline void EmitCsv(const CsvRow& r) {
 
 // ---- measurement loops -------------------------------------------------------
 
-/** @brief One throughput measurement. Timing and CPU cover the measured phase only. */
+/** @brief One throughput measurement. Timing covers the measured phase only. */
 struct LoopResult {
   uint32_t delivered = 0;
   double seconds = 0.0;
-  bool timed_out = false;   // hit the 60 s deadline short of the workload
-  double cpu_seconds = 0.0;  // process-wide, all threads
+  bool timed_out = false;  // hit the 60 s deadline short of the workload
 };
 
 inline double MsgsPerSecond(const LoopResult& r) {
@@ -366,7 +326,6 @@ LoopResult RunThroughputLoop(const Workload& w, SendOne send_one, Pump pump,
   LoopResult out;
   uint32_t sent = 0;
   uint32_t received = 0;
-  const double cpu_start = ProcessCPUSeconds();
   auto start = Clock::now();
   auto deadline = start + kDeadline;
   while (received < w.messages && Clock::now() < deadline) {
@@ -379,7 +338,6 @@ LoopResult RunThroughputLoop(const Workload& w, SendOne send_one, Pump pump,
     received += pump();
   }
   out.seconds = std::chrono::duration<double>(Clock::now() - start).count();
-  out.cpu_seconds = ProcessCPUSeconds() - cpu_start;
   out.delivered = received;
   out.timed_out = received < w.messages;
   return out;
@@ -493,10 +451,6 @@ inline void ReportThroughput(const char* library, const char* transport,
                               reps[i].seconds / (1024.0 * 1024.0)
                         : 0.0;
     row.timed_out = reps[i].timed_out ? 1 : 0;
-    row.cpu_us_per_msg = reps[i].delivered > 0
-                             ? reps[i].cpu_seconds * 1e6 /
-                                   static_cast<double>(reps[i].delivered)
-                             : NAN;
     EmitCsv(row);
   }
 
@@ -511,13 +465,8 @@ inline void ReportThroughput(const char* library, const char* transport,
                                   static_cast<double>(w.payload_bytes)) /
                                      mid.seconds / (1024.0 * 1024.0)
                                : 0.0;
-  double cpu_us = mid.delivered > 0
-                      ? mid.cpu_seconds * 1e6 /
-                            static_cast<double>(mid.delivered)
-                      : 0.0;
-  std::printf("%-10s %-6s throughput %-6s  %8u msgs  %8.3f s  %10.0f msg/s  %8.1f MiB/s  %7.2f cpu-us/msg",
-              library, transport, w.name, mid.delivered, mid.seconds, msgs, mib,
-              cpu_us);
+  std::printf("%-10s %-6s throughput %-6s  %8u msgs  %8.3f s  %10.0f msg/s  %8.1f MiB/s",
+              library, transport, w.name, mid.delivered, mid.seconds, msgs, mib);
   if (mid.timed_out) {
     std::printf("  TIMEOUT (%u/%u in 60 s)", mid.delivered, w.messages);
   }

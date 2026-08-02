@@ -59,9 +59,14 @@ class MessagePipeline {
    * Compression runs before encryption because ciphertext is incompressible,
    * so the other order costs a full pass and saves nothing.
    *
+   * @param stream  which of the transport's independently-ordered streams this
+   *                message travels in, from TransportLayer::OrderingDomain().
+   *                The cipher keeps a sequence and a replay window per stream,
+   *                since a sequence only means anything inside one.
    * @return null if any stage fails, having logged why.
    */
-  std::shared_ptr<Buffer> Encode(const std::shared_ptr<Packet>& packet);
+  std::shared_ptr<Buffer> Encode(const std::shared_ptr<Packet>& packet,
+                                 uint8_t stream);
 
   /**
    * @brief Wire bytes to payload: decrypt, then decompress.

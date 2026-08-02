@@ -303,6 +303,7 @@ static std::shared_ptr<UDPSocket> MakeBoundSocket() {
 }
 
 TEST(UDPSocketTest, SocketBufferSizesApplyAndReadBack) {
+  ASSERT_EQ(Init(), Result::Success);  // WSAStartup, before any socket call
   auto socket = MakeBoundSocket();
   // small enough that no sane kernel limit clamps it; Linux doubles the value
   // it reports, so assert >= rather than ==
@@ -314,6 +315,7 @@ TEST(UDPSocketTest, SocketBufferSizesApplyAndReadBack) {
 }
 
 TEST(UDPSocketTest, ApplySocketBufferSizesHonorsZeroAsDefault) {
+  ASSERT_EQ(Init(), Result::Success);  // WSAStartup, before any socket call
   auto socket = MakeBoundSocket();
   const int before_recv = socket->GetReceiveBufferSize();
   const int before_send = socket->GetSendBufferSize();
@@ -433,6 +435,33 @@ TEST(ZDTUdpSocket, Loopback) {
 }
 
 // --- Transport data path ------------------------------------------------------
+
+// The session crypto scopes its message sequence and its replay window to
+// whatever the transport calls one ordering domain. ZDT orders each channel on
+// its own, so it has to answer with the channel: reporting a single domain
+// would put independently-ordered traffic on one sequence, and a channel
+// stalled on a retransmit would then be refused as a replay of one that raced
+// ahead. tests/encryption.cc covers the crypto's half of that contract; this
+// covers ZDT's.
+TEST(ZDTTransport, OrderingDomainIsTheChannel) {
+  ASSERT_EQ(Init(), Result::Success);
+  auto socket = MakeBoundSocket();
+  ZDTOptions config = FastConfig();
+  ZDTConnection connection;
+  ZDTTransportLayer transport(socket, socket->local_address(), config, false,
+                              nullptr, connection);
+
+  EXPECT_EQ(transport.OrderingDomain(SendOptions{}), 0)
+      << "an unset channel is channel 0";
+  for (int channel = 0; channel < 256; channel++) {
+    SendOptions options;
+    options.Set<ChannelKey>(static_cast<uint8_t>(channel));
+    EXPECT_EQ(transport.OrderingDomain(options), channel);
+  }
+  // the other options must not disturb it
+  SendOptions unreliable = SendOptions().Reliable(false).Ordered(false).Channel(9);
+  EXPECT_EQ(transport.OrderingDomain(unreliable), 9);
+}
 
 TEST(ZDTTransport, LoopbackDataPath) {
   ASSERT_EQ(Init(), Result::Success);
@@ -2353,7 +2382,7 @@ TEST(ConcurrentSend, ManyThreadsOneSessionOverTCP) {
 //
 // Which stages actually spend the headroom depends on the options, and the
 // paths do not overlap: zstd builds a fresh buffer and leaves nothing to
-// prepend into, an encrypted message is rebuilt around its IV, and only the
+// prepend into, an encrypted message is rebuilt around its nonce and tag, and only the
 // plain path prepends both bytes in place. So the matrix below is not
 // redundant: each row is a different arrangement of buffers reaching the
 // transport.
@@ -2437,7 +2466,7 @@ const HeadroomCase kHeadroomCases[] = {
     {"plain, over the compression threshold", false, CompressionType::None, 2000},
     // zstd returns a fresh buffer, so encryption has no headroom to spend
     {"compressed", false, CompressionType::Default, 2000},
-    // encryption rebuilds around the IV, so it consumes the buffer rather than
+    // encryption rebuilds around the nonce and tag, so it consumes the buffer rather than
     // prepending into it
     {"encrypted, under the compression threshold", true, CompressionType::None, 32},
     {"encrypted and compressed", true, CompressionType::Default, 2000},

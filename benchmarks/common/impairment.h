@@ -19,21 +19,14 @@
 //     tc qdisc add dev lo root netem delay 25ms loss 5%
 //     ZNET_BENCH_IMPAIR="delay=25,loss=5" ./znet-bench'
 //
-// No root, and it does not touch the host's networking. netem is used rather
-// than a userspace forwarder because it sits below the socket and therefore
-// impairs TCP as well: dropping bytes out of a proxied TCP stream is
-// corruption, not packet loss, since TCP retransmits below the socket API.
-// A UDP forwarder can only ever impair the datagram transports, which would
-// leave the TCP rows silently unimpaired in the middle of an impaired table.
+// No root, and it does not touch the host's networking. netem rather than a
+// userspace forwarder because it sits below the socket and so impairs TCP too;
+// benchmarks/README.md has the reasoning.
 //
-// The values here have to match what netem was given, because nothing can read
-// them back. They are used for two things:
-//
-//   - scaling the workloads. The defaults assume a microsecond round trip; at
-//     a 300 ms RTT the stock 2,000 ping-pongs is ten minutes and a
-//     one-message-per-datagram throughput case runs past the harness deadline.
-//   - labelling the output, so an impaired table is never mistaken for a clean
-//     one.
+// Nothing can read netem's settings back, so these values have to match what it
+// was given. They scale the workloads, whose stock counts assume a microsecond
+// round trip and would run for ten minutes at a 300 ms one, and they label the
+// output so an impaired table is never mistaken for a clean one.
 //
 // Read `delay` and `jitter` as ONE WAY: a round trip pays both twice.
 //

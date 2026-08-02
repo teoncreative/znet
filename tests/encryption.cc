@@ -1,0 +1,333 @@
+//
+//    Copyright 2026 Metehan Gezer
+//
+//    Licensed under the Apache License, Version 2.0 (the "License");
+//    you may not use this file except in compliance with the License.
+//    You may obtain a copy of the License at
+//
+//        http://www.apache.org/licenses/LICENSE-2.0
+//
+
+//
+// Session-crypto tests over a fake transport, so encrypted frames can be held,
+// reordered, replayed and edited by hand. Two real PeerSessions run the real
+// handshake; only the wire between them is under the test's control, which is
+// the seam a socket-level test does not offer.
+//
+
+#include "znet/codec.h"
+#include "znet/encryption.h"
+#include "znet/init.h"
+#include "znet/packet.h"
+#include "znet/packet_handler.h"
+#include "znet/peer_session.h"
+#include "znet/transport.h"
+
+#include <gtest/gtest.h>
+
+#include <deque>
+#include <memory>
+#include <string>
+#include <vector>
+
+using namespace znet;
+
+namespace {
+
+// A transport that goes nowhere: Send() parks the encoded frame, Receive()
+// hands back whatever the test put in the inbox. The test moves frames between
+// the two ends itself, in whatever order it wants to model.
+class FakeTransport : public TransportLayer {
+ public:
+  struct Frame {
+    std::shared_ptr<Buffer> buffer;
+    uint8_t channel;
+  };
+
+  std::shared_ptr<Buffer> Receive() override {
+    if (inbox.empty()) {
+      return nullptr;
+    }
+    auto buffer = inbox.front();
+    inbox.pop_front();
+    return buffer;
+  }
+  bool Send(std::shared_ptr<Buffer> buffer, SendOptions options = {}) override {
+    sent.push_back(Frame{std::move(buffer), OrderingDomain(options)});
+    return true;
+  }
+  // models a transport that orders each channel on its own, the way ZDT does;
+  // the single-stream default would make the reordering tests vacuous
+  uint8_t OrderingDomain(const SendOptions& options) const override {
+    return options.GetOr<ChannelKey>(0);
+  }
+  Result Close(CloseOptions = {}) override {
+    closed = true;
+    return Result::Success;
+  }
+  bool IsClosed() override { return closed; }
+  void Update() override {}
+  void Flush() override {}
+
+  std::vector<Frame> sent;
+  std::deque<std::shared_ptr<Buffer>> inbox;
+  bool closed = false;
+};
+
+enum TestPacketType : PacketId { kPacketProbe = 1 };
+
+class ProbePacket : public Packet {
+ public:
+  ProbePacket() : Packet(kPacketProbe) {}
+  uint32_t seq = 0;
+};
+
+class ProbeSerializer : public PacketSerializer<ProbePacket> {
+ public:
+  std::shared_ptr<Buffer> SerializeTyped(std::shared_ptr<ProbePacket> packet,
+                                         std::shared_ptr<Buffer> buffer) override {
+    buffer->WriteInt<uint32_t>(packet->seq);
+    return buffer;
+  }
+  std::shared_ptr<ProbePacket> DeserializeTyped(
+      std::shared_ptr<Buffer> buffer) override {
+    auto packet = std::make_shared<ProbePacket>();
+    packet->seq = buffer->ReadInt<uint32_t>();
+    return packet;
+  }
+};
+
+std::shared_ptr<Codec> MakeCodec() {
+  auto codec = std::make_shared<Codec>();
+  codec->Add(kPacketProbe, std::make_unique<ProbeSerializer>());
+  return codec;
+}
+
+class CollectHandler : public PacketHandler<CollectHandler, ProbePacket> {
+ public:
+  explicit CollectHandler(std::vector<uint32_t>* got) : got_(got) {}
+  void OnPacket(std::shared_ptr<ProbePacket> packet) {
+    got_->push_back(packet->seq);
+  }
+
+ private:
+  std::vector<uint32_t>* got_;
+};
+
+// Two sessions and the wire between them. `encryption` picks what the accepting
+// side announces; the initiator adopts it, as it would over a socket.
+struct Pair {
+  FakeTransport* client_wire = nullptr;
+  FakeTransport* server_wire = nullptr;
+  std::unique_ptr<PeerSession> client;
+  std::unique_ptr<PeerSession> server;
+  std::vector<uint32_t> server_got;
+
+  explicit Pair(bool encryption = true) {
+    auto client_transport = std::unique_ptr<FakeTransport>(new FakeTransport());
+    auto server_transport = std::unique_ptr<FakeTransport>(new FakeTransport());
+    client_wire = client_transport.get();
+    server_wire = server_transport.get();
+
+    SessionOptions options;
+    options.common.encryption = encryption;
+    options.common.compression = CompressionType::None;
+
+    std::shared_ptr<InetAddress> client_addr =
+        InetAddress::from("127.0.0.1", 1000);
+    std::shared_ptr<InetAddress> server_addr =
+        InetAddress::from("127.0.0.1", 2000);
+    client.reset(new PeerSession(client_addr, server_addr,
+                                 std::move(client_transport),
+                                 ConnectionType::ZDT, /*is_initiator=*/true,
+                                 /*self_managed=*/false, options));
+    server.reset(new PeerSession(server_addr, client_addr,
+                                 std::move(server_transport),
+                                 ConnectionType::ZDT, /*is_initiator=*/false,
+                                 /*self_managed=*/false, options));
+  }
+
+  // Moves every parked frame across and lets both ends process it.
+  void Pump() {
+    for (auto& frame : client_wire->sent) {
+      server_wire->inbox.push_back(frame.buffer);
+    }
+    client_wire->sent.clear();
+    for (auto& frame : server_wire->sent) {
+      client_wire->inbox.push_back(frame.buffer);
+    }
+    server_wire->sent.clear();
+    server->Process();
+    client->Process();
+  }
+
+  bool Handshake() {
+    for (int i = 0; i < 20 && !(client->IsReady() && server->IsReady()); i++) {
+      Pump();
+    }
+    if (!client->IsReady() || !server->IsReady()) {
+      return false;
+    }
+    // the handshake replaces both, so the application's codec goes on after it
+    client->SetCodec(MakeCodec());
+    server->SetCodec(MakeCodec());
+    server->SetHandler(std::make_shared<CollectHandler>(&server_got));
+    client->SetHandler(std::make_shared<CollectHandler>(&server_got));
+    client_wire->sent.clear();
+    server_wire->sent.clear();
+    return true;
+  }
+
+  // Encodes one packet and returns the frame, without delivering it.
+  FakeTransport::Frame Emit(uint32_t seq, uint8_t channel) {
+    auto packet = std::make_shared<ProbePacket>();
+    packet->seq = seq;
+    SendOptions options;
+    options.Set<ChannelKey>(channel);
+    EXPECT_TRUE(client->SendPacket(packet, options));
+    client->DrainOutbound();
+    EXPECT_FALSE(client_wire->sent.empty());
+    FakeTransport::Frame frame = client_wire->sent.back();
+    client_wire->sent.clear();
+    return frame;
+  }
+
+  void Deliver(const FakeTransport::Frame& frame) {
+    server_wire->inbox.push_back(frame.buffer);
+    server->Process();
+  }
+
+  // Delivering consumes a buffer's read cursor, so a frame that is meant to be
+  // sent twice has to be snapshotted first: reusing the object would replay a
+  // spent buffer rather than the bytes an attacker actually captured.
+  static FakeTransport::Frame Snapshot(const FakeTransport::Frame& frame) {
+    return FakeTransport::Frame{
+        std::make_shared<Buffer>(frame.buffer->data(), frame.buffer->size()),
+        frame.channel};
+  }
+};
+
+}  // namespace
+
+TEST(SessionCrypto, RoundTripsOverTheFakeWire) {
+  ASSERT_EQ(Init(), Result::Success);
+  Pair pair;
+  ASSERT_TRUE(pair.Handshake());
+
+  for (uint32_t i = 0; i < 10; i++) {
+    pair.Deliver(pair.Emit(i, 0));
+  }
+  ASSERT_EQ(pair.server_got.size(), 10u);
+  for (uint32_t i = 0; i < 10; i++) {
+    EXPECT_EQ(pair.server_got[i], i);
+  }
+}
+
+// The regression this file exists for. Channels are ordered independently, so
+// one can run far ahead while another waits on a retransmit. With a single
+// sequence and a single replay window shared across channels, the stalled
+// channel's backlog lands outside the window and is refused as too old --
+// silent data loss on a channel the caller was promised was reliable.
+TEST(SessionCrypto, ChannelRunningAheadDoesNotStarveAStalledChannel) {
+  ASSERT_EQ(Init(), Result::Success);
+  Pair pair;
+  ASSERT_TRUE(pair.Handshake());
+
+  // channel 0 stalls: its frames are held rather than delivered
+  const uint32_t kHeld = 200;  // far more than one replay window
+  std::vector<FakeTransport::Frame> held;
+  for (uint32_t i = 0; i < kHeld; i++) {
+    held.push_back(pair.Emit(i, 0));
+  }
+  // meanwhile channel 1 keeps flowing
+  for (uint32_t i = 0; i < 5; i++) {
+    pair.Deliver(pair.Emit(1000 + i, 1));
+  }
+  ASSERT_EQ(pair.server_got.size(), 5u) << "channel 1 should have gone through";
+
+  // the stall clears and channel 0's backlog arrives, in its own order
+  for (const auto& frame : held) {
+    pair.Deliver(frame);
+  }
+
+  ASSERT_EQ(pair.server_got.size(), 5u + kHeld)
+      << "every held message must still be delivered; a shared replay window "
+         "would refuse the ones more than 64 counters behind";
+  for (uint32_t i = 0; i < kHeld; i++) {
+    EXPECT_EQ(pair.server_got[5 + i], i) << "held message " << i;
+  }
+}
+
+TEST(SessionCrypto, ChannelsKeepIndependentSequences) {
+  ASSERT_EQ(Init(), Result::Success);
+  Pair pair;
+  ASSERT_TRUE(pair.Handshake());
+
+  // interleaving two channels must not make either look like a replay
+  for (uint32_t i = 0; i < 50; i++) {
+    pair.Deliver(pair.Emit(i, 0));
+    pair.Deliver(pair.Emit(100 + i, 7));
+  }
+  EXPECT_EQ(pair.server_got.size(), 100u);
+}
+
+TEST(SessionCrypto, ReplayedFrameIsRefused) {
+  ASSERT_EQ(Init(), Result::Success);
+  Pair pair;
+  ASSERT_TRUE(pair.Handshake());
+
+  FakeTransport::Frame frame = pair.Emit(42, 0);
+  FakeTransport::Frame captured = Pair::Snapshot(frame);
+  pair.Deliver(frame);
+  ASSERT_EQ(pair.server_got.size(), 1u);
+
+  // the same bytes again, as an attacker who captured them would send
+  pair.Deliver(captured);
+  EXPECT_EQ(pair.server_got.size(), 1u)
+      << "a captured frame replayed verbatim must not be delivered twice";
+}
+
+TEST(SessionCrypto, TamperedCiphertextIsRefused) {
+  ASSERT_EQ(Init(), Result::Success);
+  Pair pair;
+  ASSERT_TRUE(pair.Handshake());
+
+  FakeTransport::Frame frame = pair.Emit(7, 0);
+  // flip a bit in the body; with an unauthenticated cipher this would decrypt
+  // to altered plaintext and be handed to the application
+  ASSERT_GT(frame.buffer->size(), 12u);
+  char* bytes = const_cast<char*>(frame.buffer->data());
+  bytes[frame.buffer->size() / 2] ^= 0x01;
+
+  pair.Deliver(frame);
+  EXPECT_TRUE(pair.server_got.empty())
+      << "an altered frame must fail its tag and be dropped";
+}
+
+TEST(SessionCrypto, TamperedChannelByteIsRefused) {
+  ASSERT_EQ(Init(), Result::Success);
+  Pair pair;
+  ASSERT_TRUE(pair.Handshake());
+
+  FakeTransport::Frame frame = pair.Emit(7, 0);
+  // the channel is not in the AEAD's associated data, it is in the nonce, so
+  // moving a frame to another channel must still fail
+  char* bytes = const_cast<char*>(frame.buffer->data());
+  bytes[1] ^= 0x03;  // [0] is the mode byte, [1] the channel
+
+  pair.Deliver(frame);
+  EXPECT_TRUE(pair.server_got.empty())
+      << "a frame re-labelled onto another channel derives a different nonce "
+         "and must fail its tag";
+}
+
+TEST(SessionCrypto, UnencryptedSessionStillDelivers) {
+  ASSERT_EQ(Init(), Result::Success);
+  Pair pair(/*encryption=*/false);
+  ASSERT_TRUE(pair.Handshake());
+
+  for (uint32_t i = 0; i < 5; i++) {
+    pair.Deliver(pair.Emit(i, 0));
+  }
+  EXPECT_EQ(pair.server_got.size(), 5u);
+}

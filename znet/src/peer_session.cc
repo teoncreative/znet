@@ -143,7 +143,10 @@ void PeerSession::Ready() {
 
 bool PeerSession::EncodeAndSend(const std::shared_ptr<Packet>& packet,
                                 SendOptions options) {
-  auto buffer = pipeline_.Encode(packet);
+  // the transport decides what "in order relative to each other" means for
+  // these options, and the cipher's sequence has to be scoped the same way
+  auto buffer =
+      pipeline_.Encode(packet, transport_layer_->OrderingDomain(options));
   if (!buffer) {
     return false;
   }

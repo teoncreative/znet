@@ -16,7 +16,7 @@
 namespace znet {
 
 std::shared_ptr<Buffer> MessagePipeline::Encode(
-    const std::shared_ptr<Packet>& packet) {
+    const std::shared_ptr<Packet>& packet, uint8_t stream) {
   if (!codec_) {
     ZNET_LOG_WARN("Session {} has no codec, dropping packet!", id_);
     return nullptr;
@@ -36,7 +36,7 @@ std::shared_ptr<Buffer> MessagePipeline::Encode(
     ZNET_LOG_ERROR("Session {} compression failed, dropping packet!", id_);
     return nullptr;
   }
-  buffer = encryption_.HandleOut(std::move(buffer));
+  buffer = encryption_.HandleOut(std::move(buffer), stream);
   if (!buffer) {
     ZNET_LOG_ERROR("Session {} encryption failed, dropping packet!", id_);
     return nullptr;

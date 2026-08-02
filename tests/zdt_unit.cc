@@ -18,8 +18,11 @@
 #include "znet/backends/zdt/zdt_ack_history.h"
 #include "znet/backends/zdt/zdt_congestion.h"
 #include "znet/backends/zdt/zdt_wire.h"
+#include "znet/encryption.h"
 
 #include <gtest/gtest.h>
+
+#include <vector>
 
 using namespace znet;
 using namespace znet::backends;
@@ -448,4 +451,122 @@ TEST(ZDTCongestionTest, TheTwoTimeoutFloorsDisagree) {
     lossy.OnRetransmitTimeout(quiet, static_cast<WireSeq>(i));
   }
   EXPECT_DOUBLE_EQ(lossy.cwnd(), 8.0);
+}
+
+// ---------------------------------------------------------------------------
+// ReplayWindow
+//
+// Guards the AEAD nonce counters. ZDT delivers channels independently and
+// unreliable sends may arrive out of order, so the window has to tolerate
+// reordering without ever accepting the same counter twice.
+// ---------------------------------------------------------------------------
+
+TEST(ReplayWindowTest, AcceptsAStrictlyIncreasingRun) {
+  ReplayWindow window;
+  for (uint64_t i = 0; i < 1000; i++) {
+    EXPECT_TRUE(window.Accept(i)) << "counter " << i;
+  }
+}
+
+TEST(ReplayWindowTest, RefusesAnImmediateRepeat) {
+  ReplayWindow window;
+  EXPECT_TRUE(window.Accept(7));
+  EXPECT_FALSE(window.Accept(7)) << "the highest counter is itself a replay";
+}
+
+TEST(ReplayWindowTest, RefusesARepeatFromInsideTheWindow) {
+  ReplayWindow window;
+  for (uint64_t i = 0; i < 40; i++) {
+    ASSERT_TRUE(window.Accept(i));
+  }
+  for (uint64_t i = 0; i < 40; i++) {
+    EXPECT_FALSE(window.Accept(i)) << "counter " << i << " was already seen";
+  }
+}
+
+TEST(ReplayWindowTest, AcceptsReorderedArrivalsOnce) {
+  ReplayWindow window;
+  ASSERT_TRUE(window.Accept(10));
+  // gap filled out of order, as an unordered channel would deliver it
+  EXPECT_TRUE(window.Accept(7));
+  EXPECT_TRUE(window.Accept(9));
+  EXPECT_TRUE(window.Accept(8));
+  EXPECT_FALSE(window.Accept(9)) << "a filled gap must not reopen";
+  EXPECT_FALSE(window.Accept(10));
+}
+
+TEST(ReplayWindowTest, TracksTheFullWidthAndRefusesJustPastIt) {
+  ReplayWindow window;
+  const uint64_t base = 1000;
+  ASSERT_TRUE(window.Accept(base));
+  // the oldest entry the window can still prove unseen
+  EXPECT_TRUE(window.Accept(base - ReplayWindow::kWidth));
+  EXPECT_FALSE(window.Accept(base - ReplayWindow::kWidth))
+      << "and having accepted it, it is now a replay";
+  EXPECT_FALSE(window.Accept(base - ReplayWindow::kWidth - 1))
+      << "one past the width cannot be proven unseen, so it is refused";
+}
+
+TEST(ReplayWindowTest, JumpingExactlyTheWidthKeepsTheOldHighest) {
+  ReplayWindow window;
+  ASSERT_TRUE(window.Accept(100));
+  ASSERT_TRUE(window.Accept(100 + ReplayWindow::kWidth));
+  EXPECT_FALSE(window.Accept(100))
+      << "the old highest is the last entry still inside the window";
+}
+
+TEST(ReplayWindowTest, JumpingPastTheWidthDropsEverythingOld) {
+  ReplayWindow window;
+  for (uint64_t i = 0; i < 64; i++) {
+    ASSERT_TRUE(window.Accept(i));
+  }
+  ASSERT_TRUE(window.Accept(100000));
+  // the old counters are now unprovable rather than remembered, so they are
+  // refused for being too old -- which is the safe direction
+  EXPECT_FALSE(window.Accept(63));
+  EXPECT_FALSE(window.Accept(0));
+}
+
+TEST(ReplayWindowTest, FirstCounterNeedNotBeZero) {
+  ReplayWindow window;
+  // a session that starts mid-stream, or a peer whose first message is lost
+  EXPECT_TRUE(window.Accept(500));
+  EXPECT_FALSE(window.Accept(500));
+  EXPECT_TRUE(window.Accept(501));
+}
+
+TEST(ReplayWindowTest, SurvivesCountersNearTheTopOfTheRange) {
+  ReplayWindow window;
+  const uint64_t high = std::numeric_limits<uint64_t>::max() - 2;
+  EXPECT_TRUE(window.Accept(high));
+  EXPECT_TRUE(window.Accept(high + 1));
+  EXPECT_TRUE(window.Accept(high + 2));  // the last representable counter
+  EXPECT_FALSE(window.Accept(high));
+}
+
+TEST(ReplayWindowTest, AcceptsEveryCounterOfAShuffledBurstExactlyOnce) {
+  // one burst, delivered in a scrambled order that stays inside the window
+  ReplayWindow window;
+  std::vector<uint64_t> order;
+  for (uint64_t i = 0; i < 64; i++) {
+    order.push_back(i);
+  }
+  // deterministic shuffle: repeatedly take from both ends
+  std::vector<uint64_t> scrambled;
+  for (size_t lo = 0, hi = order.size(); lo < hi;) {
+    scrambled.push_back(order[lo++]);
+    if (lo < hi) {
+      scrambled.push_back(order[--hi]);
+    }
+  }
+  int accepted = 0;
+  for (uint64_t counter : scrambled) {
+    if (window.Accept(counter)) {
+      accepted++;
+    }
+  }
+  EXPECT_EQ(accepted, 64) << "every distinct counter should pass exactly once";
+  for (uint64_t counter : scrambled) {
+    EXPECT_FALSE(window.Accept(counter)) << "counter " << counter;
+  }
 }
