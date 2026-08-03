@@ -40,6 +40,9 @@ add_subdirectory(examples/multiversion/client-v2)
 add_subdirectory(examples/multiversion/client-v1)
 add_subdirectory(examples/userptr/server)
 add_subdirectory(examples/userptr/client)
+add_subdirectory(examples/auth/service)
+add_subdirectory(examples/auth/server)
+add_subdirectory(examples/auth/client)
 add_subdirectory(examples/chat-tui)
 
 # tests
