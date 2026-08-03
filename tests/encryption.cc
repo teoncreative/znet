@@ -25,6 +25,7 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <deque>
 #include <memory>
 #include <string>
@@ -330,4 +331,119 @@ TEST(SessionCrypto, UnencryptedSessionStillDelivers) {
     pair.Deliver(pair.Emit(i, 0));
   }
   EXPECT_EQ(pair.server_got.size(), 5u);
+}
+
+// --- Keying material export ---------------------------------------------------
+//
+// The exchange is anonymous, so a credential sent over it proves only that
+// somebody holds it. An export is what an application binds one to: both ends of
+// a session derive it, nobody else can, and it is different on every session.
+// That last part is what an interceptor cannot get around, since it runs two
+// separate exchanges and holds two different values.
+
+namespace {
+
+std::vector<unsigned char> Export(const PeerSession& session,
+                                  const std::string& label, size_t len = 32) {
+  std::vector<unsigned char> out(len, 0);
+  EXPECT_TRUE(session.ExportKeyingMaterial(label, out.data(), out.size()));
+  return out;
+}
+
+}  // namespace
+
+TEST(SessionExport, BothEndsDeriveTheSameValue) {
+  ASSERT_EQ(Init(), Result::Success);
+  Pair pair;
+  ASSERT_TRUE(pair.Handshake());
+
+  auto from_client = Export(*pair.client, "auth v1");
+  auto from_server = Export(*pair.server, "auth v1");
+
+  EXPECT_EQ(from_client, from_server);
+  // a failed derive that still reported success would leave the buffer zeroed
+  EXPECT_NE(from_client, std::vector<unsigned char>(32, 0));
+}
+
+TEST(SessionExport, IsStableAcrossCalls) {
+  ASSERT_EQ(Init(), Result::Success);
+  Pair pair;
+  ASSERT_TRUE(pair.Handshake());
+
+  EXPECT_EQ(Export(*pair.client, "auth v1"), Export(*pair.client, "auth v1"));
+}
+
+TEST(SessionExport, DiffersByLabel) {
+  ASSERT_EQ(Init(), Result::Success);
+  Pair pair;
+  ASSERT_TRUE(pair.Handshake());
+
+  EXPECT_NE(Export(*pair.client, "auth v1"), Export(*pair.client, "auth v2"));
+}
+
+// The property the whole thing rests on. Two sessions are two exchanges, so a
+// proof built on one is worthless on the other, which is exactly what an
+// interceptor is holding: its session with the client is not its session with
+// the server.
+TEST(SessionExport, DiffersBetweenSessions) {
+  ASSERT_EQ(Init(), Result::Success);
+  Pair first;
+  Pair second;
+  ASSERT_TRUE(first.Handshake());
+  ASSERT_TRUE(second.Handshake());
+
+  EXPECT_NE(Export(*first.client, "auth v1"), Export(*second.client, "auth v1"));
+  // and both ends of each still agree, so the difference is the session and not
+  // some per-end divergence
+  EXPECT_EQ(Export(*second.client, "auth v1"), Export(*second.server, "auth v1"));
+}
+
+TEST(SessionExport, LengthIsHonored) {
+  ASSERT_EQ(Init(), Result::Success);
+  Pair pair;
+  ASSERT_TRUE(pair.Handshake());
+
+  auto short_export = Export(*pair.client, "auth v1", 16);
+  auto long_export = Export(*pair.client, "auth v1", 64);
+  ASSERT_EQ(short_export.size(), 16u);
+  ASSERT_EQ(long_export.size(), 64u);
+  // HKDF is a stream, so a shorter ask is a prefix of a longer one
+  EXPECT_TRUE(std::equal(short_export.begin(), short_export.end(),
+                         long_export.begin()));
+}
+
+TEST(SessionExport, RefusedBeforeTheHandshakeCompletes) {
+  ASSERT_EQ(Init(), Result::Success);
+  Pair pair;  // deliberately not handshaked
+
+  unsigned char out[32] = {};
+  EXPECT_FALSE(pair.client->ExportKeyingMaterial("auth v1", out, sizeof(out)));
+}
+
+TEST(SessionExport, RefusedOnAnUnencryptedSession) {
+  ASSERT_EQ(Init(), Result::Success);
+  Pair pair(/*encryption=*/false);
+  ASSERT_TRUE(pair.Handshake());
+
+  unsigned char out[32] = {};
+  EXPECT_FALSE(pair.client->ExportKeyingMaterial("auth v1", out, sizeof(out)))
+      << "there is no exchange to bind to, so this must not hand back bytes";
+}
+
+TEST(SessionExport, RejectsOutOfRangeRequests) {
+  ASSERT_EQ(Init(), Result::Success);
+  Pair pair;
+  ASSERT_TRUE(pair.Handshake());
+
+  unsigned char out[32] = {};
+  EXPECT_FALSE(pair.client->ExportKeyingMaterial("", out, sizeof(out)));
+  EXPECT_FALSE(pair.client->ExportKeyingMaterial(
+      std::string(EncryptionLayer::kMaxExportLabelLength + 1, 'x'), out,
+      sizeof(out)));
+  EXPECT_FALSE(pair.client->ExportKeyingMaterial("auth v1", out, 0));
+  EXPECT_FALSE(pair.client->ExportKeyingMaterial("auth v1", nullptr, 32));
+
+  std::vector<unsigned char> huge(EncryptionLayer::kMaxExportLength + 1, 0);
+  EXPECT_FALSE(
+      pair.client->ExportKeyingMaterial("auth v1", huge.data(), huge.size()));
 }

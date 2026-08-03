@@ -758,6 +758,139 @@ TEST(ZDTReliability, ReliableOrderedDeliversInOrderUnderLoss) {
       << "sender never acted on a reported gap";
 }
 
+// A channel exists only once something has travelled on it: the receiver
+// allocates its state on first arrival, and there is no channel-open exchange to
+// lose. So the first message on a channel has to recover from loss like any
+// other, even though the peer has never heard of the channel.
+//
+// This is the harder half: the dropped datagram is the connection's first, so
+// the receiver has no packet_seq to measure a gap against and cannot NAK.
+// Nothing but the sender's own RTO can recover it.
+TEST(ZDTReliability, FirstMessageOnAnUnusedChannelSurvivesLoss) {
+  ASSERT_EQ(Init(), Result::Success);
+
+  auto server_socket = OpenBoundSocket();
+  auto client_socket = OpenBoundSocket();
+  auto server_addr = server_socket->local_address();
+  auto client_addr = client_socket->local_address();
+
+  ZDTOptions config = FastConfig();
+  ZDTConnection connection;
+  ZDTTransportLayer client(client_socket, server_addr, config, false, nullptr,
+                           connection);
+  ZDTTransportLayer server(server_socket, client_addr, config, false, nullptr,
+                           connection);
+
+  const uint8_t kChannel = 7;  // never used, on either side
+  const uint32_t kValue = 0xABCDEF01;
+  auto payload = std::make_shared<Buffer>();
+  payload->WriteInt<uint32_t>(kValue);
+  ASSERT_TRUE(client.Send(payload, MakeSendOptions(true, true, kChannel)));
+
+  // lose it on the wire, before the server ever sees it
+  client.Update();
+  ASSERT_GE(CollectDatagrams(*server_socket, 1).size(), 1u)
+      << "the message was never sent, so the test drops nothing";
+
+  std::shared_ptr<Buffer> received;
+  auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+  while (!received && std::chrono::steady_clock::now() < deadline) {
+    client.Update();
+    Pump(*server_socket, server);
+    server.Update();
+    Pump(*client_socket, client);
+    received = server.Receive();
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  }
+
+  ASSERT_TRUE(received != nullptr)
+      << "first message on a new channel was lost and never retransmitted";
+  EXPECT_EQ(received->ReadInt<uint32_t>(), kValue);
+
+  SessionMetrics client_metrics;
+  client.FillMetrics(client_metrics);
+  EXPECT_GT(client_metrics.zdt.retransmits, 0u)
+      << "it arrived without a retransmit, so the drop did not take";
+}
+
+// The same first-on-a-channel message, but with the connection already running,
+// so the receiver does see a packet_seq gap. Here the channel's state is created
+// by a message that arrives out of order, and the retransmitted first one has to
+// still be delivered ahead of it.
+TEST(ZDTReliability, NewChannelOpenedMidConnectionKeepsItsOrder) {
+  ASSERT_EQ(Init(), Result::Success);
+
+  auto server_socket = OpenBoundSocket();
+  auto client_socket = OpenBoundSocket();
+  auto server_addr = server_socket->local_address();
+  auto client_addr = client_socket->local_address();
+
+  ZDTOptions config = FastConfig();
+  ZDTConnection connection;
+  ZDTTransportLayer client(client_socket, server_addr, config, false, nullptr,
+                           connection);
+  ZDTTransportLayer server(server_socket, client_addr, config, false, nullptr,
+                           connection);
+
+  const uint8_t kChannel = 7;
+  const uint32_t kWarmup = 1000;
+
+  // traffic on channel 0 first, so the receiver has a packet_seq baseline
+  auto warmup = std::make_shared<Buffer>();
+  warmup->WriteInt<uint32_t>(kWarmup);
+  ASSERT_TRUE(client.Send(warmup, MakeSendOptions(true, true, 0)));
+
+  std::vector<uint32_t> received;
+  auto pump_once = [&]() {
+    client.Update();
+    Pump(*server_socket, server);
+    server.Update();
+    Pump(*client_socket, client);
+    while (auto buffer = server.Receive()) {
+      received.push_back(buffer->ReadInt<uint32_t>());
+    }
+  };
+
+  auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+  while (received.empty() && std::chrono::steady_clock::now() < deadline) {
+    pump_once();
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  }
+  ASSERT_EQ(received.size(), 1u) << "warmup on channel 0 never arrived";
+  ASSERT_EQ(received[0], kWarmup);
+  received.clear();
+
+  // first message on channel 7, dropped in flight
+  auto first = std::make_shared<Buffer>();
+  first->WriteInt<uint32_t>(0);
+  ASSERT_TRUE(client.Send(first, MakeSendOptions(true, true, kChannel)));
+  client.Update();
+  ASSERT_GE(CollectDatagrams(*server_socket, 1).size(), 1u)
+      << "the message was never sent, so the test drops nothing";
+
+  // the rest of the channel arrives normally, ahead of the retransmit
+  const uint32_t kFollowers = 3;
+  for (uint32_t i = 1; i <= kFollowers; i++) {
+    auto payload = std::make_shared<Buffer>();
+    payload->WriteInt<uint32_t>(i);
+    ASSERT_TRUE(client.Send(payload, MakeSendOptions(true, true, kChannel)));
+  }
+
+  deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+  while (received.size() < kFollowers + 1 &&
+         std::chrono::steady_clock::now() < deadline) {
+    pump_once();
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  }
+
+  ASSERT_EQ(received.size(), kFollowers + 1u)
+      << "a message on a newly opened channel went missing";
+  for (uint32_t i = 0; i <= kFollowers; i++) {
+    EXPECT_EQ(received[i], i)
+        << "channel " << int(kChannel) << " delivered out of order at " << i;
+  }
+}
+
 // Large fragmented messages over default options, with the receiver acking on
 // its own slower tick.
 //
