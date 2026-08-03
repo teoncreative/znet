@@ -268,7 +268,7 @@ effective on encrypted and unencrypted sessions alike.
 (256 KB for ENet; 256 KB receive and 16 KB send for RakNet) after startup.
 `gns_bench` raises GNS's application-level limits; its socket buffer is a
 hardcoded 256 KB with no config API. The kernel silently clamps every ask to
-`net.core.rmem_max`/`wmem_max` — raise those via sysctl for the asks to matter,
+`net.core.rmem_max`/`wmem_max`. Raise those via sysctl for the asks to matter,
 and check znet's debug log for what was actually granted. Protocol behavior
 stays untouched: ENet's 64 KB
 reliable window and every library's congestion controller are properties the
@@ -322,7 +322,7 @@ one case where the setting could change the throughput ranking.
 
 The measurement says it does not. On the clean table `gns` beats `gns-nagle` at
 64 B, 1,459,000 against 1,365,000, and matches it at 1 KiB and 8 KiB where the
-clamp binds anyway — while costing 10 µs of round trip instead of 10.2 ms.
+clamp binds anyway, while costing 10 µs of round trip instead of 10.2 ms.
 Under loss the two are inside each other's spread at every size. So Nagle off is
 the like-for-like setting against znet on latency *and* is not paid for
 elsewhere; the pair stays in the suite because that is a measured result rather

@@ -55,7 +55,7 @@ in nothing beyond LinearMath. Feed them straight from your bodies.
 
 Bullet's maths assumes its quaternions are unit length, and a denormalised one
 silently skews every transform it touches. Whatever bits arrive, `ReadOrientation`
-returns a unit quaternion — asserted over 20000 random words. Positions outside
+returns a unit quaternion, asserted over 20000 random words. Positions outside
 the configured world clamp to its bounds rather than wrapping.
 
 ## Why it shares an implementation
@@ -69,7 +69,7 @@ same rounding would not guarantee.
 ## Building
 
 Uses an installed Bullet if there is one, otherwise fetches 3.25 with the demos,
-extras and tests off — they are the bulk of its 136 MB and none of the use.
+extras and tests off; they are the bulk of its 136 MB and none of the use.
 
 Two wrinkles worth knowing, both handled here. Bullet 3.25 declares
 `cmake_minimum_required(VERSION 2.4.3)` and CMake 4 removed compatibility below

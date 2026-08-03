@@ -54,7 +54,7 @@ steps aside on a C++14 tree rather than dragging the whole build up. `if
 constexpr` then collapses the type dispatch into one readable chain instead of
 a SFINAE overload set, which is a nice second-order win rather than the reason.
 
-What deduction **cannot** do is recover field *names* — that needs C++26 — and
+What deduction **cannot** do is recover field *names* (that needs C++26), and
 it only works on aggregates: no user-declared constructors, no private members,
 no base classes, no virtuals.
 
@@ -101,8 +101,8 @@ Anything else is a **compile error naming the type**, rather than a silent
 `WriteValue`/`ReadValue` overloads, or a `ZNET_REFLECT`, to extend it.
 
 `bool` is not folded into the arithmetic case on purpose. `ReadNumber` copies
-the raw byte, and a `bool` holding anything but 0 or 1 is undefined — both `b`
-and `!b` can test true — and a peer can trivially send such a byte.
+the raw byte, and a `bool` holding anything but 0 or 1 is undefined (both `b`
+and `!b` can test true), and a peer can trivially send such a byte.
 
 ## Limits
 
@@ -124,7 +124,7 @@ a field that ran off the end is caught even when no length looked wrong.
 ## The catch worth knowing
 
 The struct **is** the schema. Add a field and both ends change together, which
-is the point — and it means a field added on one side and not the other is a
+is the point. It also means a field added on one side and not the other is a
 wire break with nothing to detect it. There is no version tag and no field
 identifier on the wire; it is a positional format, like the rest of znet's
 serialization.

@@ -2,7 +2,7 @@
 
 The quantisation arithmetic, on plain floats and integers.
 
-Header-only, **no dependency at all** — not even a `Buffer`. Everything lives in
+Header-only, **no dependency at all**, not even a `Buffer`. Everything lives in
 `znet::ext::quant`.
 
 ```cpp
@@ -14,7 +14,7 @@ Header-only, **no dependency at all** — not even a `Buffer`. Everything lives 
 `znet-glm`, `znet-bitpack`, `znet-box2d`, `znet-bullet` and `znet-jolt` all
 compress the same kinds of value. If each carried its own copy of the
 arithmetic, two copies differing by a single rounding would produce a stream
-that mostly works and occasionally does not — and a server built against one
+that mostly works and occasionally does not, and a server built against one
 and a client built against another would disagree about what identical bytes
 mean. There is one copy, and it is here.
 
@@ -60,7 +60,7 @@ straight into a matrix.
 `ctest -R ext-quantize-tests`. Notably: **all 65536 binary16 bit patterns** must
 survive decode-then-encode, and `PackHalf` is checked against an independent
 reference written via `frexp`/`ldexp` over 400k random floats. That pair caught
-a real bug — an off-by-one that made every subnormal decode at half its value,
+a real bug: an off-by-one that made every subnormal decode at half its value,
 present in the decode direction only, which the reference comparison alone would
 have missed.
 

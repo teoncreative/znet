@@ -58,7 +58,7 @@ in nothing beyond Jolt's math headers. Feed them straight from your bodies.
 
 Jolt's maths assumes its quaternions are unit length, and a denormalised one
 silently skews every transform it touches. Whatever bits arrive, `ReadOrientation`
-returns a unit quaternion — asserted over 20000 random words. Positions outside
+returns a unit quaternion, asserted over 20000 random words. Positions outside
 the configured world clamp to its bounds rather than wrapping.
 
 ## Why it shares an implementation

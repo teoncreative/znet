@@ -25,7 +25,7 @@ A planar body's orientation is a **single angle**, not a quaternion, so it costs
 | **transform** | **16 B** | **42 bits (6 B)** |
 | + linear and angular velocity | 28 B total | **76 bits (10 B)** |
 
-`b2Rot` is a cosine and a sine — two floats for one degree of freedom. Sending
+`b2Rot` is a cosine and a sine: two floats for one degree of freedom. Sending
 the angle instead costs a third as much and cannot arrive denormalised, because
 *any* code decodes to a unit `b2Rot`.
 
@@ -53,7 +53,7 @@ across, landing positions within 3 cm and rotation within 0.35°.
 ## Rotation has no seam
 
 The angle wraps, so +π and −π get the same code. Without that, a body spinning
-through π would jump a whole quantisation step every revolution — a visible
+through π would jump a whole quantisation step every revolution, a visible
 stutter that only appears at one orientation, which is a miserable thing to
 debug. There is a test for it.
 
