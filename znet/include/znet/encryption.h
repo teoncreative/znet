@@ -168,6 +168,11 @@ class PeerSession;
 
 class EncryptionLayer {
  public:
+  /** @brief Longest export HKDF-SHA256 can produce. */
+  static constexpr size_t kMaxExportLength = 255 * 32;
+  /** @brief Longest application label an export may carry. */
+  static constexpr size_t kMaxExportLabelLength = 255;
+
   EncryptionLayer(PeerSession& session);
   ~EncryptionLayer();
 
@@ -196,6 +201,10 @@ class EncryptionLayer {
   void OnHandshakePacket(std::shared_ptr<HandshakePacket> packet);
   void OnAcknowledgePacket(std::shared_ptr<ConnectionReadyPacket> packet);
 
+  /** @brief Bytes unique to this session and this label. See PeerSession. */
+  bool ExportKeyingMaterial(const std::string& label, unsigned char* out,
+                            size_t out_len) const;
+
  private:
   PeerSession& session_;
 
@@ -222,6 +231,11 @@ class EncryptionLayer {
   unsigned char tx_salt_[4] = {};
   unsigned char rx_salt_[4] = {};
 
+  // Root for ExportKeyingMaterial, derived once from the shared secret over a
+  // transcript of both public keys. Independent of the keys above: same secret,
+  // different HKDF info.
+  unsigned char exporter_secret_[32] = {};
+
   // Indexed by ordering domain and grown on demand, so a session on a
   // single-stream transport carries one entry rather than all 256 the wire
   // allows.
@@ -240,6 +254,7 @@ class EncryptionLayer {
  private:
   std::shared_ptr<Buffer> HandleDecrypt(std::shared_ptr<Buffer> buffer);
   bool DeriveDirectionalKeys();
+  bool DeriveExporterSecret();
   /** @brief Send counter for `stream`. Call with enc_mutex_ held. */
   uint64_t& TxCounter(uint8_t stream);
   /** @brief Replay window for `stream`. Worker thread only. */

@@ -227,6 +227,46 @@ class PeerSession {
   }
 
   /**
+   * @brief Derives bytes unique to this session, for binding an application
+   *        credential to it.
+   *
+   * Both ends derive the same bytes for the same @p label, and no third party
+   * can: the value comes from the key exchange, over a transcript of both public
+   * keys. Every session gets different bytes, including two sessions to the same
+   * peer.
+   *
+   * That is what it is for. znet's exchange is unauthenticated, so an intercepted
+   * connection completes normally and a bearer token proves nothing: whoever
+   * captured it can replay it onward and be accepted as its owner. An interceptor
+   * runs two separate exchanges, so it cannot make one exported value serve both,
+   * and a credential covering this value is worthless on any other session.
+   *
+   * A sketch of the exchange this is meant for: an authentication service issues
+   * the client a token naming a public key; the client signs its export with the
+   * matching private key; the server checks the token against the service's
+   * public key and the signature against its own export of the same label. The
+   * token, the service and the signature scheme are yours. This is only the part
+   * that has to come from inside the session.
+   *
+   * Do not send the value itself. It is a shared secret, and revealing it lets a
+   * listener produce whatever proof was built on it.
+   *
+   * @param label Names what the bytes are for, so two uses of this on one
+   *              session cannot collide. Anything unique to your protocol does;
+   *              a version in it lets you change the scheme later. 1 to
+   *              EncryptionLayer::kMaxExportLabelLength bytes.
+   * @param out Filled on success, untouched on failure.
+   * @param out_len Up to EncryptionLayer::kMaxExportLength. 32 is the usual ask.
+   * @return false if the session is unencrypted or not yet ready, or if the
+   *         label or length is out of range. Call it once connected.
+   */
+  ZNET_NODISCARD bool ExportKeyingMaterial(const std::string& label,
+                                           unsigned char* out,
+                                           size_t out_len) const {
+    return encryption_layer_.ExportKeyingMaterial(label, out, out_len);
+  }
+
+  /**
    * @brief Returns a snapshot of this session's counters.
    *
    * Combines the session's own message counters with the transport's. Cheap but

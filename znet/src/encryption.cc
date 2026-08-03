@@ -237,16 +237,16 @@ unsigned char* ComputeSharedSecret(EVP_PKEY* pkey, EVP_PKEY* peer_pkey,
   return secret;
 }
 
-// One HKDF-SHA256 expansion. `label` separates the two directions, so the
-// client-to-server and server-to-client streams never share a key: with a
-// counter nonce, one key used both ways would repeat a (key, nonce) pair, which
-// breaks GCM outright rather than merely weakening it.
-bool DeriveKeyFromSharedSecret(const unsigned char* shared_secret,
-                               size_t secret_len, const char* label,
-                               unsigned char* key, size_t key_len) {
+// One HKDF-SHA256 expansion. `info` is the domain separator: two expansions of
+// one secret under different info are independent, which is what lets the
+// directional keys and the exporter share a root without sharing anything else.
+bool Hkdf(const unsigned char* secret, size_t secret_len,
+          const unsigned char* info, size_t info_len, unsigned char* out,
+          size_t out_len) {
   if (secret_len > static_cast<size_t>(std::numeric_limits<int>::max()) ||
-      key_len > static_cast<size_t>(std::numeric_limits<int>::max())) {
-    ZNET_LOG_ERROR("Secret or key length too large");
+      info_len > static_cast<size_t>(std::numeric_limits<int>::max()) ||
+      out_len > static_cast<size_t>(std::numeric_limits<int>::max())) {
+    ZNET_LOG_ERROR("Secret, info or key length too large");
     return false;
   }
 
@@ -257,17 +257,15 @@ bool DeriveKeyFromSharedSecret(const unsigned char* shared_secret,
   }
 
   static const unsigned char kSalt[] = "znet-session-v1";
-  size_t out_len = key_len;  // EVP_PKEY_derive needs size_t*
+  size_t derived_len = out_len;  // EVP_PKEY_derive needs size_t*
   if (EVP_PKEY_derive_init(pctx) <= 0 ||
       EVP_PKEY_CTX_set_hkdf_md(pctx, EVP_sha256()) <= 0 ||
       EVP_PKEY_CTX_set1_hkdf_salt(pctx, kSalt,
                                   static_cast<int>(sizeof(kSalt) - 1)) <= 0 ||
-      EVP_PKEY_CTX_set1_hkdf_key(pctx, shared_secret,
+      EVP_PKEY_CTX_set1_hkdf_key(pctx, secret,
                                  static_cast<int>(secret_len)) <= 0 ||
-      EVP_PKEY_CTX_add1_hkdf_info(
-          pctx, reinterpret_cast<const unsigned char*>(label),
-          static_cast<int>(strlen(label))) <= 0 ||
-      EVP_PKEY_derive(pctx, key, &out_len) <= 0) {
+      EVP_PKEY_CTX_add1_hkdf_info(pctx, info, static_cast<int>(info_len)) <= 0 ||
+      EVP_PKEY_derive(pctx, out, &derived_len) <= 0) {
     ZNET_LOG_ERROR("Failed to derive key using HKDF.");
     EVP_PKEY_CTX_free(pctx);
     return false;
@@ -275,6 +273,18 @@ bool DeriveKeyFromSharedSecret(const unsigned char* shared_secret,
 
   EVP_PKEY_CTX_free(pctx);
   return true;
+}
+
+// `label` separates the two directions, so the client-to-server and
+// server-to-client streams never share a key: with a counter nonce, one key used
+// both ways would repeat a (key, nonce) pair, which breaks GCM outright rather
+// than merely weakening it.
+bool DeriveKeyFromSharedSecret(const unsigned char* shared_secret,
+                               size_t secret_len, const char* label,
+                               unsigned char* key, size_t key_len) {
+  return Hkdf(shared_secret, secret_len,
+              reinterpret_cast<const unsigned char*>(label), strlen(label), key,
+              key_len);
 }
 
 // `ctx` is owned by the caller and reused across messages. `set_key` is true
@@ -442,6 +452,7 @@ EncryptionLayer::~EncryptionLayer() {
   OPENSSL_cleanse(rx_key_, sizeof(rx_key_));
   OPENSSL_cleanse(tx_salt_, sizeof(tx_salt_));
   OPENSSL_cleanse(rx_salt_, sizeof(rx_salt_));
+  OPENSSL_cleanse(exporter_secret_, sizeof(exporter_secret_));
   if (shared_secret_) {
     OPENSSL_cleanse(shared_secret_, shared_secret_len_);
     delete[] shared_secret_;
@@ -478,7 +489,90 @@ bool EncryptionLayer::DeriveDirectionalKeys() {
   memcpy(rx_salt_, rx_material + sizeof(rx_key_), sizeof(rx_salt_));
   OPENSSL_cleanse(tx_material, sizeof(tx_material));
   OPENSSL_cleanse(rx_material, sizeof(rx_material));
-  return true;
+  return DeriveExporterSecret();
+}
+
+// The root the exporter expands from, bound to a transcript of both public keys
+// as well as the secret they produced.
+//
+// The binding is the point. An interceptor runs two separate exchanges, one with
+// each end, so it holds two different secrets over two different transcripts and
+// cannot make the two sides agree on an exported value. That is what lets an
+// application prove a credential belongs to *this* session rather than to any
+// session, which an anonymous exchange cannot say on its own.
+//
+// Derived once here rather than per export, so the DH secret is not needed again
+// and the transcript is hashed one time.
+bool EncryptionLayer::DeriveExporterSecret() {
+  // initiator first, so both ends hash the same bytes in the same order
+  EVP_PKEY* initiator =
+      session_.is_initiator() ? pub_key_.get() : peer_pkey_.get();
+  EVP_PKEY* acceptor =
+      session_.is_initiator() ? peer_pkey_.get() : pub_key_.get();
+
+  uint32_t initiator_len = 0;
+  uint32_t acceptor_len = 0;
+  unsigned char* initiator_der = SerializePublicKey(initiator, &initiator_len);
+  unsigned char* acceptor_der = SerializePublicKey(acceptor, &acceptor_len);
+  if (!initiator_der || !acceptor_der) {
+    OPENSSL_free(initiator_der);
+    OPENSSL_free(acceptor_der);
+    ZNET_LOG_ERROR("Failed to serialize a public key for the exporter.");
+    return false;
+  }
+
+  // length-prefixed: plain concatenation would let a different pair of keys
+  // hash to the same transcript
+  std::vector<unsigned char> transcript;
+  transcript.reserve(8 + initiator_len + acceptor_len);
+  auto append = [&transcript](const unsigned char* der, uint32_t len) {
+    for (int shift = 24; shift >= 0; shift -= 8) {
+      transcript.push_back(static_cast<unsigned char>((len >> shift) & 0xFFu));
+    }
+    transcript.insert(transcript.end(), der, der + len);
+  };
+  append(initiator_der, initiator_len);
+  append(acceptor_der, acceptor_len);
+  OPENSSL_free(initiator_der);
+  OPENSSL_free(acceptor_der);
+
+  // hashed rather than fed to HKDF whole: OpenSSL bounds the info it accepts,
+  // and two DER-encoded DH keys can carry their group parameters past it
+  unsigned char digest[32];
+  unsigned int digest_len = 0;
+  if (EVP_Digest(transcript.data(), transcript.size(), digest, &digest_len,
+                 EVP_sha256(), nullptr) <= 0 ||
+      digest_len != sizeof(digest)) {
+    ZNET_LOG_ERROR("Failed to hash the exporter transcript.");
+    return false;
+  }
+
+  static const char kExporterRoot[] = "znet exporter v1";
+  std::vector<unsigned char> info(kExporterRoot,
+                                  kExporterRoot + sizeof(kExporterRoot) - 1);
+  info.insert(info.end(), digest, digest + sizeof(digest));
+  return Hkdf(shared_secret_, shared_secret_len_, info.data(), info.size(),
+              exporter_secret_, sizeof(exporter_secret_));
+}
+
+bool EncryptionLayer::ExportKeyingMaterial(const std::string& label,
+                                           unsigned char* out,
+                                           size_t out_len) const {
+  if (!enable_encryption_ || !key_filled_) {
+    return false;  // no exchange happened, so there is nothing to bind to
+  }
+  if (!out || out_len == 0 || out_len > kMaxExportLength ||
+      label.empty() || label.size() > kMaxExportLabelLength) {
+    return false;
+  }
+  // the application's labels live under a prefix of their own, so one can never
+  // collide with a label znet derives with
+  static const char kLabelPrefix[] = "znet exporter label v1:";
+  std::vector<unsigned char> info(kLabelPrefix,
+                                  kLabelPrefix + sizeof(kLabelPrefix) - 1);
+  info.insert(info.end(), label.begin(), label.end());
+  return Hkdf(exporter_secret_, sizeof(exporter_secret_), info.data(),
+              info.size(), out, out_len);
 }
 
 uint64_t& EncryptionLayer::TxCounter(uint8_t stream) {
