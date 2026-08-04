@@ -48,6 +48,13 @@ TCPTransportLayer::TCPTransportLayer(SocketHandle socket, CommonOptions common)
       idle_timeout_(common.idle_timeout),
       last_recv_(std::chrono::steady_clock::now()),
       last_send_(std::chrono::steady_clock::now()) {
+#if defined(ZNET_TARGET_APPLE)
+  // no MSG_NOSIGNAL on Apple; this is the per-socket equivalent, so a send
+  // into a reset connection reports EPIPE instead of raising SIGPIPE
+  int no_sigpipe = 1;
+  setsockopt(socket_, SOL_SOCKET, SO_NOSIGPIPE,
+             reinterpret_cast<const char*>(&no_sigpipe), sizeof(no_sigpipe));
+#endif
 }
 
 TCPTransportLayer::~TCPTransportLayer() {
@@ -216,7 +223,14 @@ bool TCPTransportLayer::WriteAll(Buffer& buffer) {
 #ifdef ZNET_TARGET_WIN
     int written = send(socket_, data + offset, static_cast<int>(remaining), 0);
 #else
+    // MSG_NOSIGNAL: a peer that reset the connection turns further sends into
+    // EPIPE errors instead of a process-killing SIGPIPE. Apple has no such
+    // flag; SO_NOSIGPIPE is set on the socket in the constructor instead.
+#ifdef MSG_NOSIGNAL
+    ssize_t written = send(socket_, data + offset, remaining, MSG_NOSIGNAL);
+#else
     ssize_t written = send(socket_, data + offset, remaining, 0);
+#endif
 #endif
     if (written > 0) {
       offset += static_cast<size_t>(written);
