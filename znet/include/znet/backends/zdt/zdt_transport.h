@@ -12,8 +12,8 @@
 // ordering and keepalive for one connection.
 //
 
-#ifndef ZNET_PARENT_ZDT_TRANSPORT_H
-#define ZNET_PARENT_ZDT_TRANSPORT_H
+#ifndef ZNET_BACKENDS_ZDT_ZDT_TRANSPORT_H_
+#define ZNET_BACKENDS_ZDT_ZDT_TRANSPORT_H_
 
 #include "znet/backends/backend.h"
 #include "znet/buffer.h"
@@ -38,6 +38,7 @@
 #include <vector>
 #include "znet/backends/zdt/zdt_ack_history.h"
 #include "znet/backends/zdt/zdt_congestion.h"
+#include "znet/backends/zdt/zdt_connection.h"
 #include "znet/backends/zdt/zdt_domain.h"
 #include "znet/backends/zdt/zdt_net.h"
 #include "znet/backends/zdt/zdt_wire.h"
@@ -45,12 +46,6 @@
 namespace znet {
 namespace backends {
 
-// per-connection parameters settled by the handshake.
-struct ZDTConnection {
-  uint16_t mtu = 1200;
-  uint64_t local_guid = 0;
-  uint64_t remote_guid = 0;
-};
 
 // per-peer transport. all protocol state is touched only on the owning session's
 // worker thread (Update/Receive/Send). OnDatagram may be called from any thread;
@@ -75,7 +70,7 @@ class ZDTTransportLayer : public TransportLayer {
     return options.GetOr<ChannelKey>(0);
   }
   Result Close(CloseOptions options = {}) override;
-  bool IsClosed() override { return is_closed_; }
+  bool IsClosed() const override { return is_closed_; }
   void Update() override;
   void Flush() override;
 
@@ -351,4 +346,5 @@ class ZDTTransportLayer : public TransportLayer {
 }  // namespace backends
 }  // namespace znet
 
-#endif  // ZNET_PARENT_ZDT_TRANSPORT_H
+
+#endif  // ZNET_BACKENDS_ZDT_ZDT_TRANSPORT_H_

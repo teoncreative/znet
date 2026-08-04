@@ -9,7 +9,8 @@
 //        http://www.apache.org/licenses/LICENSE-2.0
 //
 
-#pragma once
+#ifndef ZNET_SIGNAL_HANDLER_H_
+#define ZNET_SIGNAL_HANDLER_H_
 
 #include "znet/precompiled.h"
 #include <functional>
@@ -19,7 +20,7 @@ namespace znet {
 enum Signal {
   kSignalInterrupt = SIGINT,
   kSignalIllegalInstruction = SIGILL,
-#ifdef TARGET_APPLE
+#ifdef ZNET_TARGET_APPLE
   kSignalHangup = SIGHUP,
   kSignalQuit = SIGQUIT,
   kSignalTrap = SIGTRAP,
@@ -27,13 +28,13 @@ enum Signal {
   kSignalAbort = SIGABRT,
 #if (defined(_POSIX_C_SOURCE) && !defined(_DARWIN_C_SOURCE)) || defined(EMSCRIPTEN) || defined(__ANDROID__)
   kSignalPoll = SIGPOLL,
-#elif !defined(TARGET_WIN) /* (!_POSIX_C_SOURCE || _DARWIN_C_SOURCE) */
+#elif !defined(ZNET_TARGET_WIN) /* (!_POSIX_C_SOURCE || _DARWIN_C_SOURCE) */
   kSignalEMT = SIGEMT,
 #endif                     /* (!_POSIX_C_SOURCE || _DARWIN_C_SOURCE) */
   kSignalFPE = SIGFPE,
   kSignalSegFault = SIGSEGV,
   kSignalTermination = SIGTERM,
-#ifndef TARGET_WIN
+#ifndef ZNET_TARGET_WIN
   kSignalKill = SIGKILL,
   kSignalBus = SIGBUS,
   kSignalSys = SIGSYS,
@@ -77,3 +78,5 @@ typedef std::function<bool(Signal)>(SignalHandlerFn);
 void RegisterSignalHandler(SignalHandlerFn fn, Signal signal = kSignalInterrupt);
 
 }  // namespace znet
+
+#endif  // ZNET_SIGNAL_HANDLER_H_

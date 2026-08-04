@@ -13,18 +13,14 @@
 // state lives here; everything is a value type or a pure function.
 //
 
-#ifndef ZNET_PARENT_ZDT_WIRE_H
-#define ZNET_PARENT_ZDT_WIRE_H
+#ifndef ZNET_BACKENDS_ZDT_ZDT_WIRE_H_
+#define ZNET_BACKENDS_ZDT_ZDT_WIRE_H_
 
-#include "znet/backends/backend.h"
+// the state-free wire layer: only the buffer it reads and writes, so nothing
+// above it (sessions, backends) is dragged in underneath
 #include "znet/buffer.h"
 #include "znet/inet_addr.h"
-#include "znet/metrics.h"
-#include "znet/mpsc_queue.h"
-#include "znet/options.h"
-#include "znet/peer_session.h"
 #include "znet/precompiled.h"
-#include "znet/transport.h"
 
 #include <array>
 #include <atomic>
@@ -250,4 +246,5 @@ inline bool SeqLess(uint16_t a, uint16_t b) {
 }  // namespace backends
 }  // namespace znet
 
-#endif  // ZNET_PARENT_ZDT_WIRE_H
+
+#endif  // ZNET_BACKENDS_ZDT_ZDT_WIRE_H_

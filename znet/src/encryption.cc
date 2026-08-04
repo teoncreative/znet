@@ -555,15 +555,17 @@ bool EncryptionLayer::DeriveExporterSecret() {
               exporter_secret_, sizeof(exporter_secret_));
 }
 
-bool EncryptionLayer::ExportKeyingMaterial(const std::string& label,
-                                           unsigned char* out,
-                                           size_t out_len) const {
+Result EncryptionLayer::ExportKeyingMaterial(const std::string& label,
+                                             unsigned char* out,
+                                             size_t out_len) const {
+  // one answer for "unencrypted" and "handshake unfinished": the flags cannot
+  // tell them apart before the exchange settles, so the split would lie
   if (!enable_encryption_ || !key_filled_) {
-    return false;  // no exchange happened, so there is nothing to bind to
+    return Result::Failure;  // no settled exchange, nothing to bind to
   }
   if (!out || out_len == 0 || out_len > kMaxExportLength ||
       label.empty() || label.size() > kMaxExportLabelLength) {
-    return false;
+    return Result::InvalidArgument;
   }
   // the application's labels live under a prefix of their own, so one can never
   // collide with a label znet derives with
@@ -572,7 +574,9 @@ bool EncryptionLayer::ExportKeyingMaterial(const std::string& label,
                                   kLabelPrefix + sizeof(kLabelPrefix) - 1);
   info.insert(info.end(), label.begin(), label.end());
   return Hkdf(exporter_secret_, sizeof(exporter_secret_), info.data(),
-              info.size(), out, out_len);
+              info.size(), out, out_len)
+             ? Result::Success
+             : Result::Failure;
 }
 
 uint64_t& EncryptionLayer::TxCounter(uint8_t stream) {

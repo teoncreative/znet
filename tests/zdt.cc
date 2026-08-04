@@ -854,7 +854,7 @@ TEST(ZDTReliability, BulkBacklogDoesNotDelayAnotherChannel) {
 
   // a small window, so the bulk forms a real backlog behind it
   ZDTOptions config = FastConfig();
-  config.cwnd = 8;
+  config.max_messages_in_flight = 8;
 
   ZDTConnection connection;
   ZDTTransportLayer client(client_socket, server_addr, config, false, nullptr,
@@ -1177,7 +1177,7 @@ TEST(ZDTReliability, SequenceWraparoundDoesNotBreakConnection) {
   ZDTOptions config;
   config.rto_min = std::chrono::milliseconds(20);
   config.rto_max = std::chrono::milliseconds(200);
-  config.cwnd = 256;
+  config.max_messages_in_flight = 256;
   ZDTConnection connection;
   ZDTTransportLayer a(socket_a, socket_b->local_address(), config, false,
                       nullptr, connection, QuietCommon());
@@ -1250,7 +1250,7 @@ TEST(ZDTOptionsPlumbing, ChildOptionsReachTheSession) {
 
   ServerConfig server_config{"127.0.0.1", port, std::chrono::seconds(5),
                              ConnectionType::ZDT};
-  server_config.child_options.zdt.cwnd = 7;          // distinctive values
+  server_config.child_options.zdt.max_messages_in_flight = 7;          // distinctive values
   server_config.child_options.zdt.max_reassemblies = 11;
   Server server{server_config};
   std::atomic_bool connected{false};
@@ -1267,7 +1267,7 @@ TEST(ZDTOptionsPlumbing, ChildOptionsReachTheSession) {
 
   ClientConfig client_config{"127.0.0.1", port, std::chrono::seconds(5),
                              ConnectionType::ZDT};
-  client_config.options.zdt.cwnd = 3;
+  client_config.options.zdt.max_messages_in_flight = 3;
   Client client{client_config};
   client.SetEventCallback([](Event&) {});
   ASSERT_EQ(client.Bind(), Result::Success);
@@ -1286,7 +1286,7 @@ TEST(ZDTOptionsPlumbing, ChildOptionsReachTheSession) {
 
 TEST(ZDTOptionsPlumbing, DefaultsMatchZDTOptions) {
   ZDTOptions defaults;
-  EXPECT_EQ(defaults.cwnd, 4096);
+  EXPECT_EQ(defaults.max_messages_in_flight, 4096);
   // max_datagrams_in_flight caps the congestion window. Acks are run-length
   // encoded now, so the limit is how far back the receiver remembers arrivals
   // rather than how many bits fit in a header. Tied to the constants so the two
@@ -1297,14 +1297,13 @@ TEST(ZDTOptionsPlumbing, DefaultsMatchZDTOptions) {
             static_cast<int>(backends::kZDTAckHistoryBits));
   // The message limit is a memory bound and must stay well above the datagram
   // window, otherwise it throttles coalesced small messages instead.
-  EXPECT_GT(defaults.cwnd, defaults.max_datagrams_in_flight);
+  EXPECT_GT(defaults.max_messages_in_flight, defaults.max_datagrams_in_flight);
   EXPECT_EQ(defaults.max_retries, 10);
   EXPECT_EQ(defaults.mtu_ladder.front(), 1492);
   EXPECT_EQ(defaults.mtu_ladder.back(), 576);
   // A SessionOptions carries the zdt defaults untouched.
   SessionOptions session;
-  EXPECT_EQ(session.zdt.cwnd, defaults.cwnd);
-  EXPECT_TRUE(session.common.collect_metrics);
+  EXPECT_EQ(session.zdt.max_messages_in_flight, defaults.max_messages_in_flight);
 }
 
 // --- Metrics ------------------------------------------------------------------
@@ -1441,7 +1440,7 @@ TEST(ZDTMetrics, TCPUsesTheSameShape) {
   ASSERT_TRUE(client_session != nullptr);
 
   SessionMetrics m = client_session->metrics();
-  EXPECT_EQ(m.transport, ConnectionType::TCP) << "tag identifies the live group";
+  EXPECT_EQ(m.connection_type, ConnectionType::TCP) << "tag identifies the live group";
   EXPECT_GT(m.common.messages_sent, 0u);
   EXPECT_GT(m.common.messages_received, 0u);
   EXPECT_GT(m.tcp.writes, 0u) << "TCP counts socket writes, not datagrams";
@@ -1890,7 +1889,7 @@ TEST(ZDTCongestion, WindowBoundsBurstThenDrains) {
   auto server_socket = MakeBoundSocket();
   auto client_socket = MakeBoundSocket();
   ZDTOptions config = FastConfig();
-  config.cwnd = 8;
+  config.max_messages_in_flight = 8;
   ZDTConnection connection;
   ZDTTransportLayer client(client_socket, server_socket->local_address(), config,
                            false, nullptr, connection, QuietCommon());
@@ -1907,7 +1906,7 @@ TEST(ZDTCongestion, WindowBoundsBurstThenDrains) {
   client.Update();  // first flush is bounded by the window
   auto first_batch = CollectDatagrams(*server_socket, 1);
   EXPECT_GT(first_batch.size(), 0u);
-  EXPECT_LE(first_batch.size(), static_cast<size_t>(config.cwnd))
+  EXPECT_LE(first_batch.size(), static_cast<size_t>(config.max_messages_in_flight))
       << "burst was not bounded by the congestion window";
   for (auto& d : first_batch) {
     server.OnDatagram(d.data(), d.size());
@@ -2488,12 +2487,14 @@ TEST(ZDTP2P, HolePunchLoopbackReachesReady) {
   Result result_b = Result::Failure;
 
   std::thread thread_a([&]() {
-    session_a = p2p::PunchSync(LocalAddr(port_a), LocalAddr(port_b), &result_a,
-                               init_a, ConnectionType::ZDT, 5000);
+    session_a = p2p::PunchSync(LocalAddr(port_a), LocalAddr(port_b), init_a,
+                               ConnectionType::ZDT,
+                               std::chrono::milliseconds(5000), &result_a);
   });
   std::thread thread_b([&]() {
-    session_b = p2p::PunchSync(LocalAddr(port_b), LocalAddr(port_a), &result_b,
-                               init_b, ConnectionType::ZDT, 5000);
+    session_b = p2p::PunchSync(LocalAddr(port_b), LocalAddr(port_a), init_b,
+                               ConnectionType::ZDT,
+                               std::chrono::milliseconds(5000), &result_b);
   });
   thread_a.join();
   thread_b.join();
@@ -2612,7 +2613,7 @@ void RunConcurrentSendTest(ConnectionType type) {
         packet->text = "t" + std::to_string(t) + "-" + std::to_string(i);
         // a refusal is backpressure, not an error: retry so every message is
         // eventually accepted and the counts below are exact.
-        while (!session->SendPacket(packet, SendOptions{})) {
+        while (session->SendPacket(packet, SendOptions{}) != Result::Success) {
           std::this_thread::sleep_for(std::chrono::milliseconds(1));
         }
         state.accepted++;

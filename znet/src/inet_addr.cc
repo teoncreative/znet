@@ -197,7 +197,7 @@ InetAddressIPv4::InetAddressIPv4(PortNumber port)
     : InetAddress(InetProtocolVersion::IPv4, "") {
   addr_.sin_family = AF_INET;
   addr_.sin_port = htons(port);
-#ifdef TARGET_APPLE
+#ifdef ZNET_TARGET_APPLE
   addr_.sin_len = sizeof(sockaddr_in);
 #endif
   char src[INET_ADDRSTRLEN];
@@ -211,7 +211,7 @@ InetAddressIPv4::InetAddressIPv4(IPv4Address ip, PortNumber port)
   addr_.sin_family = AF_INET;
   addr_.sin_port = htons(port);
   addr_.sin_addr = ip;
-#ifdef TARGET_APPLE
+#ifdef ZNET_TARGET_APPLE
   addr_.sin_len = sizeof(sockaddr_in);
 #endif
 
@@ -232,7 +232,7 @@ InetAddressIPv4::InetAddressIPv4(const std::string& str, PortNumber port)
   addr_.sin_family = AF_INET;
   addr_.sin_port = htons(port);
   addr_.sin_addr = ParseIPv4(str);
-#ifdef TARGET_APPLE
+#ifdef ZNET_TARGET_APPLE
   addr_.sin_len = sizeof(sockaddr_in);
 #endif
   char src[INET_ADDRSTRLEN];
@@ -246,7 +246,7 @@ InetAddressIPv6::InetAddressIPv6(PortNumber port)
   addr_.sin6_family = AF_INET6;
   addr_.sin6_flowinfo = 0;
   addr_.sin6_port = htons(port);
-#if !defined(TARGET_WIN) && !defined(TARGET_WEB) && !defined(TARGET_LINUX)
+#if !defined(ZNET_TARGET_WIN) && !defined(ZNET_TARGET_WEB) && !defined(ZNET_TARGET_LINUX)
   addr_.sin6_len = sizeof(sockaddr_in6);
 #endif
   char src[INET6_ADDRSTRLEN];
@@ -261,7 +261,7 @@ InetAddressIPv6::InetAddressIPv6(IPv6Address ip, PortNumber port)
   addr_.sin6_flowinfo = 0;
   addr_.sin6_port = htons(port);
   addr_.sin6_addr = ip;
-#if !defined(TARGET_WIN) && !defined(TARGET_WEB) && !defined(TARGET_LINUX)
+#if !defined(ZNET_TARGET_WIN) && !defined(ZNET_TARGET_WEB) && !defined(ZNET_TARGET_LINUX)
   addr_.sin6_len = sizeof(sockaddr_in6);
 #endif
   char src[INET6_ADDRSTRLEN];
@@ -277,7 +277,7 @@ InetAddressIPv6::InetAddressIPv6(const std::string& str, PortNumber port)
     readable_ = "Invalid Address";
     return;
   }
-#if !defined(TARGET_WIN) && !defined(TARGET_WEB) && !defined(TARGET_LINUX)
+#if !defined(ZNET_TARGET_WIN) && !defined(ZNET_TARGET_WEB) && !defined(ZNET_TARGET_LINUX)
   addr_.sin6_len = sizeof(sockaddr_in6);
 #endif
   addr_.sin6_family = AF_INET6;
@@ -304,7 +304,7 @@ InetAddressUnix::InetAddressUnix(const std::string& path)
   addr_.sun_path[path.size()] = '\0';
   addr_len_ = static_cast<socklen_t>(offsetof(sockaddr_un, sun_path) +
                                      path.size() + 1);
-#ifdef TARGET_APPLE
+#ifdef ZNET_TARGET_APPLE
   addr_.sun_len = static_cast<unsigned char>(addr_len_);
 #endif
   readable_ = "unix:" + path;

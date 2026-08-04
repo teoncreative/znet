@@ -8,8 +8,8 @@
 //        http://www.apache.org/licenses/LICENSE-2.0
 //
 
-#ifndef ZNET_PARENT_ADMISSION_H
-#define ZNET_PARENT_ADMISSION_H
+#ifndef ZNET_ADMISSION_H_
+#define ZNET_ADMISSION_H_
 
 #include "znet/inet_addr.h"
 #include "znet/options.h"
@@ -79,4 +79,5 @@ inline std::string GetVerdictString(AdmissionControl::Verdict verdict) {
 }  // namespace backends
 }  // namespace znet
 
-#endif  // ZNET_PARENT_ADMISSION_H
+
+#endif  // ZNET_ADMISSION_H_

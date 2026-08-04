@@ -43,7 +43,7 @@ CompressionTypeRaw GetCompressionTypeRaw(CompressionType type) {
   return static_cast<CompressionTypeRaw>(type);
 }
 
-std::string GetCompressionTypeName(CompressionType type) {
+std::string GetCompressionTypeString(CompressionType type) {
   switch (type) {
     case CompressionType::None:
       return "None";

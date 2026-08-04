@@ -28,14 +28,13 @@ class LocatorPacketHandler : public PacketHandler<LocatorPacketHandler, SetPeerN
   }
 
   void OnPacket(const StartPunchRequestPacket& pk) {
-    ZNET_LOG_INFO("Received punch request to {}, {} (local) -> {} (remote)", pk.target_peer_, pk.bind_endpoint_->readable(),
+    ZNET_LOG_INFO("Received punch request to {} at {}", pk.target_peer_,
                   pk.target_endpoint_->readable());
     {
       // the worker reads these under the same mutex once it wakes
       std::lock_guard<std::mutex> lock(locator_.mutex_);
       locator_.target_endpoint_ = pk.target_endpoint_;
       locator_.target_private_endpoint_ = pk.target_private_endpoint_;
-      locator_.bind_endpoint_ = pk.bind_endpoint_;
       locator_.punch_id_ = pk.punch_id_;
       locator_.target_peer_name_ = pk.target_peer_;
       locator_.connection_type_ = pk.connection_type_;
@@ -81,7 +80,6 @@ Result PeerLocator::Connect() {
   peer_name_ = "";
   session_ = nullptr;
 
-  bind_endpoint_ = nullptr;
   target_endpoint_ = nullptr;
   punch_id_ = kInvalidPunchId;
 
@@ -115,12 +113,11 @@ Result PeerLocator::Connect() {
     // copy what the punch needs and let go of the mutex: the callbacks other
     // threads run take it, and a punch can last seconds
     //
-    // bind the exact interface and port the relay connection used, not the
-    // relay's wildcard suggestion: the punch reuses that socket's NAT
-    // mapping, and a wildcard bind also collides with any unrelated
-    // connection whose TIME_WAIT holds the same port on another interface
-    auto bind_endpoint =
-        client_.local_address() ? client_.local_address() : bind_endpoint_;
+    // bind the exact interface and port the relay connection used: the punch
+    // reuses that socket's NAT mapping, and a wildcard bind would collide
+    // with any unrelated connection whose TIME_WAIT holds the same port on
+    // another interface
+    auto bind_endpoint = client_.local_address();
     auto target_endpoint = target_endpoint_;
     auto target_private = target_private_endpoint_;
     const uint64_t punch_id = punch_id_;
@@ -146,13 +143,10 @@ Result PeerLocator::Connect() {
       }
       Result punch_result;
       std::shared_ptr<PeerSession> session =
-          PunchSync(
-              bind_endpoint,
-              candidates,
-              &punch_result,
-              IsInitiator(punch_id, self_name, target_name),
-              connection_type
-          );
+          PunchSync(bind_endpoint, candidates,
+                    IsInitiator(punch_id, self_name, target_name),
+                    connection_type, std::chrono::milliseconds(5000),
+                    &punch_result);
       if (punch_result == Result::Success) {
         PeerConnectedEvent event{session, punch_id, self_name, target_name};
         if (event_callback_) {
@@ -200,6 +194,12 @@ void PeerLocator::Wait() {
   task_.Wait();
 }
 
+std::string PeerLocator::peer_name() const {
+  // written by the relay client's thread; readable from any
+  std::lock_guard<std::mutex> lock(mutex_);
+  return peer_name_;
+}
+
 void PeerLocator::OnEvent(Event& event) {
   EventDispatcher dispatcher{event};
   dispatcher.Dispatch<ClientConnectedToServerEvent>(ZNET_BIND_FN(OnConnectEvent));
@@ -213,7 +213,7 @@ bool PeerLocator::OnConnectEvent(ClientConnectedToServerEvent& event) {
     std::lock_guard<std::mutex> lock(mutex_);
     session_ = session;
   }
-  session->SetCodec(BuildCodec());
+  session->SetCodec(BuildRendezvousCodec());
   session->SetHandler(std::make_shared<LocatorPacketHandler>(*this));
   auto identify = std::make_shared<IdentifyPacket>();
   // the socket's own view of its address; behind a NAT this is the private
@@ -315,7 +315,8 @@ namespace {
 
 Host::Config MakeHostConfig(const MeshLocator::Config& config) {
   Host::Config out;
-  out.bind_port = config.punch_port;
+  out.bind_ip = config.bind_ip;
+  out.bind_port = config.bind_port;
   out.session_options = config.session_options;
   return out;
 }
@@ -414,7 +415,7 @@ bool MeshLocator::OnConnectEvent(ClientConnectedToServerEvent& event) {
     std::lock_guard<std::mutex> lock(mutex_);
     relay_session_ = session;
   }
-  session->SetCodec(BuildCodec());
+  session->SetCodec(BuildRendezvousCodec());
   session->SetHandler(std::make_shared<MeshLocatorPacketHandler>(*this));
   auto identify = std::make_shared<IdentifyPacket>();
   identify->punch_port_ = host_.punch_port();

@@ -10,7 +10,7 @@
 
 #include "znet/backends/tcp.h"
 
-#ifndef TARGET_WIN
+#ifndef ZNET_TARGET_WIN
 #include <poll.h>
 #endif
 
@@ -27,7 +27,7 @@ namespace {
 
 /** @brief Whether the last send() failed only because the buffer was full. */
 inline bool WouldBlockOnSend() {
-#ifdef TARGET_WIN
+#ifdef ZNET_TARGET_WIN
   // Windows reports through WSAGetLastError(); send() leaves errno untouched
   const int err = WSAGetLastError();
   return err == WSAEWOULDBLOCK || err == WSAENOBUFS;
@@ -55,7 +55,7 @@ TCPTransportLayer::~TCPTransportLayer() {
   // session owning this transport is gone by now, so no worker can be inside
   // recv() on the socket.
   CloseSocket(socket_);
-  socket_ = INVALID_SOCKET;
+  socket_ = kSocketInvalid;
 }
 
 std::shared_ptr<Buffer> TCPTransportLayer::Receive() {
@@ -65,7 +65,7 @@ std::shared_ptr<Buffer> TCPTransportLayer::Receive() {
   }
 
   data_size_ = recv(socket_, data_ + read_offset_,
-#ifdef TARGET_WIN
+#ifdef ZNET_TARGET_WIN
                     static_cast<int>(sizeof(data_) - static_cast<size_t>(read_offset_)),
 #else
                     sizeof(data_) - static_cast<size_t>(read_offset_),
@@ -97,7 +97,7 @@ std::shared_ptr<Buffer> TCPTransportLayer::Receive() {
   }
 
   if (data_size_ == -1) {
-#ifdef TARGET_WIN
+#ifdef ZNET_TARGET_WIN
     int err = WSAGetLastError();
     if (err == WSAEWOULDBLOCK) {
       return nullptr; // no data received
@@ -213,7 +213,7 @@ bool TCPTransportLayer::WriteAll(Buffer& buffer) {
     if (IsClosed()) {
       return false;
     }
-#ifdef TARGET_WIN
+#ifdef ZNET_TARGET_WIN
     int written = send(socket_, data + offset, static_cast<int>(remaining), 0);
 #else
     ssize_t written = send(socket_, data + offset, remaining, 0);
@@ -346,7 +346,7 @@ Result TCPTransportLayer::Close(CloseOptions options) {
 }
 
 /*uint64_t TCPTransportLayer::GetRTT() const {
-#ifndef TARGET_WIN
+#ifndef ZNET_TARGET_WIN
   struct tcp_info ti{};
   socklen_t len = sizeof(ti);
   if (getsockopt(socket_, IPPROTO_TCP, TCP_INFO, &ti, &len) == 0) {
@@ -381,7 +381,7 @@ Result TCPClientBackend::Bind() {
   if (server_address_->ipv() != InetProtocolVersion::Unix) {
     SetTCPNoDelay(client_socket_);
     const char option = 1;
-#ifdef TARGET_WIN
+#ifdef ZNET_TARGET_WIN
     setsockopt(client_socket_, SOL_SOCKET, SO_BROADCAST, &option,
                sizeof(option));
     setsockopt(client_socket_, SOL_SOCKET, SO_BROADCAST, &option,
@@ -455,7 +455,7 @@ Result TCPClientBackend::Connect() {
                                     /*self_managed=*/false, options_);
   // the transport owns the descriptor now, so dropping our copy keeps
   // CleanupSocket() from closing whatever later reused that number
-  client_socket_ = INVALID_SOCKET;
+  client_socket_ = kSocketInvalid;
   return Result::Success;
 }
 
@@ -482,7 +482,7 @@ void TCPClientBackend::WaitReadable(std::chrono::milliseconds timeout) {
   pollfd entry{};
   entry.fd = wait_socket_;
   entry.events = POLLIN;
-#ifdef TARGET_WIN
+#ifdef ZNET_TARGET_WIN
   WSAPoll(&entry, 1, static_cast<INT>(timeout.count()));
 #else
   poll(&entry, 1, static_cast<int>(timeout.count()));
@@ -492,7 +492,7 @@ void TCPClientBackend::WaitReadable(std::chrono::milliseconds timeout) {
 
 void TCPClientBackend::CleanupSocket() {
   CloseSocket(client_socket_);
-  client_socket_ = INVALID_SOCKET;
+  client_socket_ = kSocketInvalid;
   is_bind_ = false;
   if (client_session_) {
     client_session_->Close();
@@ -533,7 +533,7 @@ Result TCPServerBackend::Bind() {
     return Result::CannotCreateSocket;
   }
   if (!is_unix && server_options_.reuse_address) {
-#ifdef TARGET_WIN
+#ifdef ZNET_TARGET_WIN
     setsockopt(server_socket_, SOL_SOCKET, SO_REUSEADDR | SO_BROADCAST, &option,
                sizeof(option));
 #else
@@ -622,7 +622,7 @@ void TCPServerBackend::PollLoop() {
       std::this_thread::sleep_for(std::chrono::milliseconds(10));
       continue;
     }
-#ifdef TARGET_WIN
+#ifdef ZNET_TARGET_WIN
     const int ready = WSAPoll(fds.data(), static_cast<ULONG>(fds.size()), 10);
 #else
     const int ready = poll(fds.data(), static_cast<nfds_t>(fds.size()), 10);

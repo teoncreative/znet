@@ -10,7 +10,7 @@
 
 #include "znet/error.h"
 
-#ifndef TARGET_WIN
+#ifndef ZNET_TARGET_WIN
 #include <cerrno>
 #include <cstring>
 
@@ -41,8 +41,10 @@ inline std::string StrErrorResult(R ret, const char*) {
 }  // namespace
 #endif
 
+namespace znet {
+
 std::string GetLastErrorInfo() {
-#ifdef TARGET_WIN
+#ifdef ZNET_TARGET_WIN
   char buf[256];
   buf[0] = '\0';
   int err = WSAGetLastError();
@@ -61,3 +63,5 @@ std::string GetLastErrorInfo() {
   return StrErrorResult(strerror_r(saved_errno, buf, sizeof(buf)), buf);
 #endif
 }
+
+}  // namespace znet

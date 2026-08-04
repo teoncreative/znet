@@ -58,7 +58,7 @@ struct LoginPacketHandler
       : session_(session) {}
 
   void OnPacket(const NetworkSettingsPacket& pk) {
-    std::shared_ptr<Player> player = session_->user_ptr_typed<Player>();
+    std::shared_ptr<Player> player = session_->user_pointer<Player>();
     if (player) {
       player->protocol_ = pk.protocol_;
       ZNET_LOG_INFO("Player protocol set to: {}", player->protocol_);
@@ -86,7 +86,7 @@ struct LoginPacketHandler
   void OnPacket(const ClientReadyPacket& pk) {
     ZNET_LOG_INFO("Client ready {}!", session_->id());
     session_->SetHandler(std::make_shared<PlayingPacketHandler>(session_,
-                                                                session_->user_ptr_typed<Player>()));
+                                                                session_->user_pointer<Player>()));
     // After this, session_ is invalid.
   }
 
@@ -99,7 +99,7 @@ std::vector<std::shared_ptr<Player>> active_players_;
 
 // Called whenever a new client connects to the server
 // Sets up the communication channel with proper encoding and handling
-bool OnNewSessionEvent(ServerClientConnectedEvent& event) {
+bool OnNewSessionEvent(IncomingClientConnectedEvent& event) {
   PeerSession& session = *event.session();
 
   session.SetCodec(codecs_.codec_latest); // Initial codec
@@ -110,9 +110,9 @@ bool OnNewSessionEvent(ServerClientConnectedEvent& event) {
   return true;
 }
 
-bool OnDisconnectSessionEvent(znet::ServerClientDisconnectedEvent& event) {
+bool OnDisconnectSessionEvent(znet::IncomingClientDisconnectedEvent& event) {
   znet::PeerSession& session = *event.session();
-  std::shared_ptr<Player> user_ptr = session.user_ptr_typed<Player>();
+  std::shared_ptr<Player> user_ptr = session.user_pointer<Player>();
   if (!user_ptr) {
     return false;
   }
@@ -132,7 +132,7 @@ void OnEvent(Event& event) {
   // Route for different types of events
   dispatcher.Dispatch<IncomingClientConnectedEvent>(
       ZNET_BIND_GLOBAL_FN(OnNewSessionEvent));
-  dispatcher.Dispatch<ServerClientDisconnectedEvent>(
+  dispatcher.Dispatch<IncomingClientDisconnectedEvent>(
       ZNET_BIND_GLOBAL_FN(OnDisconnectSessionEvent));
 }
 

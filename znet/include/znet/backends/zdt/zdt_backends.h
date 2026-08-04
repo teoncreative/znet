@@ -13,8 +13,8 @@
 // transports.
 //
 
-#ifndef ZNET_PARENT_ZDT_BACKENDS_H
-#define ZNET_PARENT_ZDT_BACKENDS_H
+#ifndef ZNET_BACKENDS_ZDT_ZDT_BACKENDS_H_
+#define ZNET_BACKENDS_ZDT_ZDT_BACKENDS_H_
 
 #include "znet/admission.h"
 #include "znet/backends/backend.h"
@@ -135,7 +135,7 @@ class ZDTServerBackend : public ServerBackend {
     // the receive thread writes these counters, so sample under the lock
     std::lock_guard<std::mutex> lock(state_mutex_);
     ServerMetrics out = metrics_;
-    out.transport = ConnectionType::ZDT;
+    out.connection_type = ConnectionType::ZDT;
     return out;
   }
 
@@ -217,4 +217,5 @@ class ZDTServerBackend : public ServerBackend {
 }  // namespace backends
 }  // namespace znet
 
-#endif  // ZNET_PARENT_ZDT_BACKENDS_H
+
+#endif  // ZNET_BACKENDS_ZDT_ZDT_BACKENDS_H_

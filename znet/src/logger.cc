@@ -10,6 +10,8 @@
 
 #include "znet/logger.h"
 
+namespace znet {
+
 ZNET_CONSTINIT bool LoggerInitializer::s_Initialized = false;
 
 LoggerInitializer::LoggerInitializer() {
@@ -17,7 +19,7 @@ LoggerInitializer::LoggerInitializer() {
     return;
   }
   s_Initialized = true;
-#ifdef TARGET_WIN
+#ifdef ZNET_TARGET_WIN
   HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
   if (hOut == INVALID_HANDLE_VALUE) return;
 
@@ -37,3 +39,5 @@ LoggerInitializer::LoggerInitializer() {
   SetConsoleScreenBufferSize(hOut, newSize);
 #endif
 }
+
+}  // namespace znet

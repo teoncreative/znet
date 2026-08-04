@@ -8,10 +8,10 @@
 //        http://www.apache.org/licenses/LICENSE-2.0
 //
 
-#pragma once
+#ifndef ZNET_SERVER_H_
+#define ZNET_SERVER_H_
 
 #include "znet/scheduler.h"
-#include "znet/backends/backend.h"
 #include "znet/interface.h"
 #include "znet/options.h"
 #include "znet/logger.h"
@@ -22,10 +22,25 @@
 
 namespace znet {
 
+namespace backends {
+class ServerBackend;
+}  // namespace backends
+
+/**
+ * @brief Everything a Server is constructed from.
+ *
+ * The aggregate is meant for brace-init:
+ * `ServerConfig{"0.0.0.0", 25000, std::chrono::seconds(10)}`.
+ */
 struct ServerConfig {
+  /** @brief Address to listen on: an IP, or "unix:/path" with TCP. */
   std::string bind_ip;
-  PortNumber bind_port;
-  std::chrono::steady_clock::duration connection_timeout;
+  /** @brief Zero lets the system pick; read it back with bind_address(). */
+  PortNumber bind_port = 0;
+  /** @brief Drop an accepted connection whose handshake has not settled
+   * after this long. Zero waits forever. */
+  std::chrono::steady_clock::duration connection_timeout{
+      std::chrono::seconds(10)};
   ConnectionType connection_type = ConnectionType::ZDT;
   ServerOptions options;         // the listener itself
   SessionOptions child_options;  // every session the listener accepts
@@ -41,7 +56,6 @@ class Server : public Interface {
   using SessionMap = std::unordered_map<std::shared_ptr<InetAddress>,
                                         std::shared_ptr<PeerSession>>;
 
-  Server();
   explicit Server(const ServerConfig& config);
   Server(const Server&) = delete;
   ~Server() override;
@@ -106,11 +120,24 @@ class Server : public Interface {
    */
   void SetTicksPerSecond(uint16_t tps);
 
+  /**
+   * @brief Whether Stop() (or a fatal error) has fully torn the server down.
+   *
+   * The shutdown-wait idiom: spin or sleep on this after Stop(). IsAlive() is
+   * the complementary liveness check while the server runs; the two disagree
+   * only during the teardown window.
+   */
   ZNET_NODISCARD bool shutdown_complete() const { return shutdown_complete_; }
 
- std::shared_ptr<InetAddress> bind_address() const { return bind_address_; }
+  /**
+   * @brief The address actually bound, which differs from the configured one
+   *        when bind_port was zero. Null before Bind().
+   */
+  ZNET_NODISCARD std::shared_ptr<InetAddress> bind_address() const {
+    return bind_address_;
+  }
 
-  bool IsAlive() const;
+  ZNET_NODISCARD bool IsAlive() const;
 
   /**
    * @brief Returns a snapshot of the server's counters.
@@ -119,9 +146,7 @@ class Server : public Interface {
    * numbers live on PeerSession::metrics(). Zeroed when built with
    * ZNET_ENABLE_METRICS=0, or on a backend that tracks none.
    */
-  ZNET_NODISCARD ServerMetrics metrics() const {
-    return backend_ ? backend_->metrics() : ServerMetrics{};
-  }
+  ZNET_NODISCARD ServerMetrics metrics() const;
 
  private:
   /**
@@ -209,3 +234,5 @@ class Server : public Interface {
   SessionMap pending_sessions_;
 };
 }  // namespace znet
+
+#endif  // ZNET_SERVER_H_

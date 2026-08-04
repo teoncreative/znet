@@ -9,7 +9,8 @@
 //        http://www.apache.org/licenses/LICENSE-2.0
 //
 
-#pragma once
+#ifndef ZNET_TRANSPORT_H_
+#define ZNET_TRANSPORT_H_
 
 #include "znet/precompiled.h"
 #include "znet/buffer.h"
@@ -32,6 +33,8 @@ class TransportLayer {
  public:
   virtual ~TransportLayer() = default;
 
+  /** @brief The next complete inbound message, or null when none is ready.
+   * Worker thread only. */
   virtual std::shared_ptr<Buffer> Receive() = 0;
 
   /** @brief Hands one encoded message to the transport. Worker thread only. */
@@ -56,8 +59,12 @@ class TransportLayer {
   /** @brief Shuts the transport down. Callable from any thread. */
   virtual Result Close(CloseOptions options = {}) = 0;
 
-  virtual bool IsClosed() = 0;
+  /** @brief Whether Close() ran or the peer's close/loss was noticed. Safe
+   * from any thread. */
+  virtual bool IsClosed() const = 0;
 
+  /** @brief One tick of protocol upkeep: receive, timers, retransmits.
+   * Worker thread only. */
   virtual void Update() = 0;
 
   /**
@@ -81,3 +88,5 @@ class TransportLayer {
 };
 
 }
+
+#endif  // ZNET_TRANSPORT_H_

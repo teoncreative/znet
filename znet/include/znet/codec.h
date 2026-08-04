@@ -8,8 +8,8 @@
 //        http://www.apache.org/licenses/LICENSE-2.0
 //
 
-#ifndef ZNET_PARENT_CODEC_H
-#define ZNET_PARENT_CODEC_H
+#ifndef ZNET_CODEC_H_
+#define ZNET_CODEC_H_
 
 #include "znet/precompiled.h"
 #include "znet/packet.h"
@@ -94,4 +94,5 @@ class Codec {
 }
 
 
-#endif  //ZNET_PARENT_CODEC_H
+
+#endif  // ZNET_CODEC_H_

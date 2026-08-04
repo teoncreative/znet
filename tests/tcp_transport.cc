@@ -298,7 +298,7 @@ TEST(TCPLatency, RoundTripBeatsTheOldTickFloor) {
     auto packet = std::make_shared<EchoPacket>();
     packet->seq = i;
     const auto start = std::chrono::steady_clock::now();
-    ASSERT_TRUE(ping_session->SendPacket(packet));
+    ASSERT_EQ(ping_session->SendPacket(packet), Result::Success);
     while (pong->got.load() == before &&
            std::chrono::steady_clock::now() - start < std::chrono::seconds(2)) {
       std::this_thread::sleep_for(std::chrono::microseconds(50));

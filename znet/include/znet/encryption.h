@@ -8,7 +8,12 @@
 //        http://www.apache.org/licenses/LICENSE-2.0
 //
 
-#pragma once
+//
+// Internal: a private member of PeerSession, public only because that member
+// needs the complete type. Nothing here is meant to be called directly.
+//
+#ifndef ZNET_ENCRYPTION_H_
+#define ZNET_ENCRYPTION_H_
 
 #include "znet/compression.h"
 #include "znet/packet.h"
@@ -202,7 +207,7 @@ class EncryptionLayer {
   void OnAcknowledgePacket(std::shared_ptr<ConnectionReadyPacket> packet);
 
   /** @brief Bytes unique to this session and this label. See PeerSession. */
-  bool ExportKeyingMaterial(const std::string& label, unsigned char* out,
+  Result ExportKeyingMaterial(const std::string& label, unsigned char* out,
                             size_t out_len) const;
 
  private:
@@ -264,3 +269,5 @@ class EncryptionLayer {
 };
 
 }
+
+#endif  // ZNET_ENCRYPTION_H_

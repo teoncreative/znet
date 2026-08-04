@@ -437,7 +437,11 @@ bool ZDTServerBackend::AllowHandshake(const std::string& peer_readable) {
   // keep the table bounded: when it grows large, drop entries whose 1s window
   // has elapsed. This is the only per-source state the server keeps, and it is
   // capped; the stateless cookie remains the primary anti-flood defense.
-  if (source_rate_.size() > static_cast<size_t>(config_.max_connections) * 2) {
+  const size_t prune_at =
+      config_.max_connections > 0
+          ? static_cast<size_t>(config_.max_connections) * 2
+          : 8192;
+  if (source_rate_.size() > prune_at) {
     for (auto it = source_rate_.begin(); it != source_rate_.end();) {
       if (now - it->second.window_start > std::chrono::seconds(1)) {
         it = source_rate_.erase(it);
@@ -552,7 +556,8 @@ void ZDTServerBackend::HandleOffline(Buffer& buffer,
       reply2();
       return;
     }
-    if (static_cast<int>(routes_.size()) >= config_.max_connections) {
+    if (config_.max_connections > 0 &&
+        static_cast<int>(routes_.size()) >= config_.max_connections) {
       ZNET_METRIC(metrics_.zdt.handshakes_rejected++);
       Buffer out(Endianness::BigEndian);
       WriteOfflineHeader(out, ZDTOfflineMsg::NoFreeConnections);

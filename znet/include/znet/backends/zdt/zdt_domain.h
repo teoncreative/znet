@@ -16,8 +16,8 @@
 // aborts instead.
 //
 
-#ifndef ZNET_PARENT_ZDT_DOMAIN_H
-#define ZNET_PARENT_ZDT_DOMAIN_H
+#ifndef ZNET_BACKENDS_ZDT_ZDT_DOMAIN_H_
+#define ZNET_BACKENDS_ZDT_ZDT_DOMAIN_H_
 
 #include "znet/precompiled.h"
 
@@ -95,4 +95,5 @@ class ThreadDomainGuard {
 }  // namespace backends
 }  // namespace znet
 
-#endif  // ZNET_PARENT_ZDT_DOMAIN_H
+
+#endif  // ZNET_BACKENDS_ZDT_ZDT_DOMAIN_H_

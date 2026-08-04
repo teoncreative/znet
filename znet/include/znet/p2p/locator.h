@@ -8,8 +8,8 @@
 //        http://www.apache.org/licenses/LICENSE-2.0
 //
 
-#ifndef ZNET_PARENT_LOCATOR_H
-#define ZNET_PARENT_LOCATOR_H
+#ifndef ZNET_P2P_LOCATOR_H_
+#define ZNET_P2P_LOCATOR_H_
 
 #include "znet/event.h"
 #include "znet/client.h"
@@ -22,13 +22,15 @@
 namespace znet {
 namespace p2p {
 
-static constexpr uint64_t kInvalidPunchId = std::numeric_limits<uint64_t>::max();
+ZNET_INLINE_CONSTEXPR uint64_t kInvalidPunchId =
+    (std::numeric_limits<uint64_t>::max)();
 
+/** @brief Everything a PeerLocator is constructed from. */
 struct PeerLocatorConfig {
   std::string server_ip;
-  PortNumber server_port;
+  PortNumber server_port = 0;
   // no transport choice here: the relay link is TCP, and the punch transport
-  // is decided by the rendezvous server so both peers always agree
+  // is decided by the rendezvous server so both peers agree
 };
 
 /** @brief Which stage of finding a peer failed. */
@@ -38,7 +40,7 @@ enum class PeerLocatorPhase : uint8_t {
   Punch,       /**< The hole punch itself. */
 };
 
-inline const char* GetPeerLocatorPhaseString(PeerLocatorPhase phase) {
+inline std::string GetPeerLocatorPhaseString(PeerLocatorPhase phase) {
   switch (phase) {
     case PeerLocatorPhase::Relay:
       return "Relay";
@@ -46,19 +48,24 @@ inline const char* GetPeerLocatorPhaseString(PeerLocatorPhase phase) {
       return "Rendezvous";
     case PeerLocatorPhase::Punch:
       return "Punch";
+    default:
+      return "Unknown";
   }
-  return "Unknown";
 }
 
 class PeerLocatorReadyEvent : public Event {
  public:
-  explicit PeerLocatorReadyEvent(std::string peer_name,
-                                 std::shared_ptr<InetAddress> endpoint)
-      : peer_name_(peer_name), endpoint_(endpoint) {}
+  PeerLocatorReadyEvent(std::string peer_name,
+                        std::shared_ptr<InetAddress> endpoint)
+      : peer_name_(std::move(peer_name)), endpoint_(std::move(endpoint)) {}
 
-  const std::string& peer_name() const { return peer_name_; }
+  ZNET_NODISCARD const std::string& peer_name() const { return peer_name_; }
 
-  std::shared_ptr<InetAddress> endpoint() const { return endpoint_; }
+  /** @brief This peer's address as the rendezvous observed it: the public
+   * mapping other peers will be told to punch. */
+  ZNET_NODISCARD std::shared_ptr<InetAddress> endpoint() const {
+    return endpoint_;
+  }
 
   ZNET_EVENT_CLASS_TYPE(PeerLocatorReadyEvent)
   ZNET_EVENT_CLASS_CATEGORY(EventCategoryP2P)
@@ -69,11 +76,10 @@ class PeerLocatorReadyEvent : public Event {
 
 class PeerLocatorCloseEvent : public Event {
  public:
-  explicit PeerLocatorCloseEvent() {}
+  PeerLocatorCloseEvent() = default;
 
   ZNET_EVENT_CLASS_TYPE(PeerLocatorCloseEvent)
   ZNET_EVENT_CLASS_CATEGORY(EventCategoryP2P)
- private:
 };
 
 /**
@@ -114,13 +120,19 @@ class PeerConnectedEvent : public Event {
         self_peer_name_(self_peer_name),
         target_peer_name_(target_peer_name) {}
 
-  std::shared_ptr<PeerSession> session() const { return session_; }
+  ZNET_NODISCARD std::shared_ptr<PeerSession> session() const {
+    return session_;
+  }
 
-  uint64_t punch_id() const { return punch_id_; }
+  ZNET_NODISCARD uint64_t punch_id() const { return punch_id_; }
 
-  const std::string& self_peer_name() const { return self_peer_name_; }
+  ZNET_NODISCARD const std::string& self_peer_name() const {
+    return self_peer_name_;
+  }
 
-  const std::string& target_peer_name() const { return target_peer_name_; }
+  ZNET_NODISCARD const std::string& target_peer_name() const {
+    return target_peer_name_;
+  }
 
   ZNET_EVENT_CLASS_TYPE(PeerConnectedEvent)
   ZNET_EVENT_CLASS_CATEGORY(EventCategoryP2P)
@@ -131,9 +143,17 @@ class PeerConnectedEvent : public Event {
   std::string target_peer_name_;
 };
 
+/**
+ * @brief The one-shot two-player path: connect to the rendezvous, ask for one
+ *        peer, punch, done. The only path that can punch TCP.
+ *
+ * Every event fires on an internal worker thread; treat the callback like a
+ * packet handler and keep it quick. For three or more players, or repeated
+ * asks over one socket, use MeshLocator.
+ */
 class PeerLocator {
  public:
-  PeerLocator(const PeerLocatorConfig&);
+  explicit PeerLocator(const PeerLocatorConfig& config);
   PeerLocator(const PeerLocator&) = delete;
   ~PeerLocator();
 
@@ -146,11 +166,7 @@ class PeerLocator {
 
   void SetEventCallback(EventCallbackFn fn) { event_callback_ = std::move(fn); }
 
-  ZNET_NODISCARD EventCallbackFn event_callback() const {
-    return event_callback_;
-  }
-
-  const std::string& peer_name() const { return peer_name_; }
+  ZNET_NODISCARD std::string peer_name() const;
 
  private:
   friend class LocatorPacketHandler;
@@ -173,11 +189,10 @@ class PeerLocator {
   std::shared_ptr<InetAddress> endpoint_;
   std::shared_ptr<PeerSession> session_;
 
-  std::mutex mutex_;
+  mutable std::mutex mutex_;
   std::condition_variable cv_;
   Task task_;
 
-  std::shared_ptr<InetAddress> bind_endpoint_;
   std::shared_ptr<InetAddress> target_endpoint_;
   std::shared_ptr<InetAddress> target_private_endpoint_;
   ConnectionType connection_type_ = ConnectionType::ZDT;
@@ -210,11 +225,13 @@ class MeshLocator {
  public:
   struct Config {
     std::string server_ip;
-    PortNumber server_port;
+    PortNumber server_port = 0;
     /** @brief Options every punched session is built with. */
     SessionOptions session_options;
-    /** @brief The UDP port to punch from; zero picks one. */
-    PortNumber punch_port = 0;
+    /** @brief Local address of the shared punch socket. The defaults bind
+     * every interface on a system-picked port. */
+    std::string bind_ip = "0.0.0.0";
+    PortNumber bind_port = 0;
   };
 
   explicit MeshLocator(const Config& config);
@@ -237,7 +254,7 @@ class MeshLocator {
   ZNET_NODISCARD std::string peer_name() const;
 
   /** @brief The socket everything punches from, e.g. for session_count(). */
-  ZNET_NODISCARD Host& host() { return host_; }
+  ZNET_NODISCARD const Host& host() const { return host_; }
 
  private:
   friend class MeshLocatorPacketHandler;
@@ -268,4 +285,5 @@ class MeshLocator {
 }  // namespace p2p
 }  // namespace znet
 
-#endif  //ZNET_PARENT_LOCATOR_H
+
+#endif  // ZNET_P2P_LOCATOR_H_

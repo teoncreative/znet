@@ -8,43 +8,45 @@
 //        http://www.apache.org/licenses/LICENSE-2.0
 //
 
-#pragma once
+#ifndef ZNET_EVENT_H_
+#define ZNET_EVENT_H_
 
 #include "znet/precompiled.h"
 
 namespace znet {
 
-#define BIT(x) (1 << x)
-
+// bit flags, so one event can belong to several categories
 enum EventCategory {
-  EventCategoryServer = BIT(0),
-  EventCategoryClient = BIT(1),
-  EventCategoryP2P = BIT(1),
-  EventCategoryUser = BIT(2)
+  EventCategoryServer = 1 << 0,
+  EventCategoryClient = 1 << 1,
+  EventCategoryP2P = 1 << 2,
 };
-
-#undef BIT
 
 class Event {
  public:
   virtual ~Event() = default;
 
-  bool handled_ = false;
-
   virtual const char* GetEventName() const = 0;
   virtual size_t GetEventType() const = 0;
   virtual int GetCategoryFlags() const = 0;
 
-  bool IsInCategory(EventCategory category) {
-    return GetCategoryFlags() & category;
+  ZNET_NODISCARD bool IsInCategory(EventCategory category) const {
+    return (GetCategoryFlags() & category) != 0;
   }
+
+  /** @brief Whether a dispatched handler returned true for this event. */
+  ZNET_NODISCARD bool handled() const { return handled_; }
+
+ private:
+  friend class EventDispatcher;
+  bool handled_ = false;
 };
 
 using EventCallbackFn = std::function<void(Event&)>;
 
 class EventDispatcher {
  public:
-  EventDispatcher(Event& event) : event_(event) {}
+  explicit EventDispatcher(Event& event) : event_(event) {}
 
   // F will be deduced by the compiler
   template <typename T, typename F>
@@ -77,3 +79,5 @@ class EventDispatcher {
   }
 
 }  // namespace znet
+
+#endif  // ZNET_EVENT_H_

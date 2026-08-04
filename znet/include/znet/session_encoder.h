@@ -9,6 +9,9 @@
 //
 
 //
+// Internal: a private member of Client, public only because that member
+// needs the complete type. Nothing here is meant to be called directly.
+//
 // A thread that encodes one session's queued packets, so the loop putting bytes
 // on the wire does not have to stop and do it.
 //
@@ -18,8 +21,8 @@
 // encode inline across many sessions and never build one of these.
 //
 
-#ifndef ZNET_PARENT_SESSION_ENCODER_H
-#define ZNET_PARENT_SESSION_ENCODER_H
+#ifndef ZNET_SESSION_ENCODER_H_
+#define ZNET_SESSION_ENCODER_H_
 
 #include "znet/peer_session.h"
 #include "znet/precompiled.h"
@@ -84,4 +87,5 @@ class SessionEncoder {
 
 }  // namespace znet
 
-#endif  // ZNET_PARENT_SESSION_ENCODER_H
+
+#endif  // ZNET_SESSION_ENCODER_H_

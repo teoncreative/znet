@@ -10,6 +10,7 @@
 
 #include "znet/p2p/host.h"
 
+#include "znet/backends/zdt.h"
 #include "znet/error.h"
 #include "znet/logger.h"
 

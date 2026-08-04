@@ -13,8 +13,8 @@
 // Neither knows anything about the ZDT protocol.
 //
 
-#ifndef ZNET_PARENT_ZDT_NET_H
-#define ZNET_PARENT_ZDT_NET_H
+#ifndef ZNET_BACKENDS_ZDT_ZDT_NET_H_
+#define ZNET_BACKENDS_ZDT_ZDT_NET_H_
 
 #include "znet/backends/backend.h"
 #include "znet/buffer.h"
@@ -126,4 +126,5 @@ class ZDTInbox {
 }  // namespace backends
 }  // namespace znet
 
-#endif  // ZNET_PARENT_ZDT_NET_H
+
+#endif  // ZNET_BACKENDS_ZDT_ZDT_NET_H_

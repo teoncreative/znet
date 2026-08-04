@@ -222,7 +222,7 @@ TEST(PeerLocatorEndToEnd, PunchesOverTCP) {
   RunPunchEndToEnd(ConnectionType::TCP);
 }
 
-#ifndef TARGET_WIN
+#ifndef ZNET_TARGET_WIN
 // std::clock() is process CPU time on POSIX, which is exactly the claim under
 // test; on Windows it is wall time and the test would be meaningless.
 TEST(PeerLocatorEndToEnd, IdlePunchedSessionsDoNotSpin) {
@@ -256,7 +256,7 @@ TEST(PeerLocatorEndToEnd, IdlePunchedSessionsDoNotSpin) {
       << "idle punched sessions must doze, not spin a core";
   relay.Stop();
 }
-#endif  // TARGET_WIN
+#endif  // ZNET_TARGET_WIN
 
 TEST(PeerLocatorEndToEnd, PunchesOverZDT) {
   RunPunchEndToEnd(ConnectionType::ZDT);
@@ -294,7 +294,7 @@ struct RawRelayClient {
                   name_count++;
                 });
             auto s = ev.session();
-            s->SetCodec(p2p::BuildCodec());
+            s->SetCodec(p2p::BuildRendezvousCodec());
             s->SetHandler(handler);
             {
               std::lock_guard<std::mutex> lock(mutex);
@@ -380,7 +380,7 @@ TEST(RendezvousProtection, RelayHonorsServerOptions) {
   p2p::RendezvousServer::Config config;
   config.bind_ip = "127.0.0.1";
   config.bind_port = 0;
-  config.server_options.denylist.push_back(CIDRBlock::Parse("127.0.0.0/8"));
+  config.options.denylist.push_back(CIDRBlock::Parse("127.0.0.0/8"));
   p2p::RendezvousServer relay{config};
   ASSERT_EQ(relay.Start(), Result::Success);
 
@@ -430,12 +430,12 @@ void RunCandidateRace(ConnectionType type, PortNumber port_a,
   std::shared_ptr<PeerSession> session_a;
   std::shared_ptr<PeerSession> session_b;
   std::thread thread_a([&]() {
-    session_a = p2p::PunchSync(local_a, to_b, &result_a,
-                               /*is_initiator=*/true, type, 10000);
+    session_a = p2p::PunchSync(local_a, to_b, /*is_initiator=*/true, type,
+                               std::chrono::milliseconds(10000), &result_a);
   });
   std::thread thread_b([&]() {
-    session_b = p2p::PunchSync(local_b, to_a, &result_b,
-                               /*is_initiator=*/false, type, 10000);
+    session_b = p2p::PunchSync(local_b, to_a, /*is_initiator=*/false, type,
+                               std::chrono::milliseconds(10000), &result_b);
   });
   thread_a.join();
   thread_b.join();

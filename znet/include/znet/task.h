@@ -9,7 +9,8 @@
 //        http://www.apache.org/licenses/LICENSE-2.0
 //
 
-#pragma once
+#ifndef ZNET_TASK_H_
+#define ZNET_TASK_H_
 
 #include "znet/precompiled.h"
 #include "znet/types.h"
@@ -77,3 +78,5 @@ class Task {
 };
 
 }
+
+#endif  // ZNET_TASK_H_

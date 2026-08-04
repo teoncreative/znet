@@ -64,7 +64,7 @@ bool OnNewSessionEvent(IncomingClientConnectedEvent& event) {
 
 // Called when a client disconnects from the server
 // You can add cleanup code here if needed
-bool OnDisconnectSessionEvent(ServerClientDisconnectedEvent& event) {
+bool OnDisconnectSessionEvent(IncomingClientDisconnectedEvent& event) {
   return false;
 }
 
@@ -75,7 +75,7 @@ void OnEvent(Event& event) {
   // Route for different types of events
   dispatcher.Dispatch<IncomingClientConnectedEvent>(
       ZNET_BIND_GLOBAL_FN(OnNewSessionEvent));
-  dispatcher.Dispatch<ServerClientDisconnectedEvent>(
+  dispatcher.Dispatch<IncomingClientDisconnectedEvent>(
       ZNET_BIND_GLOBAL_FN(OnDisconnectSessionEvent));
 }
 

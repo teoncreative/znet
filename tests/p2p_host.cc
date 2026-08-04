@@ -158,7 +158,7 @@ TEST(P2PHost, PunchesAsynchronouslyAndExchangesMessages) {
 
   auto note = std::make_shared<NotePacket>();
   note->text = "hello over the punched socket";
-  ASSERT_TRUE(at_a.Session()->SendPacket(note));
+  ASSERT_EQ(at_a.Session()->SendPacket(note), Result::Success);
   ASSERT_TRUE(WaitUntil([&]() { return collector->count.load() == 1; }, 5000));
   {
     std::lock_guard<std::mutex> lock(collector->mutex);
@@ -222,8 +222,8 @@ TEST(P2PHost, ThreePeersShareOneSocketEach) {
   from_b->text = "from b";
   auto from_c = std::make_shared<NotePacket>();
   from_c->text = "from c";
-  ASSERT_TRUE(b_to_a.Session()->SendPacket(from_b));
-  ASSERT_TRUE(c_to_a.Session()->SendPacket(from_c));
+  ASSERT_EQ(b_to_a.Session()->SendPacket(from_b), Result::Success);
+  ASSERT_EQ(c_to_a.Session()->SendPacket(from_c), Result::Success);
   ASSERT_TRUE(WaitUntil([&]() { return collector->count.load() == 2; }, 5000));
   {
     std::lock_guard<std::mutex> lock(collector->mutex);
@@ -266,7 +266,7 @@ struct MeshProbe {
 
   explicit MeshProbe(PortNumber relay_port)
       : locator(p2p::MeshLocator::Config{"127.0.0.1", relay_port,
-                                         SessionOptions{}, 0}) {
+                                         SessionOptions{}, "0.0.0.0", 0}) {
     locator.SetEventCallback([this](Event& event) {
       EventDispatcher dispatcher{event};
       dispatcher.Dispatch<p2p::PeerLocatorReadyEvent>(

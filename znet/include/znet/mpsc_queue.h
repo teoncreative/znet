@@ -8,8 +8,8 @@
 //        http://www.apache.org/licenses/LICENSE-2.0
 //
 
-#ifndef ZNET_PARENT_MPSC_QUEUE_H
-#define ZNET_PARENT_MPSC_QUEUE_H
+#ifndef ZNET_MPSC_QUEUE_H_
+#define ZNET_MPSC_QUEUE_H_
 
 #include "znet/precompiled.h"
 
@@ -228,4 +228,5 @@ class MpscQueue {
 
 }  // namespace znet
 
-#endif  // ZNET_PARENT_MPSC_QUEUE_H
+
+#endif  // ZNET_MPSC_QUEUE_H_

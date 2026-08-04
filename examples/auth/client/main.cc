@@ -74,7 +74,8 @@ bool OnConnect(ClientConnectedToServerEvent& event) {
   // same 32 bytes and nobody else can, so a signature over them proves the
   // token is being presented on the session it was signed for.
   unsigned char binding[kExportLength];
-  if (!session.ExportKeyingMaterial(kAuthExportLabel, binding, sizeof(binding))) {
+  if (session.ExportKeyingMaterial(kAuthExportLabel, binding,
+                                  sizeof(binding)) != Result::Success) {
     // unencrypted session: there is no exchange to bind to, so refuse rather
     // than fall back to sending a token that could be relayed
     ZNET_LOG_ERROR("No keying material to bind to, refusing to send the token.");

@@ -107,7 +107,7 @@ bool OnNewSession(IncomingClientConnectedEvent& event) {
   return false;
 }
 
-bool OnDisconnect(ServerClientDisconnectedEvent& event) {
+bool OnDisconnect(IncomingClientDisconnectedEvent& event) {
   ZNET_LOG_INFO("[server] client disconnected: {}",
                 event.session()->remote_address()->readable());
   return false;
@@ -117,7 +117,7 @@ void OnEvent(Event& event) {
   EventDispatcher dispatcher{event};
   dispatcher.Dispatch<IncomingClientConnectedEvent>(
       ZNET_BIND_GLOBAL_FN(OnNewSession));
-  dispatcher.Dispatch<ServerClientDisconnectedEvent>(
+  dispatcher.Dispatch<IncomingClientDisconnectedEvent>(
       ZNET_BIND_GLOBAL_FN(OnDisconnect));
 }
 

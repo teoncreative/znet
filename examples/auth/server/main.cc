@@ -87,8 +87,8 @@ class LoginHandler : public PacketHandler<LoginHandler, LoginPacket> {
     // 2. What does *this* session look like? The client signed its own copy of
     //    these bytes. Nobody outside the session can compute them.
     unsigned char expected[kExportLength];
-    if (!session_->ExportKeyingMaterial(kAuthExportLabel, expected,
-                                        sizeof(expected))) {
+    if (session_->ExportKeyingMaterial(kAuthExportLabel, expected,
+                                       sizeof(expected)) != Result::Success) {
       *detail = "session has no key exchange to bind to";  // encryption is off
       return false;
     }

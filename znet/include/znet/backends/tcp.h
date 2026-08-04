@@ -8,8 +8,8 @@
 //        http://www.apache.org/licenses/LICENSE-2.0
 //
 
-#ifndef ZNET_PARENT_TCP_H
-#define ZNET_PARENT_TCP_H
+#ifndef ZNET_BACKENDS_TCP_H_
+#define ZNET_BACKENDS_TCP_H_
 
 #include "znet/admission.h"
 #include "znet/backends/backend.h"
@@ -36,7 +36,7 @@ class TCPTransportLayer : public TransportLayer {
 
   Result Close(CloseOptions options = {}) override;
 
-  bool IsClosed() override { return is_closed_.load(std::memory_order_acquire); }
+  bool IsClosed() const override { return is_closed_.load(std::memory_order_acquire); }
 
   void Update() override;
 
@@ -191,4 +191,5 @@ class TCPServerBackend : public ServerBackend {
 
 }  // namespace backends
 }  // namespace znet
-#endif  //ZNET_PARENT_TCP_H
+
+#endif  // ZNET_BACKENDS_TCP_H_

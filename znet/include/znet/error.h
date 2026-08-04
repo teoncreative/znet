@@ -8,12 +8,20 @@
 //        http://www.apache.org/licenses/LICENSE-2.0
 //
 
-#ifndef ZNET_PARENT_ERROR_H
-#define ZNET_PARENT_ERROR_H
+#ifndef ZNET_ERROR_H_
+#define ZNET_ERROR_H_
 
 #include "znet/precompiled.h"
 
+namespace znet {
+
+/**
+ * @brief The last socket error of the calling thread, formatted as
+ *        "code (text)". Read it immediately: any socket call resets it.
+ */
 std::string GetLastErrorInfo();
 
-#endif
+}  // namespace znet
 
+
+#endif  // ZNET_ERROR_H_

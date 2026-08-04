@@ -26,7 +26,7 @@ class RendezvousPacketHandler
   void OnPacket(const IdentifyPacket& pk) {
     {
       std::lock_guard<std::mutex> lock(server_.mutex_);
-      auto data = session_->user_ptr_typed<RendezvousServer::ClientData>();
+      auto data = session_->user_pointer<RendezvousServer::ClientData>();
       if (!server_.AllowRequest(*data)) {
         return;
       }
@@ -45,7 +45,7 @@ class RendezvousPacketHandler
   void OnPacket(const ConnectPeerPacket& pk) {
     {
       std::lock_guard<std::mutex> lock(server_.mutex_);
-      auto data = session_->user_ptr_typed<RendezvousServer::ClientData>();
+      auto data = session_->user_pointer<RendezvousServer::ClientData>();
       if (!server_.AllowRequest(*data)) {
         return;
       }
@@ -77,7 +77,7 @@ ServerConfig MakeRelayConfig(const RendezvousServer::Config& config) {
   out.connection_type = ConnectionType::TCP;
   // the relay is a Server like any other, so the listener-level protections
   // (lists, per-source connection throttle, max_connections) come from here
-  out.options = config.server_options;
+  out.options = config.options;
   return out;
 }
 
@@ -131,13 +131,13 @@ void RendezvousServer::OnEvent(Event& event) {
   EventDispatcher dispatcher{event};
   dispatcher.Dispatch<IncomingClientConnectedEvent>(
       ZNET_BIND_FN(OnConnectEvent));
-  dispatcher.Dispatch<ServerClientDisconnectedEvent>(
+  dispatcher.Dispatch<IncomingClientDisconnectedEvent>(
       ZNET_BIND_FN(OnDisconnectEvent));
 }
 
 bool RendezvousServer::OnConnectEvent(IncomingClientConnectedEvent& event) {
   PeerSession& session = *event.session();
-  session.SetCodec(BuildCodec());
+  session.SetCodec(BuildRendezvousCodec());
   session.SetHandler(
       std::make_shared<RendezvousPacketHandler>(*this, event.session()));
   auto data = std::make_shared<ClientData>();
@@ -146,8 +146,8 @@ bool RendezvousServer::OnConnectEvent(IncomingClientConnectedEvent& event) {
   return false;
 }
 
-bool RendezvousServer::OnDisconnectEvent(ServerClientDisconnectedEvent& event) {
-  auto data = event.session()->user_ptr_typed<ClientData>();
+bool RendezvousServer::OnDisconnectEvent(IncomingClientDisconnectedEvent& event) {
+  auto data = event.session()->user_pointer<ClientData>();
   {
     std::lock_guard<std::mutex> lock(mutex_);
     if (data && !data->peer_name.empty()) {
@@ -223,7 +223,7 @@ bool RendezvousServer::AllowRequest(ClientData& data) {
 
 void RendezvousServer::AssignName(const std::shared_ptr<PeerSession>& session) {
   std::lock_guard<std::mutex> lock(mutex_);
-  auto data = session->user_ptr_typed<ClientData>();
+  auto data = session->user_pointer<ClientData>();
   if (!data->peer_name.empty()) {
     // identify is idempotent: a repeat gets the same name again. Minting a
     // fresh one would also leak the old registry entry until disconnect,
@@ -254,7 +254,7 @@ void RendezvousServer::AssignName(const std::shared_ptr<PeerSession>& session) {
 void RendezvousServer::TryPair(const std::shared_ptr<PeerSession>& session,
                                const std::string& target) {
   std::lock_guard<std::mutex> lock(mutex_);
-  auto data = session->user_ptr_typed<ClientData>();
+  auto data = session->user_pointer<ClientData>();
   if (data->pending_targets.count(target) == 0) {
     return;  // already paired by the other side's ask in this same batch
   }
@@ -307,8 +307,6 @@ void RendezvousServer::TryPair(const std::shared_ptr<PeerSession>& session,
   response->target_peer_ = other_data->peer_name;
   response->target_endpoint_ = other_address;
   response->target_private_endpoint_ = private_of(other_data, other_address);
-  response->bind_endpoint_ = InetAddress::from(
-      GetAnyBindAddress(local_address->ipv()), local_address->port());
   response->punch_id_ = punch_id;
   response->connection_type_ = config_.punch_connection_type;
   session->SendPacket(response);
@@ -317,8 +315,6 @@ void RendezvousServer::TryPair(const std::shared_ptr<PeerSession>& session,
   response->target_peer_ = data->peer_name;
   response->target_endpoint_ = local_address;
   response->target_private_endpoint_ = private_of(data, local_address);
-  response->bind_endpoint_ = InetAddress::from(
-      GetAnyBindAddress(other_address->ipv()), other_address->port());
   response->punch_id_ = punch_id;
   response->connection_type_ = config_.punch_connection_type;
   other_data->session->SendPacket(response);

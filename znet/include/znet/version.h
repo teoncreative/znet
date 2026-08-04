@@ -22,8 +22,8 @@
 //   ZNET_LOG_INFO("znet {}", znet::VersionString());
 //
 
-#ifndef ZNET_PARENT_VERSION_H
-#define ZNET_PARENT_VERSION_H
+#ifndef ZNET_VERSION_H_
+#define ZNET_VERSION_H_
 
 #define ZNET_VERSION_MAJOR 3
 #define ZNET_VERSION_MINOR 2
@@ -58,4 +58,5 @@ const char* VersionString();
 
 }  // namespace znet
 
-#endif  // ZNET_PARENT_VERSION_H
+
+#endif  // ZNET_VERSION_H_

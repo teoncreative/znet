@@ -15,12 +15,13 @@
 // and serialization are unchanged. See docs/zdt-design.md for the full spec.
 //
 
-#ifndef ZNET_PARENT_ZDT_H
-#define ZNET_PARENT_ZDT_H
+#ifndef ZNET_BACKENDS_ZDT_H_
+#define ZNET_BACKENDS_ZDT_H_
 
 #include "znet/backends/zdt/zdt_backends.h"
 #include "znet/backends/zdt/zdt_net.h"
 #include "znet/backends/zdt/zdt_transport.h"
 #include "znet/backends/zdt/zdt_wire.h"
 
-#endif  // ZNET_PARENT_ZDT_H
+
+#endif  // ZNET_BACKENDS_ZDT_H_

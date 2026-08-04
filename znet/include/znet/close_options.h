@@ -13,12 +13,14 @@
 // reason: a transport has to tell an explicit choice from an absent one.
 //
 
-#ifndef ZNET_PARENT_CLOSE_OPTIONS_H
-#define ZNET_PARENT_CLOSE_OPTIONS_H
+#ifndef ZNET_CLOSE_OPTIONS_H_
+#define ZNET_CLOSE_OPTIONS_H_
 
 #include "znet/precompiled.h"
 #include <cstdint>
 #include <type_traits>
+
+namespace znet {
 
 /**
  * @brief Per-call options for PeerSession::Close().
@@ -78,4 +80,7 @@ struct NoLingerKey { using type = bool; static constexpr int id = 0; };
 
 template <> inline const bool& CloseOptions::Get<NoLingerKey>() const { return data_.no_linger; }
 
-#endif  //ZNET_PARENT_CLOSE_OPTIONS_H
+}  // namespace znet
+
+
+#endif  // ZNET_CLOSE_OPTIONS_H_

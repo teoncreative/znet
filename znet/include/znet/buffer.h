@@ -8,7 +8,8 @@
 //        http://www.apache.org/licenses/LICENSE-2.0
 //
 
-#pragma once
+#ifndef ZNET_BUFFER_H_
+#define ZNET_BUFFER_H_
 
 #include "znet/inet_addr.h"
 #include "znet/types.h"
@@ -119,7 +120,6 @@ concept HasWriteMethod = detail::HasWriteMethodT<T>::value;
 
 enum class BufferError {
   None,
-  WriteAfterSeal,
   CannotAllocate,
   ReadOutOfBounds,
   CorruptedFormat,
@@ -131,8 +131,6 @@ inline std::string GetBufferErrorString(BufferError error) {
   switch (error) {
     case BufferError::None:
       return "NoError";
-    case BufferError::WriteAfterSeal:
-      return "WriteAfterSeal";
     case BufferError::CannotAllocate:
       return "CannotAllocate";
     case BufferError::ReadOutOfBounds:
@@ -190,22 +188,63 @@ class Buffer {
 #endif
     endianness_ = buffer.endianness_;
     allocated_size_ = buffer.allocated_size_;
-    write_cursor_ = 0;
-    read_cursor_ = 0;
-    last_error_ = BufferError::None;
+    write_cursor_ = buffer.write_cursor_;
+    read_cursor_ = buffer.read_cursor_;
+    read_limit_ = buffer.read_limit_;
+    last_error_ = buffer.last_error_;
 #ifdef ZNET_BUFFER_COUNT_MEMORY_ALLOCATIONS
     mem_allocations_ = 0;
 #endif
-    // todo safe errors
+    if (allocated_size_ == 0 || !buffer.data_) {
+      data_ = nullptr;
+      return;
+    }
     data_ = new (std::nothrow) char[allocated_size_];
     if (ZNET_UNLIKELY(!data_)) ZNET_UNLIKELY_ATTR {
       last_error_ = BufferError::CannotAllocate;
       allocated_size_ = 0;
+      write_cursor_ = 0;
+      read_cursor_ = 0;
       return;
     }
-    std::memcpy(data_, buffer.data_, allocated_size_);
+    // only what was written is meaningful; the tail is uninitialized
+    std::memcpy(data_, buffer.data_, write_cursor_);
+  }
+
+  Buffer& operator=(const Buffer& buffer) {
+    if (this != &buffer) {
+      Buffer copy(buffer);
+      Swap(copy);
+    }
+    return *this;
   }
 #endif
+
+  Buffer(Buffer&& buffer) noexcept
+      : endianness_(buffer.endianness_),
+        allocated_size_(buffer.allocated_size_),
+        write_cursor_(buffer.write_cursor_),
+        read_cursor_(buffer.read_cursor_),
+        read_limit_(buffer.read_limit_),
+        data_(buffer.data_),
+        last_error_(buffer.last_error_) {
+#ifdef ZNET_BUFFER_COUNT_MEMORY_ALLOCATIONS
+    mem_allocations_ = buffer.mem_allocations_;
+#endif
+    buffer.data_ = nullptr;
+    buffer.allocated_size_ = 0;
+    buffer.write_cursor_ = 0;
+    buffer.read_cursor_ = 0;
+  }
+
+  Buffer& operator=(Buffer&& buffer) noexcept {
+    if (this != &buffer) {
+      delete[] data_;
+      data_ = nullptr;
+      Swap(buffer);
+    }
+    return *this;
+  }
 
   // pointer + size is the primary form because std::span is C++20-only; the
   // span overload below is a thin forwarder kept for callers that have one.
@@ -444,9 +483,6 @@ class Buffer {
   }
 
   void WriteString(const std::string& str) {
-    if (ZNET_UNLIKELY(!CheckSeal())) ZNET_UNLIKELY_ATTR {
-      return;
-    }
     size_t size = str.size();
     const char* data = str.data();
     ReserveIncremental(size + sizeof(size));
@@ -473,9 +509,6 @@ class Buffer {
 
   ZNET_TPL_ARITH16(T)
   void WriteNumber(T c) {
-    if (ZNET_UNLIKELY(!CheckSeal())) ZNET_UNLIKELY_ATTR {
-      return;
-    }
     char* pt = reinterpret_cast<char*>(&c);
     size_t size = sizeof(c);
     ReserveIncremental(size);
@@ -494,16 +527,10 @@ class Buffer {
 
   ZNET_TPL_HAS_WRITE(T)
   void WriteCustom(T& ptr) {
-    if (ZNET_UNLIKELY(!CheckSeal())) ZNET_UNLIKELY_ATTR {
-      return;
-    }
     ptr->Write(*this);
   }
 
   void WriteInetAddress(const InetAddress& address) {
-    if (ZNET_UNLIKELY(!CheckSeal())) ZNET_UNLIKELY_ATTR {
-      return;
-    }
     if (address.ipv() == InetProtocolVersion::IPv4) {
       WriteInt<uint8_t>(4);
       // raw IPv4 (network-order) + port (network-order)
@@ -528,9 +555,6 @@ class Buffer {
   // write a std::bitset<N> (little-endian bit order)
   template<size_t N>
   void WriteBitset(const std::bitset<N>& bs) {
-    if (ZNET_UNLIKELY(!CheckSeal())) ZNET_UNLIKELY_ATTR {
-      return;
-    }
     constexpr size_t BYTES = (N + 7) / 8;
     uint8_t data[BYTES] = {};
     for (size_t i = 0; i < N; ++i) {
@@ -543,9 +567,6 @@ class Buffer {
 
   ZNET_TPL_ARITH8(T)
   void Write(const T* arr, size_t size) {
-    if (ZNET_UNLIKELY(!CheckSeal())) ZNET_UNLIKELY_ATTR {
-      return;
-    }
     auto* pt = reinterpret_cast<const char*>(arr);
     size_t calculated_size = sizeof(T) * size;
     ReserveIncremental(calculated_size);
@@ -560,9 +581,6 @@ class Buffer {
 
   ZNET_TPL_ARITH8(T)
   void WriteVarInt(T c) {
-    if (ZNET_UNLIKELY(!CheckSeal())) ZNET_UNLIKELY_ATTR {
-      return;
-    }
     auto* raw_data = reinterpret_cast<const char*>(&c);
     unsigned char size = sizeof(c);  // assume 1 byte for the size
     unsigned char actual_size = 0;
@@ -588,9 +606,6 @@ class Buffer {
 
   template <typename KeyFunc, typename ValueFunc, typename Map>
   void WriteMap(Map& map, KeyFunc key_func, ValueFunc value_func) {
-    if (ZNET_UNLIKELY(!CheckSeal())) ZNET_UNLIKELY_ATTR {
-      return;
-    }
     WriteVarInt(map.size());
     for (auto& kv : map) {
       (this->*key_func)(kv.first);
@@ -600,9 +615,6 @@ class Buffer {
 
   template <typename ValueFunc, typename T>
   void WriteVector(std::vector<T>& v, ValueFunc value_func) {
-    if (ZNET_UNLIKELY(!CheckSeal())) ZNET_UNLIKELY_ATTR {
-      return;
-    }
     size_t size = v.size();
     WriteVarInt(size);
     for (auto& value : v) {
@@ -612,9 +624,6 @@ class Buffer {
 
   template <typename ValueFunc, typename T, size_t size>
   void WriteArray(T (&v)[size], ValueFunc value_func) {
-    if (ZNET_UNLIKELY(!CheckSeal())) ZNET_UNLIKELY_ATTR {
-      return;
-    }
     WriteVarInt(size);
     for (size_t i = 0; i < size; i++) {
       auto& value = v[i];
@@ -624,9 +633,6 @@ class Buffer {
 
   template <typename ValueFunc, typename T>
   void WriteArray(T* v, size_t size, ValueFunc value_func) {
-    if (ZNET_UNLIKELY(!CheckSeal())) ZNET_UNLIKELY_ATTR {
-      return;
-    }
     if (!v) {
       WriteVarInt<size_t>(0);
       return;
@@ -640,9 +646,6 @@ class Buffer {
 
   template <typename ValueFunc, typename T>
   void WriteArray(std::shared_ptr<T[]>& v, size_t size, ValueFunc value_func) {
-    if (ZNET_UNLIKELY(!CheckSeal())) ZNET_UNLIKELY_ATTR {
-      return;
-    }
     WriteVarInt(size);
     for (size_t i = 0; i < size; i++) {
       auto& value = v[i];
@@ -670,9 +673,6 @@ class Buffer {
     if (ZNET_UNLIKELY(write_cursor_ == allocated_size_)) ZNET_UNLIKELY_ATTR {
       return;
     }
-    if (ZNET_UNLIKELY(!CheckSeal())) ZNET_UNLIKELY_ATTR {
-      return;
-    }
     char* new_data = new (std::nothrow) char[write_cursor_];
     if (ZNET_UNLIKELY(!new_data)) ZNET_UNLIKELY_ATTR {
       last_error_ = BufferError::CannotAllocate;
@@ -685,9 +685,6 @@ class Buffer {
   }
 
   void Reset(bool deallocate = false) {
-    if (ZNET_UNLIKELY(!CheckSeal())) ZNET_UNLIKELY_ATTR {
-      return;
-    }
     write_cursor_ = 0;
     read_cursor_ = 0;
     last_error_ = BufferError::None;
@@ -700,13 +697,15 @@ class Buffer {
 
   void set_endianness(Endianness endianness) { endianness_ = endianness; }
 
-  const char* data() { return data_; }
+  ZNET_NODISCARD Endianness endianness() const { return endianness_; }
 
-  const char* read_cursor_data() { return data_ + read_cursor_; }
+  ZNET_NODISCARD const char* data() const { return data_; }
+
+  ZNET_NODISCARD const char* read_cursor_data() const {
+    return data_ + read_cursor_;
+  }
 
   char* data_mutable() { return data_; }
-
-  char* read_cursor_data_mutable() { return data_ + read_cursor_; }
 
   ZNET_NODISCARD size_t write_cursor() const { return write_cursor_; }
 
@@ -775,10 +774,6 @@ class Buffer {
   }
 
   void SkipWrite(size_t size) {
-    if (ZNET_UNLIKELY(sealed_.load(std::memory_order_acquire))) ZNET_UNLIKELY_ATTR {
-      last_error_ = BufferError::WriteAfterSeal;
-      return;
-    }
     ReserveIncremental(size);
     write_cursor_ += size;
   }
@@ -799,9 +794,6 @@ class Buffer {
   void ReserveExact(size_t size) { Reserve(size, true); }
 
   void Reserve(size_t size, bool exact = false) {
-    if (ZNET_UNLIKELY(!CheckSeal())) ZNET_UNLIKELY_ATTR {
-      return;
-    }
     if (ZNET_UNLIKELY(!data_)) ZNET_UNLIKELY_ATTR {
       size_t target_size;
       if (exact) {
@@ -839,11 +831,20 @@ class Buffer {
 #endif
   }
 
-  void Seal() {
-    sealed_.store(true, std::memory_order_release);
+ private:
+  void Swap(Buffer& other) noexcept {
+    std::swap(endianness_, other.endianness_);
+    std::swap(allocated_size_, other.allocated_size_);
+    std::swap(write_cursor_, other.write_cursor_);
+    std::swap(read_cursor_, other.read_cursor_);
+    std::swap(read_limit_, other.read_limit_);
+    std::swap(data_, other.data_);
+    std::swap(last_error_, other.last_error_);
+#ifdef ZNET_BUFFER_COUNT_MEMORY_ALLOCATIONS
+    std::swap(mem_allocations_, other.mem_allocations_);
+#endif
   }
 
- private:
   ZNET_NODISCARD bool CheckReadableBytes(size_t required) const {
 #if defined(DEBUG) && !defined(DISABLE_ASSERT_READABLE_BYTES)
     assert(std::min(write_cursor_, read_limit_) >= read_cursor_ + required);
@@ -879,15 +880,6 @@ class Buffer {
     return true;
   }
 
-  ZNET_NODISCARD inline bool CheckSeal() {
-    if (ZNET_UNLIKELY(sealed_.load(std::memory_order_acquire))) ZNET_UNLIKELY_ATTR {
-      ZNET_LOG_DEBUG("Tried to write to a sealed buffer.");
-      last_error_ = BufferError::WriteAfterSeal;
-      return false;
-    }
-    return true;
-  }
-
   Endianness endianness_;
   size_t allocated_size_;
   size_t write_cursor_;
@@ -895,9 +887,10 @@ class Buffer {
   size_t read_limit_ = std::numeric_limits<size_t>::max();
   char* data_;
   BufferError last_error_;
-  std::atomic_bool sealed_{false};
 #ifdef ZNET_BUFFER_COUNT_MEMORY_ALLOCATIONS
   size_t mem_allocations_;
 #endif
 };
 }  // namespace znet
+
+#endif  // ZNET_BUFFER_H_

@@ -9,7 +9,8 @@
 //        http://www.apache.org/licenses/LICENSE-2.0
 //
 
-#pragma once
+#ifndef ZNET_SERVER_EVENTS_H_
+#define ZNET_SERVER_EVENTS_H_
 
 #include "znet/precompiled.h"
 #include "znet/event.h"
@@ -28,7 +29,9 @@ class IncomingClientConnectedEvent : public Event {
   explicit IncomingClientConnectedEvent(std::shared_ptr<PeerSession> session)
       : session_(session) {}
 
-  std::shared_ptr<PeerSession> session() { return session_; }
+  ZNET_NODISCARD std::shared_ptr<PeerSession> session() const {
+    return session_;
+  }
 
   ZNET_EVENT_CLASS_TYPE(IncomingClientConnectedEvent)
   ZNET_EVENT_CLASS_CATEGORY(EventCategoryServer)
@@ -36,20 +39,19 @@ class IncomingClientConnectedEvent : public Event {
   std::shared_ptr<PeerSession> session_;
 };
 
-DEPRECATED_TYPE_ALIAS(ServerClientConnectedEvent,
-                      IncomingClientConnectedEvent, "Use IncomingClientConnectedEvent instead")
-
 /**
  * @brief Event triggered when a client disconnects from the server.
  */
-class ServerClientDisconnectedEvent : public Event {
+class IncomingClientDisconnectedEvent : public Event {
  public:
-  explicit ServerClientDisconnectedEvent(std::shared_ptr<PeerSession> session)
+  explicit IncomingClientDisconnectedEvent(std::shared_ptr<PeerSession> session)
       : session_(session) {}
 
-  std::shared_ptr<PeerSession> session() { return session_; }
+  ZNET_NODISCARD std::shared_ptr<PeerSession> session() const {
+    return session_;
+  }
 
-  ZNET_EVENT_CLASS_TYPE(ServerClientDisconnectedEvent)
+  ZNET_EVENT_CLASS_TYPE(IncomingClientDisconnectedEvent)
   ZNET_EVENT_CLASS_CATEGORY(EventCategoryServer)
  private:
   std::shared_ptr<PeerSession> session_;
@@ -62,9 +64,9 @@ class Server;
  */
 class ServerStartupEvent : public Event {
  public:
-  ServerStartupEvent(Server& server) : server_(server) {}
+  explicit ServerStartupEvent(Server& server) : server_(server) {}
 
-  Server& server() { return server_; }
+  ZNET_NODISCARD Server& server() const { return server_; }
 
   ZNET_EVENT_CLASS_TYPE(ServerStartupEvent)
   ZNET_EVENT_CLASS_CATEGORY(EventCategoryServer)
@@ -77,9 +79,9 @@ class ServerStartupEvent : public Event {
  */
 class ServerShutdownEvent : public Event {
  public:
-  ServerShutdownEvent(Server& server) : server_(server) {}
+  explicit ServerShutdownEvent(Server& server) : server_(server) {}
 
-  Server& server() { return server_; }
+  ZNET_NODISCARD Server& server() const { return server_; }
 
   ZNET_EVENT_CLASS_TYPE(ServerShutdownEvent)
   ZNET_EVENT_CLASS_CATEGORY(EventCategoryServer)
@@ -88,3 +90,5 @@ class ServerShutdownEvent : public Event {
 };
 
 }  // namespace znet
+
+#endif  // ZNET_SERVER_EVENTS_H_

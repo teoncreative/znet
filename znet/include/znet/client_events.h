@@ -9,7 +9,8 @@
 //        http://www.apache.org/licenses/LICENSE-2.0
 //
 
-#pragma once
+#ifndef ZNET_CLIENT_EVENTS_H_
+#define ZNET_CLIENT_EVENTS_H_
 
 #include "znet/precompiled.h"
 #include "znet/peer_session.h"
@@ -80,3 +81,5 @@ class ClientConnectionFailedEvent : public Event {
 };
 
 }  // namespace znet
+
+#endif  // ZNET_CLIENT_EVENTS_H_

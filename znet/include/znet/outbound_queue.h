@@ -16,8 +16,8 @@
 // threads came to race for the claim with nothing choosing between them.
 //
 
-#ifndef ZNET_PARENT_OUTBOUND_QUEUE_H
-#define ZNET_PARENT_OUTBOUND_QUEUE_H
+#ifndef ZNET_OUTBOUND_QUEUE_H_
+#define ZNET_OUTBOUND_QUEUE_H_
 
 #include "znet/mpsc_queue.h"
 #include "znet/packet.h"
@@ -162,4 +162,5 @@ class OutboundQueue {
 
 }  // namespace znet
 
-#endif  // ZNET_PARENT_OUTBOUND_QUEUE_H
+
+#endif  // ZNET_OUTBOUND_QUEUE_H_

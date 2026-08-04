@@ -172,7 +172,8 @@ namespace {
 std::vector<unsigned char> Export(const PeerSession& session,
                                   const std::string& label, size_t len = 32) {
   std::vector<unsigned char> out(len, 0);
-  EXPECT_TRUE(session.ExportKeyingMaterial(label, out.data(), out.size()));
+  EXPECT_EQ(session.ExportKeyingMaterial(label, out.data(), out.size()),
+            Result::Success);
   return out;
 }
 
@@ -243,7 +244,8 @@ TEST(SessionExport, RefusedBeforeTheHandshakeCompletes) {
   Pair pair;  // deliberately not handshaked
 
   unsigned char out[32] = {};
-  EXPECT_FALSE(pair.client->ExportKeyingMaterial("auth v1", out, sizeof(out)));
+  EXPECT_EQ(pair.client->ExportKeyingMaterial("auth v1", out, sizeof(out)),
+            Result::Failure);
 }
 
 TEST(SessionExport, RefusedOnAnUnencryptedSession) {
@@ -252,7 +254,8 @@ TEST(SessionExport, RefusedOnAnUnencryptedSession) {
   ASSERT_TRUE(pair.Handshake());
 
   unsigned char out[32] = {};
-  EXPECT_FALSE(pair.client->ExportKeyingMaterial("auth v1", out, sizeof(out)))
+  EXPECT_EQ(pair.client->ExportKeyingMaterial("auth v1", out, sizeof(out)),
+            Result::Failure)
       << "there is no exchange to bind to, so this must not hand back bytes";
 }
 
@@ -262,14 +265,19 @@ TEST(SessionExport, RejectsOutOfRangeRequests) {
   ASSERT_TRUE(pair.Handshake());
 
   unsigned char out[32] = {};
-  EXPECT_FALSE(pair.client->ExportKeyingMaterial("", out, sizeof(out)));
-  EXPECT_FALSE(pair.client->ExportKeyingMaterial(
-      std::string(EncryptionLayer::kMaxExportLabelLength + 1, 'x'), out,
-      sizeof(out)));
-  EXPECT_FALSE(pair.client->ExportKeyingMaterial("auth v1", out, 0));
-  EXPECT_FALSE(pair.client->ExportKeyingMaterial("auth v1", nullptr, 32));
+  EXPECT_EQ(pair.client->ExportKeyingMaterial("", out, sizeof(out)),
+            Result::InvalidArgument);
+  EXPECT_EQ(pair.client->ExportKeyingMaterial(
+                std::string(EncryptionLayer::kMaxExportLabelLength + 1, 'x'),
+                out, sizeof(out)),
+            Result::InvalidArgument);
+  EXPECT_EQ(pair.client->ExportKeyingMaterial("auth v1", out, 0),
+            Result::InvalidArgument);
+  EXPECT_EQ(pair.client->ExportKeyingMaterial("auth v1", nullptr, 32),
+            Result::InvalidArgument);
 
   std::vector<unsigned char> huge(EncryptionLayer::kMaxExportLength + 1, 0);
-  EXPECT_FALSE(
-      pair.client->ExportKeyingMaterial("auth v1", huge.data(), huge.size()));
+  EXPECT_EQ(
+      pair.client->ExportKeyingMaterial("auth v1", huge.data(), huge.size()),
+      Result::InvalidArgument);
 }

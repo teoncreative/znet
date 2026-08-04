@@ -25,8 +25,8 @@
 // C++14/17.
 //
 
-#ifndef ZNET_DETAIL_FORMAT_H
-#define ZNET_DETAIL_FORMAT_H
+#ifndef ZNET_DETAIL_FORMAT_H_
+#define ZNET_DETAIL_FORMAT_H_
 
 #include <ostream>
 #include <sstream>
@@ -123,4 +123,4 @@ inline std::string Format(const std::string& fmt, const Args&... args) {
 }  // namespace detail
 }  // namespace znet
 
-#endif  // ZNET_DETAIL_FORMAT_H
+#endif  // ZNET_DETAIL_FORMAT_H_

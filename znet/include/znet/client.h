@@ -8,9 +8,9 @@
 //        http://www.apache.org/licenses/LICENSE-2.0
 //
 
-#pragma once
+#ifndef ZNET_CLIENT_H_
+#define ZNET_CLIENT_H_
 
-#include "znet/backends/backend.h"
 #include "znet/options.h"
 #include "znet/interface.h"
 #include "znet/peer_session.h"
@@ -22,11 +22,26 @@
 
 namespace znet {
 
+namespace backends {
+class ClientBackend;
+}  // namespace backends
+
+/**
+ * @brief Everything a Client is constructed from.
+ *
+ * The aggregate is meant for brace-init:
+ * `ClientConfig{"1.2.3.4", 25000, std::chrono::seconds(10)}`.
+ */
 struct ClientConfig {
+  /** @brief Server host: an IP, a hostname, or "unix:/path" with TCP. */
   std::string server_ip;
-  PortNumber server_port;
-  std::chrono::steady_clock::duration connection_timeout;
+  PortNumber server_port = 0;
+  /** @brief Give up on a connect that is not ready after this long. Zero
+   * waits forever. */
+  std::chrono::steady_clock::duration connection_timeout{
+      std::chrono::seconds(10)};
   ConnectionType connection_type = ConnectionType::ZDT;
+  /** @brief This client's session options; see options.h. */
   SessionOptions options;
 };
 
@@ -37,7 +52,7 @@ struct ClientConfig {
  */
 class Client : public Interface {
  public:
-  Client(const ClientConfig& config);
+  explicit Client(const ClientConfig& config);
   Client(const Client&) = delete;
   ~Client() override;
 
@@ -52,6 +67,10 @@ class Client : public Interface {
    */
   Result Bind() override;
 
+  /**
+   * @brief Same, but to an explicit local address: a specific interface, or a
+   *        fixed source port. Same Result values as Bind().
+   */
   Result Bind(const std::string& ip, PortNumber port);
 
   /**
@@ -95,6 +114,11 @@ class Client : public Interface {
    */
   void Wait() override;
 
+  /**
+   * @brief This client's one session, or null before Connect(). Most code
+   *        takes it from ClientConnectedToServerEvent instead, which also
+   *        marks the moment it is ready.
+   */
   ZNET_NODISCARD std::shared_ptr<PeerSession> client_session() const {
     return client_session_;
   }
@@ -130,3 +154,5 @@ class Client : public Interface {
 };
 
 }  // namespace znet
+
+#endif  // ZNET_CLIENT_H_

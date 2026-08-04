@@ -17,8 +17,8 @@
 // reproduce.
 //
 
-#ifndef ZNET_PARENT_ZDT_CONGESTION_H
-#define ZNET_PARENT_ZDT_CONGESTION_H
+#ifndef ZNET_BACKENDS_ZDT_ZDT_CONGESTION_H_
+#define ZNET_BACKENDS_ZDT_ZDT_CONGESTION_H_
 
 #include "znet/backends/zdt/zdt_wire.h"
 #include "znet/compat.h"
@@ -150,4 +150,5 @@ class ZDTCongestionController {
 }  // namespace backends
 }  // namespace znet
 
-#endif  // ZNET_PARENT_ZDT_CONGESTION_H
+
+#endif  // ZNET_BACKENDS_ZDT_ZDT_CONGESTION_H_

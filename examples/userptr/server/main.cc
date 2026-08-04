@@ -13,7 +13,7 @@
 //
 // A server needs somewhere to keep "who is this connection". The session is
 // that place: SetUserPointer() hangs a shared_ptr<T> of your own off it, and
-// user_ptr_typed<T>() gets it back, so any handler holding the session can
+// user_pointer<T>() gets it back, so any handler holding the session can
 // reach the state without a session-id-to-player map of its own.
 //
 // This example gives every connection a ClientState, fills in the name when
@@ -63,7 +63,7 @@ class MyPacketHandler
     // The state was attached before this handler could ever run, so it is
     // here. It is still worth checking if the given pointer is null because
     // it would lead to a crash. Better safe than sorry.
-    std::shared_ptr<ClientState> state = session_->user_ptr_typed<ClientState>();
+    std::shared_ptr<ClientState> state = session_->user_pointer<ClientState>();
     if (!state) {
       ZNET_LOG_ERROR("Session {} has no ClientState attached!", session_->id());
       return;
@@ -75,7 +75,7 @@ class MyPacketHandler
   }
 
   void OnPacket(std::shared_ptr<MessagePacket> packet) {
-    std::shared_ptr<ClientState> state = session_->user_ptr_typed<ClientState>();
+    std::shared_ptr<ClientState> state = session_->user_pointer<ClientState>();
     if (!state) {
       ZNET_LOG_ERROR("Session {} has no ClientState attached!", session_->id());
       return;
@@ -121,10 +121,10 @@ bool OnNewSessionEvent(IncomingClientConnectedEvent& event) {
   return false;
 }
 
-bool OnDisconnectSessionEvent(ServerClientDisconnectedEvent& event) {
+bool OnDisconnectSessionEvent(IncomingClientDisconnectedEvent& event) {
   PeerSession& session = *event.session();
 
-  std::shared_ptr<ClientState> state = session.user_ptr_typed<ClientState>();
+  std::shared_ptr<ClientState> state = session.user_pointer<ClientState>();
   if (!state) {
     return false;
   }
@@ -150,7 +150,7 @@ void OnEvent(Event& event) {
   EventDispatcher dispatcher{event};
   dispatcher.Dispatch<IncomingClientConnectedEvent>(
       ZNET_BIND_GLOBAL_FN(OnNewSessionEvent));
-  dispatcher.Dispatch<ServerClientDisconnectedEvent>(
+  dispatcher.Dispatch<IncomingClientDisconnectedEvent>(
       ZNET_BIND_GLOBAL_FN(OnDisconnectSessionEvent));
 }
 

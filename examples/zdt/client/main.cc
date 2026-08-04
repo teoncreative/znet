@@ -53,7 +53,7 @@ class ReplyHandler : public PacketHandler<ReplyHandler, ChatPacket> {
 // without queueing, which is a lossy link rather than a full one.
 void LogMetrics(const std::shared_ptr<PeerSession>& session) {
   SessionMetrics m = session->metrics();
-  if (m.transport != ConnectionType::ZDT) {
+  if (m.connection_type != ConnectionType::ZDT) {
     return;
   }
   ZNET_LOG_INFO(
@@ -72,7 +72,7 @@ void RunTraffic(std::shared_ptr<PeerSession> session) {
     // its neighbours, which is what makes a single loss visible as one late
     // chunk instead of two
     chunk->payload = std::string(1100, static_cast<char>('a' + (i % 26)));
-    if (!session->SendPacket(chunk, ChunkOptions())) {
+    if (session->SendPacket(chunk, ChunkOptions()) != Result::Success) {
       // the queue is full, which is the only backpressure signal there is
       ZNET_LOG_WARN("[client] send queue full, dropping chunk {}", i);
     }

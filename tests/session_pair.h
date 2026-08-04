@@ -64,7 +64,7 @@ class FakeTransport : public TransportLayer {
     closed = true;
     return Result::Success;
   }
-  bool IsClosed() override { return closed; }
+  bool IsClosed() const override { return closed; }
   void Update() override {}
   void Flush() override {}
 
@@ -186,7 +186,7 @@ struct Pair {
     packet->seq = seq;
     SendOptions options;
     options.Set<ChannelKey>(channel);
-    EXPECT_TRUE(client->SendPacket(packet, options));
+    EXPECT_EQ(client->SendPacket(packet, options), Result::Success);
     client->DrainOutbound();
     EXPECT_FALSE(client_wire->sent.empty());
     FakeTransport::Frame frame = client_wire->sent.back();

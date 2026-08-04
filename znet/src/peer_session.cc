@@ -84,11 +84,6 @@ bool PeerSession::Process() {
   if (!IsAlive()) {
     return false;
   }
-  if (IsExpired()) {
-    ZNET_LOG_INFO("Session {} was expired!", id_);
-    Close();
-    return true;
-  }
   transport_layer_->Update();
   bool worked = false;
   // drain what is already buffered rather than one message per tick, otherwise
@@ -144,7 +139,7 @@ Result PeerSession::Close(CloseOptions options) {
   return transport_layer_->Close(options);
 }
 
-bool PeerSession::IsAlive() {
+bool PeerSession::IsAlive() const {
   return transport_layer_ && !transport_layer_->IsClosed();
 }
 
@@ -194,12 +189,18 @@ bool PeerSession::SendImmediate(std::shared_ptr<Packet> packet,
   return EncodeAndSend(packet, options);
 }
 
-bool PeerSession::SendPacket(std::shared_ptr<Packet> packet,
-                             SendOptions options) {
+Result PeerSession::SendPacket(std::shared_ptr<Packet> packet,
+                               SendOptions options) {
+  if (!packet) {
+    return Result::InvalidArgument;
+  }
+  if (!IsAlive()) {
+    return Result::NotConnected;
+  }
   // the ready gate is what makes the encode path safe to read unguarded, so
   // this refuses rather than queueing and hoping.
-  if (!packet || !IsReady() || !IsAlive()) {
-    return false;
+  if (!IsReady()) {
+    return Result::NotReady;
   }
   // no lock, no allocation and no encoding below: this runs on the
   // application's thread and must not block on a worker.
@@ -209,9 +210,9 @@ bool PeerSession::SendPacket(std::shared_ptr<Packet> packet,
     // its own backpressure into a log flood.
     ZNET_LOG_DEBUG("Session {} outbound queue is full ({}), refusing the send.",
                    id_, outbound_.capacity());
-    return false;
+    return Result::QueueFull;
   }
-  return true;
+  return Result::Success;
 }
 
 bool PeerSession::DrainOutbound() {

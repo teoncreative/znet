@@ -8,8 +8,8 @@
 //        http://www.apache.org/licenses/LICENSE-2.0
 //
 
-#ifndef ZNET_PARENT_RENDEZVOUS_SERVER_H
-#define ZNET_PARENT_RENDEZVOUS_SERVER_H
+#ifndef ZNET_P2P_RENDEZVOUS_SERVER_H_
+#define ZNET_P2P_RENDEZVOUS_SERVER_H_
 
 #include "znet/p2p/rendezvous.h"
 #include "znet/server.h"
@@ -49,7 +49,7 @@ class RendezvousServer {
      *        per-source connection throttle and max_connections all apply.
      *        See ServerOptions.
      */
-    ServerOptions server_options;
+    ServerOptions options;
     /**
      * @brief Locator requests one client may make per request_window;
      *        identify and connect-peer both count. Beyond it the client is
@@ -101,7 +101,7 @@ class RendezvousServer {
 
   void OnEvent(Event& event);
   bool OnConnectEvent(IncomingClientConnectedEvent& event);
-  bool OnDisconnectEvent(ServerClientDisconnectedEvent& event);
+  bool OnDisconnectEvent(IncomingClientDisconnectedEvent& event);
   /** @brief Counts one request; false means over the limit. Caller holds
       mutex_. */
   bool AllowRequest(ClientData& data);
@@ -132,4 +132,5 @@ class RendezvousServer {
 }  // namespace p2p
 }  // namespace znet
 
-#endif  // ZNET_PARENT_RENDEZVOUS_SERVER_H
+
+#endif  // ZNET_P2P_RENDEZVOUS_SERVER_H_

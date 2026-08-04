@@ -9,7 +9,8 @@
 //        http://www.apache.org/licenses/LICENSE-2.0
 //
 
-#pragma once
+#ifndef ZNET_LOGGER_H_
+#define ZNET_LOGGER_H_
 
 #include "znet/precompiled.h"
 #include <atomic>
@@ -221,6 +222,8 @@ ZNET_FUNC_SIGN, __VA_ARGS__)
 #define ZNET_LOG_ERROR(...)
 #endif
 
+namespace znet {
+
 class LoggerInitializer {
  public:
   static bool s_Initialized;
@@ -228,4 +231,10 @@ class LoggerInitializer {
   LoggerInitializer();
 };
 
+// one per translation unit on purpose: whichever TU logs first has already
+// run its initializer, and s_Initialized keeps the work single-shot
 static LoggerInitializer s_LoggerInitializer;
+
+}  // namespace znet
+
+#endif  // ZNET_LOGGER_H_

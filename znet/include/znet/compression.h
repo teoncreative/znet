@@ -8,8 +8,8 @@
 //        http://www.apache.org/licenses/LICENSE-2.0
 //
 
-#ifndef ZNET_PARENT_COMPRESSION_H
-#define ZNET_PARENT_COMPRESSION_H
+#ifndef ZNET_COMPRESSION_H_
+#define ZNET_COMPRESSION_H_
 
 #include "znet/precompiled.h"
 #include "znet/buffer.h"
@@ -50,7 +50,7 @@ constexpr CompressionType ResolveCompressionType(CompressionType type) {
 }
 
 CompressionTypeRaw GetCompressionTypeRaw(CompressionType type);
-std::string GetCompressionTypeName(CompressionType type);
+std::string GetCompressionTypeString(CompressionType type);
 
 namespace compr {
 
@@ -61,4 +61,5 @@ std::shared_ptr<Buffer> HandleInDynamic(std::shared_ptr<Buffer> buffer);
 }
 
 }
-#endif  //ZNET_PARENT_COMPRESSION_H
+
+#endif  // ZNET_COMPRESSION_H_

@@ -8,7 +8,8 @@
 //        http://www.apache.org/licenses/LICENSE-2.0
 //
 
-#pragma once
+#ifndef ZNET_PACKET_SERIALIZER_H_
+#define ZNET_PACKET_SERIALIZER_H_
 
 #include "znet/packet.h"
 #include "znet/buffer.h"
@@ -54,3 +55,5 @@ class PacketSerializer : public PacketSerializerBase {
 };
 
 }  // namespace znet
+
+#endif  // ZNET_PACKET_SERIALIZER_H_

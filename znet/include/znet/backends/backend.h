@@ -8,8 +8,8 @@
 //        http://www.apache.org/licenses/LICENSE-2.0
 //
 
-#ifndef ZNET_PARENT_BACKEND_H
-#define ZNET_PARENT_BACKEND_H
+#ifndef ZNET_BACKENDS_BACKEND_H_
+#define ZNET_BACKENDS_BACKEND_H_
 
 #include "znet/metrics.h"
 #include "znet/options.h"
@@ -136,4 +136,5 @@ std::unique_ptr<ServerBackend> CreateServerFromType(
 }
 }
 
-#endif  //ZNET_PARENT_BACKEND_H
+
+#endif  // ZNET_BACKENDS_BACKEND_H_

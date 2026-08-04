@@ -81,7 +81,7 @@ static std::shared_ptr<Codec> g_codec;
 // atomic step, or two connections racing could be handed the same name.
 static bool NameTakenLocked(const std::string& name) {
   for (const std::shared_ptr<PeerSession>& session : g_roster) {
-    std::shared_ptr<ClientState> state = session->user_ptr_typed<ClientState>();
+    std::shared_ptr<ClientState> state = session->user_pointer<ClientState>();
     if (state && state->name == name) {
       return true;
     }
@@ -117,7 +117,7 @@ static std::string GenerateNameLocked() {
 static void Broadcast(const std::string& room, std::shared_ptr<Packet> packet) {
   std::lock_guard<std::mutex> lock(g_roster_mutex);
   for (const std::shared_ptr<PeerSession>& session : g_roster) {
-    std::shared_ptr<ClientState> state = session->user_ptr_typed<ClientState>();
+    std::shared_ptr<ClientState> state = session->user_pointer<ClientState>();
     if (state && state->room == room) {
       session->SendPacket(packet);
     }
@@ -138,7 +138,7 @@ class ChatHandler
       : session_(std::move(session)) {}
 
   void OnPacket(std::shared_ptr<SelectRoomPacket> packet) {
-    std::shared_ptr<ClientState> state = session_->user_ptr_typed<ClientState>();
+    std::shared_ptr<ClientState> state = session_->user_pointer<ClientState>();
     if (!state) {
       return;
     }
@@ -157,7 +157,7 @@ class ChatHandler
   }
 
   void OnPacket(std::shared_ptr<ChatPacket> packet) {
-    std::shared_ptr<ClientState> state = session_->user_ptr_typed<ClientState>();
+    std::shared_ptr<ClientState> state = session_->user_pointer<ClientState>();
     if (!state) {
       return;
     }
@@ -232,9 +232,9 @@ bool OnClientConnected(IncomingClientConnectedEvent& event) {
   return false;
 }
 
-bool OnClientDisconnected(ServerClientDisconnectedEvent& event) {
+bool OnClientDisconnected(IncomingClientDisconnectedEvent& event) {
   std::shared_ptr<ClientState> state =
-      event.session()->user_ptr_typed<ClientState>();
+      event.session()->user_pointer<ClientState>();
 
   {
     std::lock_guard<std::mutex> lock(g_roster_mutex);
@@ -257,7 +257,7 @@ void OnEvent(Event& event) {
   EventDispatcher dispatcher{event};
   dispatcher.Dispatch<IncomingClientConnectedEvent>(
       ZNET_BIND_GLOBAL_FN(OnClientConnected));
-  dispatcher.Dispatch<ServerClientDisconnectedEvent>(
+  dispatcher.Dispatch<IncomingClientDisconnectedEvent>(
       ZNET_BIND_GLOBAL_FN(OnClientDisconnected));
 }
 

@@ -26,7 +26,7 @@ class Initializer {
     ZNET_LOG_INFO("Initializing znet {}...", VersionString());
     ZNET_LOG_INFO(" - compression_zstd: {}", ZSTD_ENABLED_STR);
 
-#ifdef TARGET_WIN
+#ifdef ZNET_TARGET_WIN
     WORD wVersionRequested;
     WSADATA wsaData;
     int err;
@@ -46,7 +46,7 @@ class Initializer {
   Initializer& operator=(const Initializer&) = delete;
 
   ~Initializer() {
-#ifdef TARGET_WIN
+#ifdef ZNET_TARGET_WIN
     WSACleanup();
 #endif
   }

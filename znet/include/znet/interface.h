@@ -8,7 +8,8 @@
 //        http://www.apache.org/licenses/LICENSE-2.0
 //
 
-#pragma once
+#ifndef ZNET_INTERFACE_H_
+#define ZNET_INTERFACE_H_
 
 #include "znet/event.h"
 #include "znet/packet_handler.h"
@@ -18,6 +19,10 @@
 
 namespace znet {
 
+/**
+ * @brief Shared base of everything that binds a socket and reports through
+ *        events: Client, Server and the P2P locators.
+ */
 class Interface {
  public:
   Interface() = default;
@@ -28,9 +33,15 @@ class Interface {
 
   virtual void Wait() = 0;
 
+  /**
+   * @brief Installs the callback every event is delivered through.
+   *
+   * Set it before Bind()/Connect()/Listen(): events fire from internal worker
+   * threads, and replacing the callback while they run is a data race.
+   */
   void SetEventCallback(EventCallbackFn fn) { event_callback_ = std::move(fn); }
 
-  ZNET_NODISCARD EventCallbackFn event_callback() const {
+  ZNET_NODISCARD const EventCallbackFn& event_callback() const {
     return event_callback_;
   }
 
@@ -39,3 +50,5 @@ class Interface {
 };
 
 }  // namespace znet
+
+#endif  // ZNET_INTERFACE_H_

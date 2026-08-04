@@ -8,7 +8,8 @@
 //        http://www.apache.org/licenses/LICENSE-2.0
 //
 
-#pragma once
+#ifndef ZNET_PACKET_HANDLER_H_
+#define ZNET_PACKET_HANDLER_H_
 
 #include "znet/packet.h"
 #include "znet/packet_serializer.h"
@@ -63,13 +64,22 @@ concept DerivedFromPacket = detail::IsDerivedFromPacket<T>::value;
   ZNET_TPL_CONSTRAINED(::znet::DerivedFromPacket,             \
                        ::znet::detail::IsDerivedFromPacket, T)
 
+/** @brief What a session dispatches every decoded packet into. */
 struct PacketHandlerBase {
   virtual ~PacketHandlerBase() = default;
   virtual void Handle(std::shared_ptr<Packet> p) = 0;
 };
 
-
-// This is a fuming mess, clean it up!
+/**
+ * @brief CRTP dispatcher: routes each listed packet type to the derived
+ *        class's matching OnPacket overload.
+ *
+ * Derive as `class Mine : public PacketHandler<Mine, ChatPacket, MovePacket>`
+ * and define, per listed type, `void OnPacket(const P&)` and/or
+ * `void OnPacket(std::shared_ptr<P>)`. Both are called when both exist; a
+ * type with neither simply never dispatches. Packets not in the list are
+ * dropped silently.
+ */
 template<typename Derived, typename... PacketTypes>
 class PacketHandler : public PacketHandlerBase {
  public:
@@ -124,6 +134,10 @@ class PacketHandler : public PacketHandlerBase {
 
 };
 
+/**
+ * @brief Lambda-based alternative to the CRTP handler: register one callback
+ *        per packet type. A shared handler wins when a type has both kinds.
+ */
 class CallbackPacketHandler : public PacketHandlerBase {
   using SharedHandlerFn = std::function<void(std::shared_ptr<Packet>)>;
   using RefHandlerFn = std::function<void(const Packet&)>;
@@ -161,10 +175,12 @@ class CallbackPacketHandler : public PacketHandlerBase {
       refIt->second(*p);
       return;
     }
-
-    // todo fallback or log unknown packet
+    // a type with no registered callback is dropped, same as a type missing
+    // from a PacketHandler's list
   }
 };
 
 
 }  // namespace znet
+
+#endif  // ZNET_PACKET_HANDLER_H_

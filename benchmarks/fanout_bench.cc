@@ -194,7 +194,7 @@ FanoutResult RunFanout(const char* profile, ConnectionType type,
       auto packet = std::make_shared<FanoutPacket>();
       packet->seq = round;
       packet->payload = payload;
-      while (!session->SendPacket(packet)) {
+      while (session->SendPacket(packet) != Result::Success) {
         if (bench::Clock::now() > deadline || !session->IsAlive()) {
           break;
         }

@@ -8,7 +8,8 @@
 //        http://www.apache.org/licenses/LICENSE-2.0
 //
 
-#pragma once
+#ifndef ZNET_INET_ADDR_H_
+#define ZNET_INET_ADDR_H_
 
 #include "znet/precompiled.h"
 #include "znet/types.h"
@@ -205,3 +206,5 @@ class CIDRBlock {
 };
 
 }  // namespace znet
+
+#endif  // ZNET_INET_ADDR_H_

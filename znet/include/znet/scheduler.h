@@ -9,7 +9,8 @@
 //        http://www.apache.org/licenses/LICENSE-2.0
 //
 
-#pragma once
+#ifndef ZNET_SCHEDULER_H_
+#define ZNET_SCHEDULER_H_
 
 #include "znet/precompiled.h"
 #include <chrono>
@@ -59,3 +60,5 @@ class Scheduler {
   Duration target_delta_time_;
   uint16_t tps_{};
 };
+
+#endif  // ZNET_SCHEDULER_H_

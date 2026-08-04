@@ -8,7 +8,8 @@
 //        http://www.apache.org/licenses/LICENSE-2.0
 //
 
-#pragma once
+#ifndef ZNET_PEER_SESSION_H_
+#define ZNET_PEER_SESSION_H_
 
 #include "znet/task.h"
 #include "znet/codec.h"
@@ -31,8 +32,8 @@ namespace znet {
  * @brief Represents a network session between a local and remote peer.
  *
  * PeerSession handles communication between two network peers, managing the
- * transport layer, encryption, and packet handling. It also supports session
- * expiration and user-defined data attachment.
+ * transport layer, encryption, and packet handling. User-defined data can be
+ * attached with SetUserPointer().
  *
  * @par Threading
  * SendPacket() may be called from any thread and only queues. The codec, the
@@ -57,7 +58,9 @@ class PeerSession {
   ~PeerSession();
 
   /**
-   * @brief One pass: transport upkeep, receive, dispatch, drain.
+   * @brief One pass: transport upkeep, receive, dispatch, drain. Internal:
+   *        the owner (client loop, server worker, or the session's own task
+   *        when self-managed) drives it; applications never call it.
    *
    * @return true when the pass did something, i.e. a message arrived or the
    *         outbound queue drained. A self-managed session's loop naps after
@@ -65,9 +68,24 @@ class PeerSession {
    */
   bool Process();
 
+  /**
+   * @brief Ends the session. Safe from any thread and idempotent; the second
+   *        call reports AlreadyDisconnected.
+   *
+   * The transport sends its goodbye (FIN, or ZDT's fin datagram) and the
+   * owner observes the death through IsAlive() and its disconnect event.
+   */
   Result Close(CloseOptions options = {});
 
-  bool IsAlive();
+  /**
+   * @brief Whether the transport is still open. False the moment Close() is
+   *        called here or the peer's close/loss is noticed, and the loop
+   *        condition most applications want.
+   *
+   * IsReady() is different: alive says the pipe exists, ready says the
+   * handshake finished and SendPacket() may be called.
+   */
+  ZNET_NODISCARD bool IsAlive() const;
 
   /**
    * @brief Whether the handshake has settled and the session may be sent to.
@@ -99,11 +117,13 @@ class PeerSession {
    *
    * @param packet The packet to send.
    * @param options Per-message delivery options. Ignored by TCP.
-   * @return false when the session is not ready, is closed, or already holds
-   *         CommonOptions::send_queue_capacity packets. Refusal is the
-   *         backpressure signal, and happens before encoding.
+   * @return Result::Success once queued. QueueFull is the backpressure
+   *         signal: the caller still holds the packet and may retry.
+   *         NotConnected means the session died, NotReady that the handshake
+   *         has not settled, InvalidArgument a null packet. Refusal always
+   *         happens before encoding, so nothing is lost.
    */
-  bool SendPacket(std::shared_ptr<Packet> packet, SendOptions options = {});
+  Result SendPacket(std::shared_ptr<Packet> packet, SendOptions options = {});
 
   /**
    * @brief Encodes and sends whatever SendPacket() has queued.
@@ -128,10 +148,20 @@ class PeerSession {
     outbound_.SetHasDedicatedEncoder(has_encoder);
   }
 
+  /**
+   * @brief Installs the codec that frames and identifies this session's
+   *        packets. Set it in the connect event, before the first packet
+   *        arrives; it belongs to the worker thread after that.
+   */
   void SetCodec(std::shared_ptr<Codec> codec) {
     pipeline_.SetCodec(std::move(codec));
   }
 
+  /**
+   * @brief Installs the handler dispatched for every decoded packet. Same
+   *        contract as SetCodec(): set it in the connect event. See
+   *        ReleaseHandler() for the ownership cycle this creates.
+   */
   void SetHandler(std::shared_ptr<PacketHandlerBase> handler) {
     handler_ = std::move(handler);
   }
@@ -188,37 +218,17 @@ class PeerSession {
    * @return std::shared_ptr<T> Pointer to the user-defined object cast to type T. This cast is unchecked, it is simply undefined behavior if the underlying type does not match the requested T. Returns null only if the pointer was not set. This is done for performance reasons.
    */
   template<typename T>
-  ZNET_NODISCARD std::shared_ptr<T> user_ptr_typed() const {
+  ZNET_NODISCARD std::shared_ptr<T> user_pointer() const {
     return std::static_pointer_cast<T>(user_ptr_);
-  }
-
-  template<typename Rep, typename Period>
-  void SetExpiry(std::chrono::duration<Rep,Period> ttl) {
-    expire_at_ = std::chrono::steady_clock::now() +
-                std::chrono::duration_cast<std::chrono::steady_clock::duration>(ttl);
-  }
-
-  ZNET_NODISCARD std::chrono::steady_clock::time_point connect_time() {
-    return connect_time_;
   }
 
   ZNET_NODISCARD std::chrono::steady_clock::duration time_since_connect() const noexcept {
     return std::chrono::steady_clock::now() - connect_time_;
   }
 
-  ZNET_NODISCARD uint64_t seconds_since_connect() const noexcept {
-    return static_cast<uint64_t>(
-        std::chrono::duration_cast<std::chrono::seconds>(
-            time_since_connect()).count());
-  }
-
-  ZNET_NODISCARD CompressionType out_compression_type() const {
-    return pipeline_.out_compression();
-  }
-
   void SetOutCompression(CompressionType type) {
     pipeline_.SetOutCompression(type);
-    ZNET_LOG_INFO("Set out compression to {} for {}", GetCompressionTypeName(type), id_);
+    ZNET_LOG_INFO("Set out compression to {} for {}", GetCompressionTypeString(type), id_);
   }
 
   ZNET_NODISCARD bool is_initiator() const {
@@ -272,12 +282,14 @@ class PeerSession {
    *              EncryptionLayer::kMaxExportLabelLength bytes.
    * @param out Filled on success, untouched on failure.
    * @param out_len Up to EncryptionLayer::kMaxExportLength. 32 is the usual ask.
-   * @return false if the session is unencrypted or not yet ready, or if the
-   *         label or length is out of range. Call it once connected.
+   * @return Result::Success with `out` filled. Failure means there is no
+   *         settled key exchange to bind to, either because the session is
+   *         unencrypted or because it is not yet ready; InvalidArgument that
+   *         the label or length is out of range. Call it once connected.
    */
-  ZNET_NODISCARD bool ExportKeyingMaterial(const std::string& label,
-                                           unsigned char* out,
-                                           size_t out_len) const {
+  ZNET_NODISCARD Result ExportKeyingMaterial(const std::string& label,
+                                             unsigned char* out,
+                                             size_t out_len) const {
     return encryption_layer_.ExportKeyingMaterial(label, out, out_len);
   }
 
@@ -292,7 +304,7 @@ class PeerSession {
   ZNET_NODISCARD SessionMetrics metrics() const {
 #if ZNET_ENABLE_METRICS
     SessionMetrics out = metrics_;
-    out.transport = connection_type_;
+    out.connection_type = connection_type_;
     if (transport_layer_) {
       transport_layer_->FillMetrics(out);
     }
@@ -326,13 +338,6 @@ class PeerSession {
   }
   void SetNegotiatedCompression(CompressionType type) {
     negotiated_compression_ = type;
-  }
-
-  bool IsExpired() const {
-    if (!has_expiry_) {
-      return false;
-    }
-    return std::chrono::steady_clock::now() > expire_at_;
   }
 
   // how many messages one Process() call will deliver before yielding, so a
@@ -372,8 +377,6 @@ class PeerSession {
   // it sees the codec and keys the worker wrote beforehand. See IsReady().
   std::atomic_bool is_ready_{false};
   std::chrono::steady_clock::time_point connect_time_;
-  std::chrono::steady_clock::time_point expire_at_;
-  bool has_expiry_ = false;
   // touched only by the thread that drives this session, like metrics_, but
   // lives outside the metrics build flag: the close threshold depends on it
   uint64_t invalid_frames_ = 0;
@@ -389,3 +392,5 @@ class PeerSession {
 #endif
 };
 }  // namespace znet
+
+#endif  // ZNET_PEER_SESSION_H_

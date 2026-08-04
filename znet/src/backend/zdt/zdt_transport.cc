@@ -352,7 +352,7 @@ void ZDTTransportLayer::FlushOutbound() {
       if (next_reliable) {
         // both windows are global, but the lane is only skipped: another
         // lane's front may be unreliable and free to go
-        if (unacked_.size() >= static_cast<size_t>(config_.cwnd)) {
+        if (unacked_.size() >= static_cast<size_t>(config_.max_messages_in_flight)) {
           continue;
         }
         // the real congestion window: anything past what an ack can describe

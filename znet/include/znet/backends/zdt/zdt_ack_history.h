@@ -15,8 +15,8 @@
 // can be exercised without either.
 //
 
-#ifndef ZNET_PARENT_ZDT_ACK_HISTORY_H
-#define ZNET_PARENT_ZDT_ACK_HISTORY_H
+#ifndef ZNET_BACKENDS_ZDT_ZDT_ACK_HISTORY_H_
+#define ZNET_BACKENDS_ZDT_ZDT_ACK_HISTORY_H_
 
 #include "znet/backends/zdt/zdt_wire.h"
 #include "znet/precompiled.h"
@@ -79,4 +79,5 @@ class ZDTAckHistory {
 }  // namespace backends
 }  // namespace znet
 
-#endif  // ZNET_PARENT_ZDT_ACK_HISTORY_H
+
+#endif  // ZNET_BACKENDS_ZDT_ZDT_ACK_HISTORY_H_

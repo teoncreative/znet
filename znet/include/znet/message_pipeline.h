@@ -9,6 +9,9 @@
 //
 
 //
+// Internal: a private member of PeerSession, public only because that member
+// needs the complete type. Nothing here is meant to be called directly.
+//
 // The transformation between packets and wire bytes, in one place and in both
 // directions. It used to live in two: the outbound half inside the session's
 // send function and the inbound half inline in its tick loop, which meant the
@@ -16,8 +19,8 @@
 // by side. They are each other's inverse, so they belong together.
 //
 
-#ifndef ZNET_PARENT_MESSAGE_PIPELINE_H
-#define ZNET_PARENT_MESSAGE_PIPELINE_H
+#ifndef ZNET_MESSAGE_PIPELINE_H_
+#define ZNET_MESSAGE_PIPELINE_H_
 
 #include "znet/codec.h"
 #include "znet/compression.h"
@@ -123,4 +126,5 @@ class MessagePipeline {
 
 }  // namespace znet
 
-#endif  // ZNET_PARENT_MESSAGE_PIPELINE_H
+
+#endif  // ZNET_MESSAGE_PIPELINE_H_

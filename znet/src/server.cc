@@ -16,7 +16,6 @@
 
 namespace znet {
 
-Server::Server() : Interface() {}
 
 Server::Server(const ServerConfig& config) : Interface(), config_(config) {
   bind_address_ = InetAddress::from(config_.bind_ip, config_.bind_port);
@@ -161,6 +160,10 @@ bool Server::IsAlive() const {
   return backend_->IsAlive();
 }
 
+ServerMetrics Server::metrics() const {
+  return backend_ ? backend_->metrics() : ServerMetrics{};
+}
+
 void Server::MainProcessor() {
   ZNET_LOG_DEBUG("Listening connections from: {}", bind_address_->readable());
   ServerStartupEvent startup_event{*this};
@@ -232,7 +235,7 @@ void Server::CleanupAndProcessSessions(SessionMap& sessions) {
     // one that never became ready died still handshaking, and the application
     // was never told it connected, so a disconnect event would be unpaired.
     if (session->IsReady()) {
-      ServerClientDisconnectedEvent event{session};
+      IncomingClientDisconnectedEvent event{session};
       event_callback()(event);
       ZNET_LOG_DEBUG("Client disconnected: {}",
                      session->remote_address()->readable());

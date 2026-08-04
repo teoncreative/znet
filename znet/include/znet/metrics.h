@@ -25,8 +25,8 @@
 // to remove them entirely.
 //
 
-#ifndef ZNET_PARENT_METRICS_H
-#define ZNET_PARENT_METRICS_H
+#ifndef ZNET_METRICS_H_
+#define ZNET_METRICS_H_
 
 #include "znet/precompiled.h"
 #include "znet/types.h"
@@ -107,7 +107,7 @@ struct ZDTSessionMetrics {
  * per-transport groups carries meaningful values.
  */
 struct SessionMetrics {
-  ConnectionType transport = ConnectionType::TCP;  /**< Which group below is live. */
+  ConnectionType connection_type = ConnectionType::ZDT;  /**< Which group below is live. */
   CommonMetrics common;
   TCPSessionMetrics tcp;
   ZDTSessionMetrics zdt;
@@ -131,7 +131,7 @@ struct ZDTServerMetrics {
 
 /** @brief Listener-scope counters, across every session it accepted. */
 struct ServerMetrics {
-  ConnectionType transport = ConnectionType::TCP;
+  ConnectionType connection_type = ConnectionType::ZDT;
   uint64_t connections_accepted = 0;
   uint64_t connections_active = 0;
   ZDTServerMetrics zdt;
@@ -139,4 +139,5 @@ struct ServerMetrics {
 
 }  // namespace znet
 
-#endif  // ZNET_PARENT_METRICS_H
+
+#endif  // ZNET_METRICS_H_

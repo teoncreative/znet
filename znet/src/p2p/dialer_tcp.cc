@@ -27,7 +27,7 @@ namespace p2p {
 namespace {
 
 int LastErr() {
-#ifdef TARGET_WIN
+#ifdef ZNET_TARGET_WIN
   return WSAGetLastError();
 #else
   return errno;
@@ -35,14 +35,14 @@ int LastErr() {
 }
 
 bool WouldBlock(int e) {
-#ifdef TARGET_WIN
+#ifdef ZNET_TARGET_WIN
   return e == WSAEWOULDBLOCK || e == WSAEINPROGRESS || e == WSAEALREADY;
 #else
   return e == EINPROGRESS || e == EWOULDBLOCK || e == EALREADY;
 #endif
 }
 
-#if defined(TARGET_WIN)
+#if defined(ZNET_TARGET_WIN)
 // On Windows the parameter is ignored
 constexpr int ToSelectNFDS(SocketHandle) { return 0; }
 #else
@@ -70,7 +70,7 @@ std::shared_ptr<PeerSession> TryPunchTCPOnce(
 
   int option = 1;
   setsockopt(socket_handle, SOL_SOCKET, SO_REUSEADDR, reinterpret_cast<const char*>(&option), sizeof(option));
-#ifndef TARGET_WIN
+#ifndef ZNET_TARGET_WIN
   // the punch rebinds the port the relay connection just released, and that
   // socket had SO_REUSEPORT: the kernel refuses the bind to a matching bucket
   // unless this one carries it too, which intermittently ate the whole punch
@@ -132,7 +132,7 @@ std::shared_ptr<PeerSession> TryPunchTCPOnce(
 
     int result = select(ToSelectNFDS(socket_handle), nullptr, &write_set, &error_set, &tv);
     if (result < 0) {
-#ifdef TARGET_WIN
+#ifdef ZNET_TARGET_WIN
       if (LastErr() == WSAEINTR) {
         continue;
       }

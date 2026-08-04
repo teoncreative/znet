@@ -18,18 +18,24 @@ namespace p2p {
 std::shared_ptr<PeerSession> PunchSync(
     const std::shared_ptr<InetAddress>& local,
     const std::vector<std::shared_ptr<InetAddress>>& peer_candidates,
-    Result* out_result, bool is_initiator, ConnectionType connection_type,
-    int timeout_ms) {
+    bool is_initiator, ConnectionType connection_type,
+    std::chrono::milliseconds timeout, Result* out_result) {
+  Result reason = Result::Failure;
+  const int timeout_ms = static_cast<int>(timeout.count());
+  std::shared_ptr<PeerSession> session;
   if (connection_type == ConnectionType::TCP) {
-    return PunchSyncTCP(local, peer_candidates, out_result, is_initiator,
-                        timeout_ms);
+    session = PunchSyncTCP(local, peer_candidates, &reason, is_initiator,
+                           timeout_ms);
+  } else if (connection_type == ConnectionType::ZDT) {
+    session = PunchSyncZDT(local, peer_candidates, &reason, is_initiator,
+                           timeout_ms);
+  } else {
+    reason = Result::InvalidBackend;
   }
-  if (connection_type == ConnectionType::ZDT) {
-    return PunchSyncZDT(local, peer_candidates, out_result, is_initiator,
-                        timeout_ms);
+  if (out_result != nullptr) {
+    *out_result = reason;
   }
-  *out_result = Result::InvalidBackend;
-  return nullptr;
+  return session;
 }
 
 }  // namespace p2p

@@ -18,8 +18,8 @@
 // branch, an allocation, or an indirection that the C++20 path does not pay.
 //
 
-#ifndef ZNET_COMPAT_H
-#define ZNET_COMPAT_H
+#ifndef ZNET_COMPAT_H_
+#define ZNET_COMPAT_H_
 
 #include <type_traits>
 
@@ -188,4 +188,4 @@ constexpr const T& Clamp(const T& v, const T& lo, const T& hi) {
     "znet cannot detect endianness on this target; define ZNET_SYSTEM_IS_BIG_ENDIAN to 0 or 1."
 #endif
 
-#endif  // ZNET_COMPAT_H
+#endif  // ZNET_COMPAT_H_

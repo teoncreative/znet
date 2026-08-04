@@ -329,7 +329,7 @@ void RunThroughput(ConnectionType type, const bench::Workload& w) {
           packet->seq = seq;
           packet->payload = payload;
           // refusal is the backpressure signal the loop drains on
-          if (!h.client_session->SendPacket(packet)) {
+          if (h.client_session->SendPacket(packet) != Result::Success) {
             return false;
           }
           seq++;
@@ -383,7 +383,7 @@ void RunLatency(ConnectionType type, const bench::Workload& w) {
           auto packet = std::make_shared<BenchPacket>();
           packet->seq = seq++;
           packet->payload = payload;
-          return h.client_session->SendPacket(packet);
+          return h.client_session->SendPacket(packet) == Result::Success;
         },
         [&]() {
           std::this_thread::yield();
@@ -432,7 +432,7 @@ void RunCongestion(ConnectionType type, const bench::CongestionCase& c) {
           auto packet = std::make_shared<BenchPacket>();
           packet->seq = seq;
           packet->payload = bulk_payload;
-          if (!h.client_session->SendPacket(packet)) {
+          if (h.client_session->SendPacket(packet) != Result::Success) {
             return false;
           }
           seq++;

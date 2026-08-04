@@ -8,7 +8,8 @@
 //        http://www.apache.org/licenses/LICENSE-2.0
 //
 
-#pragma once
+#ifndef ZNET_TYPES_H_
+#define ZNET_TYPES_H_
 
 #include "znet/precompiled.h"
 
@@ -18,15 +19,6 @@ namespace znet {
 #ifndef ZNET_MAX_BUFFER_SIZE
 #define ZNET_MAX_BUFFER_SIZE 4096 //16384
 #endif
-
-/**
- * @brief Passed as a port, lets the system pick one rather than binding a
- *        specific port.
- *
- * Read the chosen port back with Client::local_address() or
- * Server::bind_address().
- */
-#define ZNET_PORT_AUTO 0
 
 // 64 bits might be an overkill here but meh
 using SessionId = uint64_t;
@@ -65,7 +57,10 @@ enum class Result {
   IncompatibleVersion,
   ConnectionRefused,
   ServerFull,
-  PeerNotFound
+  PeerNotFound,
+  NotReady,
+  QueueFull,
+  InvalidArgument
 };
 
 inline std::string GetResultString(Result result) {
@@ -118,6 +113,12 @@ inline std::string GetResultString(Result result) {
       return "ServerFull";
     case Result::PeerNotFound:
       return "PeerNotFound";
+    case Result::NotReady:
+      return "NotReady";
+    case Result::QueueFull:
+      return "QueueFull";
+    case Result::InvalidArgument:
+      return "InvalidArgument";
     default:
       return "Unknown";
   }
@@ -130,18 +131,31 @@ enum class ConnectionType {
   //QUIC
 };
 
-#if defined(TARGET_APPLE) || defined(TARGET_WEB) || defined(TARGET_LINUX)
+inline std::string GetConnectionTypeString(ConnectionType type) {
+  switch (type) {
+    case ConnectionType::TCP:
+      return "TCP";
+    case ConnectionType::ZDT:
+      return "ZDT";
+    default:
+      return "Unknown";
+  }
+}
+
+#if defined(ZNET_TARGET_APPLE) || defined(ZNET_TARGET_WEB) || defined(ZNET_TARGET_LINUX)
 using SocketHandle = int;
 using PortNumber = in_port_t;
 using IPv4Address = in_addr;
 using IPv6Address = in6_addr;
-#define INVALID_SOCKET -1
-#elif defined(TARGET_WIN)
+constexpr SocketHandle kSocketInvalid = -1;
+#elif defined(ZNET_TARGET_WIN)
 using SocketHandle = SOCKET;
 using PortNumber = USHORT;
 using IPv4Address = IN_ADDR;
 using IPv6Address = IN6_ADDR;
+constexpr SocketHandle kSocketInvalid = INVALID_SOCKET;  // winsock's
 #endif
-constexpr SocketHandle kSocketInvalid = INVALID_SOCKET;
 
 }  // namespace znet
+
+#endif  // ZNET_TYPES_H_

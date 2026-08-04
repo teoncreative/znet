@@ -8,8 +8,8 @@
 //        http://www.apache.org/licenses/LICENSE-2.0
 //
 
-#ifndef ZNET_PARENT_RENDEZVOUS_H
-#define ZNET_PARENT_RENDEZVOUS_H
+#ifndef ZNET_P2P_RENDEZVOUS_H_
+#define ZNET_P2P_RENDEZVOUS_H_
 
 #include "znet/server.h"
 
@@ -36,13 +36,13 @@ namespace p2p {
 // StartPunchRequestPacket S -> C1
 // StartPunchRequestPacket S -> C2
 
-enum PacketType : PacketId {
-  kPacketIdentify,
-  kPacketSetPeerName,
-  kPacketConnectPeer,
-  kPacketStartPunchRequest,
-  kPacketPeerNotFound,
-};
+// wire ids of the rendezvous protocol; plain PacketIds, usable directly with
+// Codec::Add()
+ZNET_INLINE_CONSTEXPR PacketId kPacketIdentify = 0;
+ZNET_INLINE_CONSTEXPR PacketId kPacketSetPeerName = 1;
+ZNET_INLINE_CONSTEXPR PacketId kPacketConnectPeer = 2;
+ZNET_INLINE_CONSTEXPR PacketId kPacketStartPunchRequest = 3;
+ZNET_INLINE_CONSTEXPR PacketId kPacketPeerNotFound = 4;
 
 class IdentifyPacket : public Packet {
  public:
@@ -80,7 +80,6 @@ class StartPunchRequestPacket : public Packet {
   StartPunchRequestPacket() : Packet(kPacketStartPunchRequest) {}
 
   std::string target_peer_;
-  std::shared_ptr<InetAddress> bind_endpoint_;
   std::shared_ptr<InetAddress> target_endpoint_;
   // the peer's claimed private address, when it reported one distinct from
   // what the server observed; a second punch candidate
@@ -171,7 +170,6 @@ class StartPunchRequestSerializer : public PacketSerializer<StartPunchRequestPac
 
   std::shared_ptr<Buffer> SerializeTyped(std::shared_ptr<StartPunchRequestPacket> packet, std::shared_ptr<Buffer> buffer) override {
     buffer->WriteString(packet->target_peer_);
-    buffer->WriteInetAddress(*packet->bind_endpoint_);
     buffer->WriteInetAddress(*packet->target_endpoint_);
     const bool has_private = packet->target_private_endpoint_ != nullptr;
     buffer->WriteInt<uint8_t>(has_private ? 1 : 0);
@@ -186,9 +184,8 @@ class StartPunchRequestSerializer : public PacketSerializer<StartPunchRequestPac
   std::shared_ptr<StartPunchRequestPacket> DeserializeTyped(std::shared_ptr<Buffer> buffer) override {
     auto packet = std::make_shared<StartPunchRequestPacket>();
     packet->target_peer_ = buffer->ReadString();
-    packet->bind_endpoint_ = buffer->ReadInetAddress();
     packet->target_endpoint_ = buffer->ReadInetAddress();
-    if (!packet->bind_endpoint_ || !packet->target_endpoint_) {
+    if (!packet->target_endpoint_) {
       return nullptr;  // corrupt address; refuse the frame, not the process
     }
     if (buffer->ReadInt<uint8_t>() != 0) {
@@ -228,7 +225,7 @@ class PeerNotFoundSerializer : public PacketSerializer<PeerNotFoundPacket> {
   }
 };
 
-inline std::shared_ptr<Codec> BuildCodec() {
+inline std::shared_ptr<Codec> BuildRendezvousCodec() {
   std::shared_ptr<znet::Codec> codec = std::make_shared<znet::Codec>();
   codec->Add(kPacketIdentify, std::make_unique<IdentifySerializer>());
   codec->Add(kPacketSetPeerName, std::make_unique<SetPeerNameSerializer>());
@@ -238,7 +235,8 @@ inline std::shared_ptr<Codec> BuildCodec() {
   return codec;
 }
 
-}
-}
+}  // namespace p2p
+}  // namespace znet
 
-#endif  //ZNET_PARENT_RENDEZVOUS_H
+
+#endif  // ZNET_P2P_RENDEZVOUS_H_

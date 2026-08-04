@@ -18,8 +18,8 @@
 // would otherwise be left pointing at freed state.
 //
 
-#ifndef ZNET_PARENT_WORKER_SIGNAL_H
-#define ZNET_PARENT_WORKER_SIGNAL_H
+#ifndef ZNET_WORKER_SIGNAL_H_
+#define ZNET_WORKER_SIGNAL_H_
 
 #include <atomic>
 #include <condition_variable>
@@ -62,4 +62,5 @@ struct WorkerSignal {
 
 }  // namespace znet
 
-#endif  // ZNET_PARENT_WORKER_SIGNAL_H
+
+#endif  // ZNET_WORKER_SIGNAL_H_

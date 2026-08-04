@@ -8,8 +8,8 @@
 //        http://www.apache.org/licenses/LICENSE-2.0
 //
 
-#ifndef ZNET_PARENT_PUNCH_H
-#define ZNET_PARENT_PUNCH_H
+#ifndef ZNET_P2P_DIALER_H_
+#define ZNET_P2P_DIALER_H_
 
 #include "znet/inet_addr.h"
 #include "znet/peer_session.h"
@@ -20,26 +20,16 @@
 namespace znet {
 namespace p2p {
 
-inline bool IsInitiator(uint64_t punch_id,
-                 const std::string& self_id,
-                 const std::string& peer_id) {
-  bool use_smaller = ((punch_id & 1ULL) == 0ULL);
-
-  bool self_is_smaller = (self_id < peer_id);
-
-  if (use_smaller) {
-    if (self_is_smaller) {
-      return true;
-    } else {
-      return false;
-    }
-  } else {
-    if (!self_is_smaller) {
-      return true;
-    } else {
-      return false;
-    }
-  }
+/**
+ * @brief The tiebreak both peers compute from the rendezvous-issued punch id:
+ *        exactly one of them comes out the initiator, which is the side that
+ *        accepts (and so decides encryption) on the punched session.
+ */
+inline bool IsInitiator(uint64_t punch_id, const std::string& self_id,
+                        const std::string& peer_id) {
+  const bool use_smaller = (punch_id & 1ULL) == 0ULL;
+  const bool self_is_smaller = self_id < peer_id;
+  return use_smaller == self_is_smaller;
 }
 
 /**
@@ -50,25 +40,28 @@ inline bool IsInitiator(uint64_t punch_id,
  * same NAT usually cannot reach each other's public mapping, and the private
  * address is the one that works. ZDT races every candidate on one socket;
  * TCP cycles through them across connect attempts.
+ *
+ * @param out_result the failure reason when null comes back; pass nothing if
+ *        the session alone is enough.
  */
 std::shared_ptr<PeerSession> PunchSync(
     const std::shared_ptr<InetAddress>& local,
     const std::vector<std::shared_ptr<InetAddress>>& peer_candidates,
-    Result* out_result, bool is_initiator,
-    ConnectionType connection_type = ConnectionType::ZDT,
-    int timeout_ms = 5000);
+    bool is_initiator, ConnectionType connection_type = ConnectionType::ZDT,
+    std::chrono::milliseconds timeout = std::chrono::milliseconds(5000),
+    Result* out_result = nullptr);
 
 inline std::shared_ptr<PeerSession> PunchSync(
     const std::shared_ptr<InetAddress>& local,
-    const std::shared_ptr<InetAddress>& peer,
-    Result* out_result, bool is_initiator,
+    const std::shared_ptr<InetAddress>& peer, bool is_initiator,
     ConnectionType connection_type = ConnectionType::ZDT,
-    int timeout_ms = 5000) {
-  return PunchSync(local,
-                   std::vector<std::shared_ptr<InetAddress>>{peer},
-                   out_result, is_initiator, connection_type, timeout_ms);
+    std::chrono::milliseconds timeout = std::chrono::milliseconds(5000),
+    Result* out_result = nullptr) {
+  return PunchSync(local, std::vector<std::shared_ptr<InetAddress>>{peer},
+                   is_initiator, connection_type, timeout, out_result);
 }
 
 }  // namespace p2p
 }  // namespace znet
-#endif  //ZNET_PARENT_PUNCH_H
+
+#endif  // ZNET_P2P_DIALER_H_

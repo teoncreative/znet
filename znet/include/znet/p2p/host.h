@@ -8,10 +8,10 @@
 //        http://www.apache.org/licenses/LICENSE-2.0
 //
 
-#ifndef ZNET_PARENT_P2P_HOST_H
-#define ZNET_PARENT_P2P_HOST_H
+#ifndef ZNET_P2P_HOST_H_
+#define ZNET_P2P_HOST_H_
 
-#include "znet/backends/zdt.h"
+#include "znet/backends/zdt/zdt_connection.h"
 #include "znet/inet_addr.h"
 #include "znet/peer_session.h"
 #include "znet/task.h"
@@ -26,6 +26,11 @@
 #include <vector>
 
 namespace znet {
+namespace backends {
+class UDPSocket;
+class ZDTTransportLayer;
+}  // namespace backends
+
 namespace p2p {
 
 /**
@@ -150,4 +155,5 @@ class Host {
 }  // namespace p2p
 }  // namespace znet
 
-#endif  // ZNET_PARENT_P2P_HOST_H
+
+#endif  // ZNET_P2P_HOST_H_

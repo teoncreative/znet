@@ -30,12 +30,14 @@
 // the meaning of any call site that never set it.
 //
 
-#ifndef ZNET_PARENT_SEND_OPTIONS_H
-#define ZNET_PARENT_SEND_OPTIONS_H
+#ifndef ZNET_SEND_OPTIONS_H_
+#define ZNET_SEND_OPTIONS_H_
 
 #include "znet/precompiled.h"
 #include <cstdint>
 #include <type_traits>
+
+namespace znet {
 
 /**
  * @brief Retransmit until acknowledged. Default true.
@@ -225,4 +227,7 @@ template <> constexpr const bool& SendOptions::Get<ReliableKey>() const { return
 template <> constexpr const bool& SendOptions::Get<OrderedKey>()  const { return data_.ordered;  }
 template <> constexpr const uint8_t& SendOptions::Get<ChannelKey>() const { return data_.channel; }
 
-#endif  //ZNET_PARENT_SEND_OPTIONS_H
+}  // namespace znet
+
+
+#endif  // ZNET_SEND_OPTIONS_H_

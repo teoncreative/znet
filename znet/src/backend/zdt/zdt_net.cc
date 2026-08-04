@@ -56,7 +56,7 @@ Result UDPSocket::Bind(const InetAddress& addr) {
 }
 
 bool UDPSocket::SendTo(const InetAddress& addr, const void* data, size_t len) {
-#ifdef TARGET_WIN
+#ifdef ZNET_TARGET_WIN
   int n = sendto(handle(), static_cast<const char*>(data), static_cast<int>(len),
                  0, addr.handle_ptr(), addr.addr_size());
 #else
@@ -75,7 +75,7 @@ RecvResult UDPSocket::RecvFrom(void* data, size_t cap, size_t& out_len,
                                std::shared_ptr<InetAddress>& out_from) {
   sockaddr_storage from{};
   socklen_t from_len = sizeof(from);
-#ifdef TARGET_WIN
+#ifdef ZNET_TARGET_WIN
   int n = recvfrom(handle(), static_cast<char*>(data), static_cast<int>(cap), 0,
                    reinterpret_cast<sockaddr*>(&from), &from_len);
 #else
@@ -83,7 +83,7 @@ RecvResult UDPSocket::RecvFrom(void* data, size_t cap, size_t& out_len,
                        reinterpret_cast<sockaddr*>(&from), &from_len);
 #endif
   if (n < 0) {
-#ifdef TARGET_WIN
+#ifdef ZNET_TARGET_WIN
     int err = WSAGetLastError();
     if (err == WSAEWOULDBLOCK || err == WSAETIMEDOUT) {
       return RecvResult::WouldBlock;
@@ -106,7 +106,7 @@ bool UDPSocket::SetBlocking(bool blocking) {
 }
 
 bool UDPSocket::SetReceiveTimeout(std::chrono::milliseconds timeout) {
-#ifdef TARGET_WIN
+#ifdef ZNET_TARGET_WIN
   DWORD ms = static_cast<DWORD>(timeout.count());
   return setsockopt(handle(), SOL_SOCKET, SO_RCVTIMEO,
                     reinterpret_cast<const char*>(&ms), sizeof(ms)) == 0;
@@ -163,14 +163,14 @@ void ApplySocketBufferSizes(UDPSocket& socket, int recv_bytes, int send_bytes) {
 }
 
 bool UDPSocket::SetDontFragment(bool enabled) {
-#if defined(TARGET_LINUX)
+#if defined(ZNET_TARGET_LINUX)
   int value = enabled ? IP_PMTUDISC_DO : IP_PMTUDISC_WANT;
   return setsockopt(handle(), IPPROTO_IP, IP_MTU_DISCOVER, &value,
                     sizeof(value)) == 0;
-#elif defined(TARGET_APPLE)
+#elif defined(ZNET_TARGET_APPLE)
   int value = enabled ? 1 : 0;
   return setsockopt(handle(), IPPROTO_IP, IP_DONTFRAG, &value, sizeof(value)) == 0;
-#elif defined(TARGET_WIN)
+#elif defined(ZNET_TARGET_WIN)
   DWORD value = enabled ? 1 : 0;
   return setsockopt(handle(), IPPROTO_IP, IP_DONTFRAGMENT,
                     reinterpret_cast<const char*>(&value), sizeof(value)) == 0;

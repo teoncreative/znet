@@ -8,7 +8,8 @@
 //        http://www.apache.org/licenses/LICENSE-2.0
 //
 
-#pragma once
+#ifndef ZNET_PACKET_H_
+#define ZNET_PACKET_H_
 
 #include "znet/precompiled.h"
 
@@ -16,16 +17,23 @@ namespace znet {
 
 using PacketId = uint64_t;
 
-constexpr PacketId kPacketNone = static_cast<PacketId>(-1);
-
+/**
+ * @brief Base of every application message.
+ *
+ * Derive, add the fields, give the class a unique PacketId, and register a
+ * PacketSerializer for it with Codec::Add(). The id is what travels on the
+ * wire, so it has to be stable across builds and identical on both ends.
+ */
 class Packet {
  public:
   explicit Packet(PacketId id) : id_(id) {}
   virtual ~Packet() = default;
 
-  PacketId id() const { return id_; }
+  ZNET_NODISCARD PacketId id() const { return id_; }
 
  private:
   PacketId id_;
 };
 }  // namespace znet
+
+#endif  // ZNET_PACKET_H_

@@ -9,7 +9,8 @@
 //        http://www.apache.org/licenses/LICENSE-2.0
 //
 
-#pragma once
+#ifndef ZNET_UTIL_H_
+#define ZNET_UTIL_H_
 
 #include "znet/precompiled.h"
 #include "znet/types.h"
@@ -18,7 +19,7 @@
 #include <ostream>
 #include <sstream>
 
-#ifndef TARGET_WIN
+#ifndef ZNET_TARGET_WIN
 #include <poll.h>
 #endif
 
@@ -49,8 +50,8 @@ std::string ToHex(const T& numValue, int width) {
 std::string GeneratePeerName();
 
 inline bool IsValidSocketHandle(SocketHandle handle) {
-#ifdef TARGET_WIN
-  return handle != INVALID_SOCKET;
+#ifdef ZNET_TARGET_WIN
+  return handle != kSocketInvalid;
 #else
   return handle >= 0;
 #endif
@@ -58,7 +59,7 @@ inline bool IsValidSocketHandle(SocketHandle handle) {
 
 inline bool CloseSocket(SocketHandle socket) {
   if (IsValidSocketHandle(socket)) {
-#ifdef TARGET_WIN
+#ifdef ZNET_TARGET_WIN
     return closesocket(socket) == 0;
 #else
     return close(socket) == 0;
@@ -78,7 +79,7 @@ inline bool ShutdownSocket(SocketHandle socket) {
   if (!IsValidSocketHandle(socket)) {
     return false;
   }
-#ifdef TARGET_WIN
+#ifdef ZNET_TARGET_WIN
   return shutdown(socket, SD_BOTH) == 0;
 #else
   return shutdown(socket, SHUT_RDWR) == 0;
@@ -97,7 +98,7 @@ inline bool ShutdownSocketRead(SocketHandle socket) {
   if (!IsValidSocketHandle(socket)) {
     return false;
   }
-#ifdef TARGET_WIN
+#ifdef ZNET_TARGET_WIN
   return shutdown(socket, SD_RECEIVE) == 0;
 #else
   return shutdown(socket, SHUT_RD) == 0;
@@ -110,7 +111,7 @@ inline void SetTCPNoDelay(SocketHandle socket) {
 }
 
 inline bool SetSocketBlocking(SocketHandle socket, bool blocking) {
-#ifdef TARGET_WIN
+#ifdef ZNET_TARGET_WIN
   u_long mode = blocking ? 0UL : 1UL; // 1 to enable non-blocking socket
   // FIONBIO carries IOC_IN so the macro is unsigned; the cmd param is signed.
   return ioctlsocket(socket, static_cast<long>(FIONBIO), &mode) == 0;
@@ -139,7 +140,7 @@ inline bool SetSocketBlocking(SocketHandle socket, bool blocking) {
  *         re-checks its own state and decides whether to keep waiting.
  */
 inline bool WaitUntilWritable(SocketHandle socket, int timeout_ms) {
-#ifdef TARGET_WIN
+#ifdef ZNET_TARGET_WIN
   WSAPOLLFD fds{};
   fds.fd = socket;
   fds.events = POLLWRNORM;
@@ -157,3 +158,5 @@ inline bool WaitUntilWritable(SocketHandle socket, int timeout_ms) {
 }
 
 }
+
+#endif  // ZNET_UTIL_H_

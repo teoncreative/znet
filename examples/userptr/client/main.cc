@@ -43,7 +43,7 @@ class MyPacketHandler : public PacketHandler<MyPacketHandler, MessagePacket> {
   void OnPacket(std::shared_ptr<MessagePacket> packet) {
     ZNET_LOG_INFO("Server said: {}", packet->text);
 
-    std::shared_ptr<SessionStats> stats = session_->user_ptr_typed<SessionStats>();
+    std::shared_ptr<SessionStats> stats = session_->user_pointer<SessionStats>();
     if (!stats) {
       return;
     }
@@ -82,7 +82,7 @@ bool OnConnectEvent(ClientConnectedToServerEvent& event) {
 
 bool OnDisconnectEvent(ClientDisconnectedFromServerEvent& event) {
   std::shared_ptr<SessionStats> stats =
-      event.session()->user_ptr_typed<SessionStats>();
+      event.session()->user_pointer<SessionStats>();
   if (stats) {
     ZNET_LOG_INFO("Disconnected after {} reply/replies.",
                   stats->replies_received);
