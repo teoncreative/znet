@@ -41,7 +41,7 @@ namespace p2p {
 class RendezvousServer {
  public:
   struct Config {
-    std::string bind_ip = "0.0.0.0";
+    std::string bind_address = "0.0.0.0";
     PortNumber bind_port = 5001;
     ConnectionType punch_connection_type = ConnectionType::ZDT;
     /**

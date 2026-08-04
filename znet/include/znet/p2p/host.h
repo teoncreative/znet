@@ -59,7 +59,7 @@ class Host {
       std::function<void(Result, std::shared_ptr<PeerSession>)>;
 
   struct Config {
-    std::string bind_ip = "0.0.0.0";
+    std::string bind_address = "0.0.0.0";
     /** @brief Zero picks an ephemeral port; read it back with punch_port(). */
     PortNumber bind_port = 0;
     /** @brief Options every punched session is built with. */

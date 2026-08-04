@@ -49,7 +49,7 @@ class LocatorPacketHandler : public PacketHandler<LocatorPacketHandler, SetPeerN
 };
 
 PeerLocator::PeerLocator(const PeerLocatorConfig& config)
-    : client_(ClientConfig{config.server_ip,         // server_ip
+    : client_(ClientConfig{config.server_address,         // server_address
                            config.server_port,       // server_port
                            std::chrono::seconds(10), // connection_timeout
                            ConnectionType::TCP,      // connection_type
@@ -315,14 +315,14 @@ namespace {
 
 Host::Config MakeHostConfig(const MeshLocator::Config& config) {
   Host::Config out;
-  out.bind_ip = config.bind_ip;
+  out.bind_address = config.bind_address;
   out.bind_port = config.bind_port;
   out.session_options = config.session_options;
   return out;
 }
 
 ClientConfig MakeRelayClientConfig(const MeshLocator::Config& config) {
-  return ClientConfig{config.server_ip, config.server_port,
+  return ClientConfig{config.server_address, config.server_port,
                       std::chrono::seconds(10), ConnectionType::TCP, {}};
 }
 

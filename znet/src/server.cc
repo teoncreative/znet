@@ -18,7 +18,7 @@ namespace znet {
 
 
 Server::Server(const ServerConfig& config) : Interface(), config_(config) {
-  bind_address_ = InetAddress::from(config_.bind_ip, config_.bind_port);
+  bind_address_ = InetAddress::from(config_.bind_address, config_.bind_port);
   backend_ = backends::CreateServerFromType(config.connection_type, bind_address_,
                                             config.child_options, config.options);
   unsigned int core_count = std::thread::hardware_concurrency();

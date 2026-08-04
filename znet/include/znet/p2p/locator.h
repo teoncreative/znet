@@ -27,7 +27,7 @@ ZNET_INLINE_CONSTEXPR uint64_t kInvalidPunchId =
 
 /** @brief Everything a PeerLocator is constructed from. */
 struct PeerLocatorConfig {
-  std::string server_ip;
+  std::string server_address;
   PortNumber server_port = 0;
   // no transport choice here: the relay link is TCP, and the punch transport
   // is decided by the rendezvous server so both peers agree
@@ -224,13 +224,13 @@ class PeerLocator {
 class MeshLocator {
  public:
   struct Config {
-    std::string server_ip;
+    std::string server_address;
     PortNumber server_port = 0;
     /** @brief Options every punched session is built with. */
     SessionOptions session_options;
     /** @brief Local address of the shared punch socket. The defaults bind
      * every interface on a system-picked port. */
-    std::string bind_ip = "0.0.0.0";
+    std::string bind_address = "0.0.0.0";
     PortNumber bind_port = 0;
   };
 

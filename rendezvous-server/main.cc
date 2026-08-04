@@ -34,10 +34,10 @@ int main(int argc, char* argv[]) {
   std::string conn = result["conn"].as<std::string>();
   znet::p2p::RendezvousServer::Config config;
   config.bind_port = result["port"].as<uint16_t>();
-  config.bind_ip = result["target"].as<std::string>();
+  config.bind_address = result["target"].as<std::string>();
   config.punch_connection_type = conn == "tcp" ? znet::ConnectionType::TCP
                                                : znet::ConnectionType::ZDT;
-  ZNET_LOG_INFO("Starting relay on {}:{}... (punch type: {})", config.bind_ip,
+  ZNET_LOG_INFO("Starting relay on {}:{}... (punch type: {})", config.bind_address,
                 config.bind_port, conn == "tcp" ? "tcp" : "zdt");
 
   znet::p2p::RendezvousServer relay{config};

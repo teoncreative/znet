@@ -34,7 +34,7 @@ class ServerBackend;
  */
 struct ServerConfig {
   /** @brief Address to listen on: an IP, or "unix:/path" with TCP. */
-  std::string bind_ip;
+  std::string bind_address;
   /** @brief Zero lets the system pick; read it back with bind_address(). */
   PortNumber bind_port = 0;
   /** @brief Drop an accepted connection whose handshake has not settled

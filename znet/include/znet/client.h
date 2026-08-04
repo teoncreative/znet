@@ -34,7 +34,7 @@ class ClientBackend;
  */
 struct ClientConfig {
   /** @brief Server host: an IP, a hostname, or "unix:/path" with TCP. */
-  std::string server_ip;
+  std::string server_address;
   PortNumber server_port = 0;
   /** @brief Give up on a connect that is not ready after this long. Zero
    * waits forever. */

@@ -127,7 +127,7 @@ bool BothReady(PunchOutcome& a, PunchOutcome& b) {
 TEST(P2PHost, PunchesAsynchronouslyAndExchangesMessages) {
   ASSERT_EQ(Init(), Result::Success);
   p2p::Host::Config config;
-  config.bind_ip = "127.0.0.1";
+  config.bind_address = "127.0.0.1";
   p2p::Host a{config};
   p2p::Host b{config};
   ASSERT_EQ(a.Start(), Result::Success);
@@ -171,7 +171,7 @@ TEST(P2PHost, PunchesAsynchronouslyAndExchangesMessages) {
 TEST(P2PHost, ThreePeersShareOneSocketEach) {
   ASSERT_EQ(Init(), Result::Success);
   p2p::Host::Config config;
-  config.bind_ip = "127.0.0.1";
+  config.bind_address = "127.0.0.1";
   p2p::Host a{config};
   p2p::Host b{config};
   p2p::Host c{config};
@@ -238,7 +238,7 @@ TEST(P2PHost, ThreePeersShareOneSocketEach) {
 TEST(P2PHost, PunchTowardNothingTimesOut) {
   ASSERT_EQ(Init(), Result::Success);
   p2p::Host::Config config;
-  config.bind_ip = "127.0.0.1";
+  config.bind_address = "127.0.0.1";
   p2p::Host host{config};
   ASSERT_EQ(host.Start(), Result::Success);
 
@@ -314,7 +314,7 @@ struct MeshProbe {
 TEST(MeshLocatorEndToEnd, ThreePlayersFormAMesh) {
   ASSERT_EQ(Init(), Result::Success);
   p2p::RendezvousServer::Config config;
-  config.bind_ip = "127.0.0.1";
+  config.bind_address = "127.0.0.1";
   config.bind_port = 0;
   config.punch_connection_type = ConnectionType::ZDT;
   p2p::RendezvousServer relay{config};

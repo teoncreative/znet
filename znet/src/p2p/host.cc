@@ -43,7 +43,7 @@ Result Host::Start() {
   if (running_.load()) {
     return Result::AlreadyListening;
   }
-  auto bind_address = InetAddress::from(config_.bind_ip, config_.bind_port);
+  auto bind_address = InetAddress::from(config_.bind_address, config_.bind_port);
   if (!bind_address || !bind_address->is_valid() ||
       bind_address->ipv() == InetProtocolVersion::Unix) {
     return Result::InvalidAddress;

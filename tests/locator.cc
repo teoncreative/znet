@@ -64,7 +64,7 @@ TEST(PeerLocator, DestructorJoinsWorkerWithoutConnect) {
   bool finished = RunWithDeadline(
       []() {
         znet::p2p::PeerLocatorConfig config;
-        config.server_ip = "127.0.0.1";
+        config.server_address = "127.0.0.1";
         config.server_port = 1;
         znet::p2p::PeerLocator locator{config};
       },
@@ -78,7 +78,7 @@ TEST(PeerLocator, DestructorJoinsWorkerAfterFailedConnect) {
       []() {
         znet::p2p::PeerLocatorConfig config;
         // Nothing listens on port 1; loopback refuses immediately.
-        config.server_ip = "127.0.0.1";
+        config.server_address = "127.0.0.1";
         config.server_port = 1;
         znet::p2p::PeerLocator locator{config};
         znet::Result result = locator.Connect();
@@ -91,7 +91,7 @@ TEST(PeerLocator, DestructorJoinsWorkerAfterFailedConnect) {
 TEST(PeerLocator, ConnectCanBeTriedAgainAfterAFailure) {
   ASSERT_EQ(Init(), Result::Success);
   p2p::PeerLocatorConfig config;
-  config.server_ip = "127.0.0.1";
+  config.server_address = "127.0.0.1";
   config.server_port = 1;
   p2p::PeerLocator locator{config};
   EXPECT_NE(locator.Connect(), Result::Success);
@@ -183,7 +183,7 @@ struct LocatorProbe {
 void RunPunchEndToEnd(ConnectionType punch_type) {
   ASSERT_EQ(Init(), Result::Success);
   p2p::RendezvousServer::Config config;
-  config.bind_ip = "127.0.0.1";
+  config.bind_address = "127.0.0.1";
   config.bind_port = 0;
   config.punch_connection_type = punch_type;
   p2p::RendezvousServer relay{config};
@@ -228,7 +228,7 @@ TEST(PeerLocatorEndToEnd, PunchesOverTCP) {
 TEST(PeerLocatorEndToEnd, IdlePunchedSessionsDoNotSpin) {
   ASSERT_EQ(Init(), Result::Success);
   p2p::RendezvousServer::Config config;
-  config.bind_ip = "127.0.0.1";
+  config.bind_address = "127.0.0.1";
   config.bind_port = 0;
   config.punch_connection_type = ConnectionType::ZDT;
   p2p::RendezvousServer relay{config};
@@ -327,7 +327,7 @@ bool WaitUntil(Pred pred, int ms) {
 TEST(RendezvousProtection, RepeatedIdentifyKeepsTheSameName) {
   ASSERT_EQ(Init(), Result::Success);
   p2p::RendezvousServer::Config config;
-  config.bind_ip = "127.0.0.1";
+  config.bind_address = "127.0.0.1";
   config.bind_port = 0;
   p2p::RendezvousServer relay{config};
   ASSERT_EQ(relay.Start(), Result::Success);
@@ -353,7 +353,7 @@ TEST(RendezvousProtection, RepeatedIdentifyKeepsTheSameName) {
 TEST(RendezvousProtection, RequestSpamGetsTheClientDisconnected) {
   ASSERT_EQ(Init(), Result::Success);
   p2p::RendezvousServer::Config config;
-  config.bind_ip = "127.0.0.1";
+  config.bind_address = "127.0.0.1";
   config.bind_port = 0;
   config.max_requests_per_window = 3;
   p2p::RendezvousServer relay{config};
@@ -378,7 +378,7 @@ TEST(RendezvousProtection, RequestSpamGetsTheClientDisconnected) {
 TEST(RendezvousProtection, RelayHonorsServerOptions) {
   ASSERT_EQ(Init(), Result::Success);
   p2p::RendezvousServer::Config config;
-  config.bind_ip = "127.0.0.1";
+  config.bind_address = "127.0.0.1";
   config.bind_port = 0;
   config.options.denylist.push_back(CIDRBlock::Parse("127.0.0.0/8"));
   p2p::RendezvousServer relay{config};
@@ -464,7 +464,7 @@ TEST(PunchCandidates, TCPCyclesPastADeadCandidate) {
 TEST(PeerLocatorEndToEnd, AskingForAnUnknownPeerFailsTheRendezvous) {
   ASSERT_EQ(Init(), Result::Success);
   p2p::RendezvousServer::Config config;
-  config.bind_ip = "127.0.0.1";
+  config.bind_address = "127.0.0.1";
   config.bind_port = 0;
   p2p::RendezvousServer relay{config};
   ASSERT_EQ(relay.Start(), Result::Success);

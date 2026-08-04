@@ -17,7 +17,7 @@
 
 namespace znet {
 Client::Client(const ClientConfig& config) : config_(config) {
-  server_address_ = InetAddress::from(config_.server_ip, config_.server_port);
+  server_address_ = InetAddress::from(config_.server_address, config_.server_port);
   backend_ = backends::CreateClientFromType(config.connection_type, server_address_,
                                             config.options);
 }

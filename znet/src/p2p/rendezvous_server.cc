@@ -71,7 +71,7 @@ namespace {
 
 ServerConfig MakeRelayConfig(const RendezvousServer::Config& config) {
   ServerConfig out{};
-  out.bind_ip = config.bind_ip;
+  out.bind_address = config.bind_address;
   out.bind_port = config.bind_port;
   out.connection_timeout = std::chrono::seconds(5);
   out.connection_type = ConnectionType::TCP;
