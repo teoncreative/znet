@@ -105,14 +105,14 @@ inline SequenceId ReconstructSeq(WireSeq truncated, SequenceId expected) {
 }
 
 // how far back the receiver remembers which packet_seqs arrived. the encoder
-// walks this to build ack blocks, so it bounds what one acknowledgement can
+// walks this to build ack blocks, so it bounds what one acknowledgment can
 // describe and therefore how large the send window may usefully grow.
 ZNET_INLINE_CONSTEXPR size_t kZDTAckHistoryBits = 1024;
 ZNET_INLINE_CONSTEXPR size_t kZDTAckHistoryWords = kZDTAckHistoryBits / 64;
 
 // ack blocks per datagram. each is a run of received packets followed by the
 // run of missing ones just older, walking backwards from `ack`. a gap that does
-// not fit is described by a later acknowledgement, so this bounds header size
+// not fit is described by a later acknowledgment, so this bounds header size
 // rather than what can eventually be reported.
 ZNET_INLINE_CONSTEXPR size_t kZDTMaxAckBlocks = 24;
 // each block is num_ack(1) + num_nack(1)
@@ -158,7 +158,7 @@ struct ZDTHeader {
   uint16_t packet_seq = 0;  // connection-level, ++ per datagram (drives ack/RTT)
   uint16_t ack = 0;         // highest packet_seq seen from peer
   // run-length encoded picture of what arrived, walking back from `ack`. the
-  // nack runs are the negative acknowledgement, so nothing caps the window at
+  // nack runs are the negative acknowledgment, so nothing caps the window at
   // what fits in a fixed-width bitfield.
   std::array<ZDTAckBlock, kZDTMaxAckBlocks> blocks{};
   uint8_t block_count = 0;

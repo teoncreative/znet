@@ -144,7 +144,7 @@ TEST(SessionCrypto, TamperedChannelByteIsRefused) {
 
   pair.Deliver(frame);
   EXPECT_TRUE(pair.server_got.empty())
-      << "a frame re-labelled onto another channel derives a different nonce "
+      << "a frame re-labeled onto another channel derives a different nonce "
          "and must fail its tag";
 }
 

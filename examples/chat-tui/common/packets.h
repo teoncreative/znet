@@ -38,7 +38,7 @@ enum PacketType : PacketId {
  *
  * The client does not choose its own name and never sends one, so there is no
  * join handshake: the server assigns at connect and says so here. That is what
- * makes names unique, and what lets a client recognise its own messages.
+ * makes names unique, and what lets a client recognize its own messages.
  */
 class WelcomePacket : public Packet {
  public:

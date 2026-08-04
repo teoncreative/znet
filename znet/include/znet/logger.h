@@ -126,7 +126,7 @@ enum class LogLevel {
  *
  * SetLogStream is enough to move znet's output somewhere else, but by the time
  * a line reaches a stream it is one string: the severity has been rendered into
- * a coloured prefix, and a logging library on the far side would have to parse
+ * a colored prefix, and a logging library on the far side would have to parse
  * it back out to file the record correctly. A sink is handed the level, the
  * function and the message as separate values, with no ANSI escapes, so it can
  * hand them straight to spdlog, a structured logger, or a TUI's log pane.

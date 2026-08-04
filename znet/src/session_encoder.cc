@@ -56,7 +56,7 @@ void SessionEncoder::Stop() {
     return;
   }
   // the stop flag is part of the wait predicate, so it is set with the mutex
-  // held: signalling outside it lets an encoder between testing the predicate
+  // held: signaling outside it lets an encoder between testing the predicate
   // and sleeping miss the wake and never return.
   {
     std::lock_guard<std::mutex> lock(signal_->mutex);

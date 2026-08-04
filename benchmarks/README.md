@@ -109,7 +109,7 @@ way, so a round trip pays each twice.
 
 The environment variable does not impair anything - netem does. It exists
 because nothing can read netem's settings back, and the benchmark needs them
-for scaling the workloads and labelling the output. If setting it by hand, give
+for scaling the workloads and labeling the output. If setting it by hand, give
 it the same numbers you gave netem or the counts will be wrong.
 
 `fanout-bench` is the exception: it never reads the variable, so under `-i` its

@@ -783,7 +783,7 @@ TEST(ZDTReliability, ReliableOrderedDeliversInOrderUnderLoss) {
       << "sender never acted on a reported gap";
 }
 
-// A channel exists only once something has travelled on it: the receiver
+// A channel exists only once something has traveled on it: the receiver
 // allocates its state on first arrival, and there is no channel-open exchange to
 // lose. So the first message on a channel has to recover from loss like any
 // other, even though the peer has never heard of the channel.
@@ -2661,7 +2661,7 @@ TEST(ConcurrentSend, ManyThreadsOneSessionOverTCP) {
 
 // The codec reserves two bytes of headroom, leaving the message at the read
 // cursor rather than at offset zero, and every stage after the serializer has
-// to honour that: one reading data()/size() sends the reserved bytes as though
+// to honor that: one reading data()/size() sends the reserved bytes as though
 // they were payload.
 //
 // Which stages actually spend the headroom depends on the options, and the

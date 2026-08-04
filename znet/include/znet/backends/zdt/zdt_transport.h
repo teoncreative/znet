@@ -305,7 +305,7 @@ class ZDTTransportLayer : public TransportLayer {
 
   // reliability, sender: in-flight datagrams and unacked reliable datagrams.
   std::unordered_map<uint16_t, SentInfo> sent_packets_;
-  // datagrams awaiting an acknowledgement, which is what the congestion window
+  // datagrams awaiting an acknowledgment, which is what the congestion window
   // bounds. not sent_packets_.size(): that also holds datagrams carrying no
   // reliable record, which the peer never acks individually, so they linger
   // until they age out and would otherwise hold window the whole time. On a

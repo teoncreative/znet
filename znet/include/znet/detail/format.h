@@ -66,7 +66,7 @@ inline const char* FormatUntilPlaceholder(std::ostringstream& os,
         p += 2;
         continue;
       }
-      // A placeholder. Skip any format spec; this shim cannot honour it.
+      // A placeholder. Skip any format spec; this shim cannot honor it.
       const char* q = p + 1;
       while (*q != '\0' && *q != '}') {
         ++q;

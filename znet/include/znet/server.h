@@ -190,7 +190,7 @@ class Server : public Interface {
     ~TaskData() {
       if (task_) {
         // the stop flag is part of the wait predicate, so it has to be set with
-        // the mutex held. signalling outside it lets a worker that is between
+        // the mutex held. signaling outside it lets a worker that is between
         // testing the predicate and sleeping miss the wake and never return.
         {
           std::lock_guard<std::mutex> lock(signal_->mutex);

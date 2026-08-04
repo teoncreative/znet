@@ -79,7 +79,7 @@ void ZDTAckHistory::Record(WireSeq packet_seq) {
 // the first block always starts on a received run, because bit 0 is `ack`
 // itself. Trailing blocks that describe only missing packets are dropped: the
 // sender learns nothing from "everything older than this is still missing",
-// and a later acknowledgement will carry them once something in between lands.
+// and a later acknowledgment will carry them once something in between lands.
 void ZDTAckHistory::Fill(ZDTHeader& header, size_t max_blocks,
                          size_t reportable_cap) const {
   header.ack = highest_;

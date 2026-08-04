@@ -608,7 +608,7 @@ std::shared_ptr<Buffer> EncryptionLayer::HandleDecrypt(
     return buffer;  // handshake, before the mode is settled
   }
   if (mode == kModeAesCbc) {
-    // Retired in favour of GCM. Still accepting it would hand an attacker an
+    // Retired in favor of GCM. Still accepting it would hand an attacker an
     // unauthenticated cipher to downgrade to, so it is refused outright.
     ZNET_LOG_ERROR(
         "Peer used the retired unauthenticated AES-CBC mode; it is probably an "

@@ -490,7 +490,7 @@ TEST(CodecDecodeTest, UnknownIdSkipsWithoutCounting) {
   DecodeStats stats =
       codec.Deserialize(Concat({TinyFrame(), OtherFrame()}), handler);
   EXPECT_EQ(handler.handled, 1);
-  EXPECT_EQ(stats.invalid_frames, 0u) << "version skew is not an offence";
+  EXPECT_EQ(stats.invalid_frames, 0u) << "version skew is not an offense";
   EXPECT_FALSE(stats.framing_lost);
 }
 

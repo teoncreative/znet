@@ -126,7 +126,7 @@ struct CommonOptions {
    *        decode.
    *
    * Counted over the session's whole life, and a threshold rather than a
-   * first-offence rule: one bad frame can be a bug, a stream of them is a
+   * first-offense rule: one bad frame can be a bug, a stream of them is a
    * peer whose framing cannot be trusted. Every failure already costs the
    * rest of its buffer, so there is no reason to keep paying that
    * indefinitely. Unknown packet ids do not count toward this; see
@@ -179,7 +179,7 @@ struct ZDTOptions {
    *
    * This is a bound, not the window itself: ZDT slow-starts from 10 datagrams
    * and backs off on queueing delay rather than on loss, and this caps how far
-   * it may grow. Acknowledgements are run-length encoded, so the ceiling comes
+   * it may grow. Acknowledgments are run-length encoded, so the ceiling comes
    * from how far back the receiver remembers arrivals (kZDTAckHistoryBits)
    * rather than from header size.
    *
