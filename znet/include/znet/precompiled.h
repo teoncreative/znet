@@ -55,6 +55,14 @@
 #include <cerrno>
 #include <cstring>
 #endif
+// AF_UNIX support. POSIX only for now; Windows 10+ has it behind <afunix.h>
+// and could be added here.
+#if (defined(TARGET_APPLE) || defined(TARGET_LINUX)) && !defined(TARGET_WEB)
+#include <sys/un.h>
+#define ZNET_HAS_AF_UNIX 1
+#else
+#define ZNET_HAS_AF_UNIX 0
+#endif
 #if defined(TARGET_APPLE)
 #include <netinet/tcp.h>
 #endif

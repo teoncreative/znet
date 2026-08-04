@@ -192,6 +192,9 @@ class Server : public Interface {
   void PromoteReady(std::shared_ptr<PeerSession> session);
   void SubmitSession(TaskData& data, std::shared_ptr<PeerSession> session);
   TaskData* SelectNextTask();
+  /** @brief Handshaking plus promoted sessions. Worker counts may lag a
+      tick, which only makes the max_connections check slightly lenient. */
+  size_t ActiveSessionCount() const;
 
  private:
   std::shared_ptr<InetAddress> bind_address_;

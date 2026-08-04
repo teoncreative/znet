@@ -19,7 +19,7 @@
 
 namespace znet {
 
-enum class InetProtocolVersion { IPv4, IPv6 };
+enum class InetProtocolVersion { IPv4, IPv6, Unix };
 
 std::string ResolveHostnameToIP(const std::string& hostname);
 
@@ -49,6 +49,14 @@ class InetAddress {
   };
 
   ZNET_NODISCARD InetProtocolVersion ipv() const { return ipv_; }
+
+  /**
+   * @brief The bytes naming the host, without the port: 4 for IPv4, 16 for
+   *        IPv6, empty when there are none (unix paths). An IPv4-mapped IPv6
+   *        address collapses to the IPv4 it carries, so one host reads the
+   *        same through either family. What admission keys and matches on.
+   */
+  ZNET_NODISCARD virtual std::string host_key() const { return {}; }
 
   ZNET_NODISCARD virtual socklen_t addr_size() const = 0;
 
@@ -90,6 +98,11 @@ class InetAddressIPv4 : public InetAddress {
     return std::make_unique<InetAddressIPv4>(addr_.sin_addr, port);
   }
 
+  ZNET_NODISCARD std::string host_key() const override {
+    return std::string(reinterpret_cast<const char*>(&addr_.sin_addr),
+                       sizeof(addr_.sin_addr));
+  }
+
  private:
   sockaddr_in addr_{};
   bool is_valid_;
@@ -116,9 +129,79 @@ class InetAddressIPv6 : public InetAddress {
   ZNET_NODISCARD std::unique_ptr<InetAddress> WithPort(PortNumber port) const override {
     return std::make_unique<InetAddressIPv6>(addr_.sin6_addr, port);
   }
+
+  ZNET_NODISCARD std::string host_key() const override;
+
  private:
   sockaddr_in6 addr_{};
   bool is_valid_;
+};
+
+#if ZNET_HAS_AF_UNIX
+/**
+ * @brief A Unix domain socket path.
+ *
+ * Spelled `unix:/path` wherever a host string is accepted, e.g.
+ * `ServerConfig{"unix:/run/app.sock", 0, ...}` with ConnectionType::TCP.
+ * Ports do not apply and read back as 0. An empty path is the unnamed
+ * address a connected client shows up as.
+ */
+class InetAddressUnix : public InetAddress {
+ public:
+  explicit InetAddressUnix(const std::string& path);
+
+  ZNET_NODISCARD bool is_valid() const override { return is_valid_; }
+
+  // the used part of sun_path plus its terminator, which is what bind and
+  // connect expect for a pathname socket
+  ZNET_NODISCARD socklen_t addr_size() const override { return addr_len_; }
+
+  ZNET_NODISCARD const sockaddr* handle_ptr() const override {
+    return reinterpret_cast<const sockaddr*>(&addr_);
+  }
+
+  /** @brief Paths have no ports; always 0. */
+  ZNET_NODISCARD PortNumber port() const override { return 0; }
+
+  /** @brief Paths have no ports; returns a copy of this address. */
+  ZNET_NODISCARD std::unique_ptr<InetAddress> WithPort(PortNumber port) const override;
+
+  ZNET_NODISCARD const char* path() const { return addr_.sun_path; }
+
+ private:
+  sockaddr_un addr_{};
+  socklen_t addr_len_ = 0;
+  bool is_valid_ = false;
+};
+#endif  // ZNET_HAS_AF_UNIX
+
+/**
+ * @brief One allow/deny rule: an address block in CIDR notation.
+ *
+ * Parses "10.0.0.0/8", a bare host like "192.168.1.5", "2001:db8::/32" or
+ * "::1". IPv4 rules also match IPv4-mapped IPv6 sources, which is what a v4
+ * client looks like to a dual-stack listener; native IPv6 sources match only
+ * IPv6 rules.
+ */
+class CIDRBlock {
+ public:
+  CIDRBlock() = default;
+
+  static CIDRBlock Parse(const std::string& text);
+
+  ZNET_NODISCARD bool is_valid() const { return is_valid_; }
+
+  /** @brief What Parse() was given, for logs. */
+  ZNET_NODISCARD const std::string& text() const { return text_; }
+
+  ZNET_NODISCARD bool Matches(const InetAddress& address) const;
+
+ private:
+  std::string text_;
+  unsigned char bytes_[16] = {};
+  uint8_t prefix_ = 0;
+  bool is_ipv6_ = false;
+  bool is_valid_ = false;
 };
 
 }  // namespace znet

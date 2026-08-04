@@ -27,6 +27,7 @@
 #define ZNET_PARENT_OPTIONS_H
 
 #include "znet/compression.h"
+#include "znet/inet_addr.h"
 #include "znet/precompiled.h"
 #include "znet/types.h"
 
@@ -34,18 +35,29 @@
 #include <chrono>
 #include <cstdint>
 #include <initializer_list>
+#include <vector>
 
 namespace znet {
 
 /** @brief Options that apply to any session, whatever its transport. */
 struct CommonOptions {
   /**
-   * @brief Drop a session that has neither sent nor received for this long.
+   * @brief Drop a session that has heard nothing from its peer for this long.
    *
-   * Zero disables it. TCP leaves this to the OS unless its transport
-   * implements one.
+   * Both transports implement it, each against its own receive timestamps.
+   * Zero disables it, leaving liveness to the OS and the peer.
    */
   std::chrono::milliseconds idle_timeout{10000};
+
+  /**
+   * @brief How often to ping a connection with nothing else to send.
+   *
+   * What keeps an honest but quiet peer inside the other end's idle_timeout,
+   * and NAT bindings warm. The probe is transport-internal, a control frame
+   * on TCP and a flag datagram on ZDT, and never reaches the application.
+   * Zero disables it.
+   */
+  std::chrono::milliseconds keepalive_interval{1000};
 
   /** @brief Collect per-session counters. Ignored unless built with
    * ZNET_ENABLE_METRICS. */
@@ -103,6 +115,29 @@ struct CommonOptions {
    * worth absorbing between two of the worker's ticks.
    */
   size_t send_queue_capacity = 512;
+
+  /**
+   * @brief Log a hex dump of a decoded payload when a frame in it fails to
+   *        decode.
+   *
+   * Once framing is untrustworthy the bytes are the only evidence, so this is
+   * the knob to turn while diagnosing one. Capped at 512 bytes per buffer.
+   * Off by default: payloads are user data, and this puts them in the log.
+   */
+  bool dump_on_decode_failure = false;
+
+  /**
+   * @brief Close the session once this many of its frames have failed to
+   *        decode.
+   *
+   * Counted over the session's whole life, and a threshold rather than a
+   * first-offence rule: one bad frame can be a bug, a stream of them is a
+   * peer whose framing cannot be trusted. Every failure already costs the
+   * rest of its buffer, so there is no reason to keep paying that
+   * indefinitely. Unknown packet ids do not count toward this; see
+   * DecodeStats. Zero disables it.
+   */
+  uint32_t max_invalid_frames = 16;
 };
 
 /** @brief TCP-specific socket options. */
@@ -156,10 +191,6 @@ struct ZDTOptions {
   std::chrono::milliseconds rto_max{2000};
   /** @brief Retransmits of one message before the connection is closed. */
   int max_retries = 10;
-  /** @brief How often to ping an otherwise idle connection. */
-  std::chrono::milliseconds keepalive_interval{1000};
-  /** @brief Close a connection that has heard nothing for this long. */
-  std::chrono::milliseconds idle_timeout{10000};
   /**
    * @brief Ceiling on the congestion window, in datagrams.
    *
@@ -262,6 +293,31 @@ struct ServerOptions {
   int max_connections = 0;
   /** @brief Allow rebinding a port still in TIME_WAIT (SO_REUSEADDR). */
   bool reuse_address = true;
+
+  /**
+   * @brief Sources allowed to connect. Empty admits everyone the denylist
+   *        does not refuse; non-empty admits only what matches.
+   *
+   * Checked when a connection arrives: at accept on TCP, at first contact on
+   * ZDT, where refusal is a silent drop so an excluded source learns nothing.
+   * Unix sockets carry no address and bypass both lists; the socket file's
+   * permissions are their gate. Invalid blocks are dropped with an error at
+   * server construction, and sessions already accepted are never re-checked.
+   */
+  std::vector<CIDRBlock> allowlist;
+  /** @brief Sources always refused. Wins over the allowlist. */
+  std::vector<CIDRBlock> denylist;
+  /**
+   * @brief Connection attempts one source address may make per attempt_window.
+   *
+   * Zero disables it. Counted per attempt the server sees, which on ZDT
+   * includes retransmits of a lost handshake datagram, so leave slack above
+   * the honest rate. Tracking is per-IP with the port ignored, bounded in
+   * memory, and fails open when full; see admission.cc.
+   */
+  uint32_t max_attempts_per_source = 0;
+  /** @brief The window max_attempts_per_source is counted over. */
+  std::chrono::milliseconds attempt_window{10000};
 };
 
 }  // namespace znet

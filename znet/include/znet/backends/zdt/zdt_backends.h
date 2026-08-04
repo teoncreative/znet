@@ -16,6 +16,7 @@
 #ifndef ZNET_PARENT_ZDT_BACKENDS_H
 #define ZNET_PARENT_ZDT_BACKENDS_H
 
+#include "znet/admission.h"
 #include "znet/backends/backend.h"
 #include "znet/buffer.h"
 #include "znet/inet_addr.h"
@@ -71,6 +72,12 @@ class ZDTClientBackend : public ClientBackend {
   std::shared_ptr<PeerSession> client_session() override { return client_session_; }
   std::shared_ptr<InetAddress> local_address() override { return local_address_; }
 
+  void ReleaseSession() override {
+    if (client_session_ && !client_session_->IsAlive()) {
+      client_session_ = nullptr;
+    }
+  }
+
  private:
   // on success fills `out` with the negotiated connection and returns Result::Success; otherwise a
   // granular failure Result (IncompatibleVersion, ServerFull, Timeout, ...).
@@ -99,7 +106,8 @@ class ZDTClientBackend : public ClientBackend {
 class ZDTServerBackend : public ServerBackend {
  public:
   explicit ZDTServerBackend(std::shared_ptr<InetAddress> bind_address,
-                            const SessionOptions& child_options = {});
+                            const SessionOptions& child_options = {},
+                            const ServerOptions& server_options = {});
   ~ZDTServerBackend() override;
   ZDTServerBackend(const ZDTServerBackend&) = delete;
 
@@ -162,6 +170,8 @@ class ZDTServerBackend : public ServerBackend {
   std::shared_ptr<UDPSocket> socket_;
   ZDTOptions config_;
   SessionOptions child_session_options_;  // passed to each accepted PeerSession
+  // touched only from the offline-datagram path, like source_rate_
+  AdmissionControl admission_;
   std::atomic_bool is_bind_{false};
   std::atomic_bool is_listening_{false};
 

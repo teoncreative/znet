@@ -12,6 +12,9 @@
 #include "znet/logger.h"
 #include "znet/init.h"
 
+#include <cstddef>
+#include <cstdlib>
+#include <cstring>
 #include <regex>
 
 namespace znet {
@@ -34,6 +37,12 @@ int GetDomainByInetProtocolVersion(InetProtocolVersion version) {
       return AF_INET;
     case InetProtocolVersion::IPv6:
       return AF_INET6;
+    case InetProtocolVersion::Unix:
+#if ZNET_HAS_AF_UNIX
+      return AF_UNIX;
+#else
+      break;
+#endif
   }
 #if defined(DEBUG) && !defined(DISABLE_ASSERT_INVALID_ADDRESS_PROTOCOL)
   throw std::runtime_error("ipv not supported!");
@@ -138,6 +147,15 @@ std::unique_ptr<InetAddress> InetAddress::from(const std::string& host, PortNumb
   if (host.empty()) {
     return std::make_unique<InetAddressIPv4>(port);
   }
+  if (host.compare(0, 5, "unix:") == 0) {
+#if ZNET_HAS_AF_UNIX
+    (void)port;  // paths have no ports
+    return std::make_unique<InetAddressUnix>(host.substr(5));
+#else
+    ZNET_LOG_ERROR("Unix sockets are not supported on this platform: {}", host);
+    return nullptr;
+#endif
+  }
   std::string ip_str = ResolveHostnameToIP(host);
   if (ip_str == "localhost") {
     // the resolver hands this one back unresolved
@@ -160,6 +178,14 @@ std::unique_ptr<InetAddress> InetAddress::from(sockaddr* sock_addr) {
     auto* addr = reinterpret_cast<sockaddr_in6*>(sock_addr);
     return std::make_unique<InetAddressIPv6>(addr->sin6_addr, ntohs(addr->sin6_port));
   }
+#if ZNET_HAS_AF_UNIX
+  if (sock_addr->sa_family == AF_UNIX) {
+    auto* addr = reinterpret_cast<sockaddr_un*>(sock_addr);
+    // a connected client is usually unnamed: the kernel zero-fills sun_path,
+    // which reads back here as the empty path
+    return std::make_unique<InetAddressUnix>(std::string(addr->sun_path));
+  }
+#endif
 
 #if defined(DEBUG) && !defined(DISABLE_ASSERT_INVALID_ADDRESS_FAMILY)
   throw std::runtime_error("sockaddr family is not supported");
@@ -262,5 +288,130 @@ InetAddressIPv6::InetAddressIPv6(const std::string& str, PortNumber port)
   inet_ntop(AF_INET6, &addr_.sin6_addr, src, sizeof(src));
   readable_ = std::string(src) + ":" + std::to_string(ntohs(addr_.sin6_port));
   is_valid_ = true;
+}
+
+#if ZNET_HAS_AF_UNIX
+InetAddressUnix::InetAddressUnix(const std::string& path)
+    : InetAddress(InetProtocolVersion::Unix, "") {
+  if (path.size() >= sizeof(addr_.sun_path)) {
+    ZNET_LOG_WARN("Unix socket path is too long ({} bytes, limit {}): {}",
+                  path.size(), sizeof(addr_.sun_path) - 1, path);
+    readable_ = "Invalid Address";
+    return;
+  }
+  addr_.sun_family = AF_UNIX;
+  std::memcpy(addr_.sun_path, path.data(), path.size());
+  addr_.sun_path[path.size()] = '\0';
+  addr_len_ = static_cast<socklen_t>(offsetof(sockaddr_un, sun_path) +
+                                     path.size() + 1);
+#ifdef TARGET_APPLE
+  addr_.sun_len = static_cast<unsigned char>(addr_len_);
+#endif
+  readable_ = "unix:" + path;
+  is_valid_ = true;
+}
+
+std::unique_ptr<InetAddress> InetAddressUnix::WithPort(PortNumber port) const {
+  (void)port;  // paths have no ports
+  return std::make_unique<InetAddressUnix>(std::string(addr_.sun_path));
+}
+#endif  // ZNET_HAS_AF_UNIX
+
+namespace {
+
+bool PrefixMatch(const unsigned char* a, const unsigned char* b, uint8_t bits) {
+  const size_t whole = bits / 8u;
+  if (whole != 0 && std::memcmp(a, b, whole) != 0) {
+    return false;
+  }
+  const uint8_t rem = bits % 8u;
+  if (rem == 0) {
+    return true;
+  }
+  const unsigned char mask = static_cast<unsigned char>(0xFF << (8 - rem));
+  return (a[whole] & mask) == (b[whole] & mask);
+}
+
+// true when `bytes` is ::ffff:a.b.c.d, the shape a v4 client takes on a
+// dual-stack socket
+bool IsV4MappedV6(const unsigned char* bytes) {
+  for (int i = 0; i < 10; i++) {
+    if (bytes[i] != 0) {
+      return false;
+    }
+  }
+  return bytes[10] == 0xFF && bytes[11] == 0xFF;
+}
+
+}  // namespace
+
+// below the helpers rather than with its siblings: the mapped-v4 collapse is
+// this file's private business
+std::string InetAddressIPv6::host_key() const {
+  const auto* bytes = reinterpret_cast<const unsigned char*>(&addr_.sin6_addr);
+  if (IsV4MappedV6(bytes)) {
+    return std::string(reinterpret_cast<const char*>(bytes + 12), 4);
+  }
+  return std::string(reinterpret_cast<const char*>(bytes), 16);
+}
+
+CIDRBlock CIDRBlock::Parse(const std::string& text) {
+  CIDRBlock block;
+  block.text_ = text;
+  std::string addr = text;
+  long prefix = -1;
+  const size_t slash = text.find('/');
+  if (slash != std::string::npos) {
+    addr = text.substr(0, slash);
+    const std::string prefix_str = text.substr(slash + 1);
+    // digits only and short, so strtol cannot be surprised
+    if (prefix_str.empty() || prefix_str.size() > 3 ||
+        prefix_str.find_first_not_of("0123456789") != std::string::npos) {
+      return block;
+    }
+    prefix = std::strtol(prefix_str.c_str(), nullptr, 10);
+  }
+  in_addr v4{};
+  in6_addr v6{};
+  if (inet_pton(AF_INET, addr.c_str(), &v4) == 1) {
+    std::memcpy(block.bytes_, &v4, 4);
+    block.is_ipv6_ = false;
+    if (prefix < 0) {
+      prefix = 32;  // a bare host is the /32 it names
+    }
+    if (prefix > 32) {
+      return block;
+    }
+  } else if (inet_pton(AF_INET6, addr.c_str(), &v6) == 1) {
+    std::memcpy(block.bytes_, &v6, 16);
+    block.is_ipv6_ = true;
+    if (prefix < 0) {
+      prefix = 128;
+    }
+    if (prefix > 128) {
+      return block;
+    }
+  } else {
+    return block;
+  }
+  block.prefix_ = static_cast<uint8_t>(prefix);
+  block.is_valid_ = true;
+  return block;
+}
+
+bool CIDRBlock::Matches(const InetAddress& address) const {
+  if (!is_valid_) {
+    return false;
+  }
+  const std::string candidate = address.host_key();
+  if (candidate.empty()) {
+    return false;  // no address to speak of, e.g. a unix path
+  }
+  if ((candidate.size() == 16) != is_ipv6_) {
+    return false;
+  }
+  return PrefixMatch(bytes_,
+                     reinterpret_cast<const unsigned char*>(candidate.data()),
+                     prefix_);
 }
 }  // namespace znet

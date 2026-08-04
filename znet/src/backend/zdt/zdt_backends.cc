@@ -232,7 +232,7 @@ Result ZDTClientBackend::Connect() {
   inbox_ = std::make_shared<ZDTInbox>();
   auto transport = std::make_unique<ZDTTransportLayer>(
       socket_, server_address_, config_, /*drains_own_socket=*/false, inbox_,
-      connection);
+      connection, session_options_.common);
   client_session_ = std::make_shared<PeerSession>(
       local_address_, server_address_, std::move(transport), ConnectionType::ZDT,
       /*is_initiator=*/true, /*self_managed=*/false, session_options_);
@@ -308,9 +308,10 @@ bool ZDTClientBackend::IsAlive() {
 // ---------------------------------------------------------------------------
 
 ZDTServerBackend::ZDTServerBackend(std::shared_ptr<InetAddress> bind_address,
-                                   const SessionOptions& child_options)
+                                   const SessionOptions& child_options,
+                                   const ServerOptions& server_options)
     : bind_address_(std::move(bind_address)), config_(child_options.zdt),
-      child_session_options_(child_options) {}
+      child_session_options_(child_options), admission_(server_options) {}
 
 ZDTServerBackend::~ZDTServerBackend() {
   ZNET_LOG_DEBUG("Destructor of the ZDT server backend is called.");
@@ -461,6 +462,12 @@ void ZDTServerBackend::HandleOffline(Buffer& buffer,
   if (!ReadOfflineHeader(buffer, id)) {
     return;
   }
+  // silent on every refusal: never reply to a source the rules exclude.
+  // screened before the rate table too, so an excluded source cannot fill it.
+  if (admission_.Screen(*from) != AdmissionControl::Verdict::Allow) {
+    ZNET_METRIC(metrics_.zdt.admission_rejected++);
+    return;
+  }
   const std::string key = from->readable();
   if (!AllowHandshake(key)) {
     ZNET_METRIC(metrics_.zdt.rate_limited++);
@@ -468,6 +475,12 @@ void ZDTServerBackend::HandleOffline(Buffer& buffer,
   }
 
   if (id == ZDTOfflineMsg::OpenConnectionRequest1) {
+    if (admission_.Admit(*from) != AdmissionControl::Verdict::Allow) {
+      // the user-facing attempt throttle, distinct from the anti-flood rate
+      // above; a Request1 is what starts a handshake, so it is the attempt
+      ZNET_METRIC(metrics_.zdt.admission_rejected++);
+      return;
+    }
     ZNET_METRIC(metrics_.zdt.handshakes_started++);
     uint8_t version = buffer.ReadInt<uint8_t>();
     if (version != kZDTProtocolVersion) {
@@ -556,7 +569,8 @@ void ZDTServerBackend::HandleOffline(Buffer& buffer,
     connection.local_guid = server_guid_;
     connection.remote_guid = client_guid;
     auto transport = std::make_unique<ZDTTransportLayer>(
-        socket_, from, config_, /*drains_own_socket=*/false, inbox, connection);
+        socket_, from, config_, /*drains_own_socket=*/false, inbox, connection,
+        child_session_options_.common);
     auto session = std::make_shared<PeerSession>(
         bind_address_, from, std::move(transport), ConnectionType::ZDT,
         /*is_initiator=*/false, /*self_managed=*/false,

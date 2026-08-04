@@ -52,6 +52,7 @@ struct CommonMetrics {
   uint64_t message_bytes_sent = 0;  /**< After encode, before transport framing. */
   uint64_t message_bytes_received = 0;
   uint64_t send_failures = 0;  /**< Send() refused, e.g. queue full. */
+  uint64_t invalid_frames = 0;  /**< Inbound frames that failed to decode. */
   uint64_t wire_bytes_sent = 0;  /**< Including transport framing. */
   uint64_t wire_bytes_received = 0;
   uint32_t outbound_queued = 0;  /**< Sampled, not accumulated. */
@@ -68,6 +69,8 @@ struct ZDTSessionMetrics {
   uint64_t datagrams_sent = 0;
   uint64_t datagrams_received = 0;
   uint64_t retransmits = 0;
+  /** @brief Resends fired because acks went silent, not by NAK or timeout. */
+  uint64_t tail_probes = 0;
   uint64_t naks_sent = 0;  /**< Gaps we reported to the peer. */
   uint64_t naks_received = 0;  /**< Gaps the peer reported to us. */
   uint64_t duplicates_dropped = 0;  /**< Deduped by the receiver. */
@@ -122,6 +125,8 @@ struct ZDTServerMetrics {
   uint64_t cookies_rejected = 0;  /**< Failed return-routability check. */
   uint64_t rate_limited = 0;  /**< Per-source handshake cap hit. */
   uint64_t datagrams_unroutable = 0;  /**< Online datagram from an unknown peer. */
+  /** @brief Dropped by the allow/deny lists or the attempt throttle. */
+  uint64_t admission_rejected = 0;
 };
 
 /** @brief Listener-scope counters, across every session it accepted. */

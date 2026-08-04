@@ -21,7 +21,7 @@ Server::Server() : Interface() {}
 Server::Server(const ServerConfig& config) : Interface(), config_(config) {
   bind_address_ = InetAddress::from(config_.bind_ip, config_.bind_port);
   backend_ = backends::CreateServerFromType(config.connection_type, bind_address_,
-                                            config.child_options);
+                                            config.child_options, config.options);
   unsigned int core_count = std::thread::hardware_concurrency();
   if (core_count == 0) {
     core_count = 1;  // unknown, and an empty pool would refuse every connection
@@ -97,6 +97,9 @@ Result Server::Bind() {
     ZNET_LOG_ERROR("Cannot bind because initialization of znet had failed with reason: {}", GetResultString(init_result));
     return init_result;
   }
+  if (ZNET_UNLIKELY(!backend_)) ZNET_UNLIKELY_ATTR {
+    return Result::InvalidBackend;
+  }
   Result result = backend_->Bind();
   if (result == Result::Success) {
     // the backend may have resolved an auto-assigned port
@@ -125,6 +128,9 @@ Result Server::Listen() {
   if (task_.IsRunning()) {
     return Result::AlreadyListening;
   }
+  if (ZNET_UNLIKELY(!backend_)) ZNET_UNLIKELY_ATTR {
+    return Result::InvalidBackend;
+  }
   Result result = backend_->Listen();
   if (ZNET_UNLIKELY(result != Result::Success)) ZNET_UNLIKELY_ATTR {
     return result;
@@ -139,6 +145,9 @@ Result Server::Listen() {
 }
 
 Result Server::Stop() {
+  if (ZNET_UNLIKELY(!backend_)) ZNET_UNLIKELY_ATTR {
+    return Result::InvalidBackend;
+  }
   return backend_->Close();
 }
 
@@ -185,10 +194,27 @@ void Server::CheckNetwork() {
   // drain the accept queue each tick. For TCP this clears the listen backlog
   // faster; for ZDT, Accept() also pumps the shared UDP socket's demux, so it
   // must be called until it is drained.
+  const int cap = config_.options.max_connections;
   while (auto session = backend_->Accept()) {
+    if (cap > 0 && ActiveSessionCount() >= static_cast<size_t>(cap)) {
+      ZNET_LOG_WARN("Refusing connection from {}: server is full ({}).",
+                    session->remote_address()->readable(), cap);
+      CloseOptions options;
+      options.Set<NoLingerKey>(true);
+      session->Close(options);
+      continue;
+    }
     ZNET_LOG_DEBUG("Accepted new connection from: {}", session->remote_address()->readable());
     pending_sessions_[session->remote_address()] = session;
   }
+}
+
+size_t Server::ActiveSessionCount() const {
+  size_t count = pending_sessions_.size();
+  for (const auto& data : tasks_) {
+    count += data->sessions_.count();
+  }
+  return count;
 }
 
 void Server::CleanupAndProcessSessions(SessionMap& sessions) {
