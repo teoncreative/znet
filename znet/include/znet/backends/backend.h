@@ -34,6 +34,13 @@ class ClientBackend {
   virtual std::shared_ptr<InetAddress> local_address() = 0;
 
   /**
+   * @brief Drops the backend's reference to a session that already ended, so
+   *        its transport (and the port its socket owns) can actually free.
+   *        A live session is left alone.
+   */
+  virtual void ReleaseSession() {}
+
+  /**
    * @brief Installs a callback fired when inbound data arrives.
    *
    * Mirrors the server-side hook: called from whichever thread noticed the
@@ -54,6 +61,18 @@ class ClientBackend {
    * pacing it would add a tick of latency to everything inbound.
    */
   virtual bool DrivesOwnReceive() const { return false; }
+
+  /**
+   * @brief Blocks up to `timeout` until inbound data is readable.
+   *
+   * For backends whose socket is read on the caller's loop: lets that loop
+   * sleep on the socket itself and wake the moment data lands, instead of
+   * spinning between messages. Backends with their own receive thread keep
+   * the default, which does not wait at all.
+   */
+  virtual void WaitReadable(std::chrono::milliseconds timeout) {
+    (void)timeout;
+  }
 };
 
 class ServerBackend {
@@ -111,7 +130,8 @@ std::unique_ptr<ClientBackend> CreateClientFromType(
 
 std::unique_ptr<ServerBackend> CreateServerFromType(
     ConnectionType type, std::shared_ptr<InetAddress> bind_address,
-    const SessionOptions& child_options = {});
+    const SessionOptions& child_options = {},
+    const ServerOptions& server_options = {});
 
 }
 }

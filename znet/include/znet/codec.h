@@ -19,6 +19,23 @@
 
 namespace znet {
 
+/** @brief What Deserialize found in a buffer besides the packets it delivered. */
+struct DecodeStats {
+  /**
+   * @brief Frames that could not be decoded.
+   *
+   * An unreadable header, a declared size the buffer cannot back, a serializer
+   * refusing a frame, or one reading past its declared size. Unknown packet
+   * ids are not counted: they skip cleanly and can be honest version skew.
+   */
+  uint32_t invalid_frames = 0;
+  /**
+   * @brief The rest of the buffer was dropped because the framing could no
+   *        longer be trusted.
+   */
+  bool framing_lost = false;
+};
+
 /**
  * @brief Provides serialization and deserialization of packets.
  */
@@ -37,8 +54,14 @@ class Codec {
    *
    * @param buffer A shared pointer to the buffer containing packet data.
    * @param handler Reference to the packet handler responsible for processing deserialized packets.
+   * @param dump_on_failure Log a bounded hex dump of the buffer at the first
+   *        frame in it that fails to decode.
+   * @return What failed to decode, for the caller to count; the codec itself
+   *         is shared between sessions and keeps no per-peer state.
    */
-  void Deserialize(std::shared_ptr<Buffer> buffer, PacketHandlerBase& handler);
+  DecodeStats Deserialize(std::shared_ptr<Buffer> buffer,
+                          PacketHandlerBase& handler,
+                          bool dump_on_failure = false);
 
   /**
    * @brief Serializes a packet into a binary buffer.

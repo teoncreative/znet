@@ -29,7 +29,10 @@ struct CompressionCodec<CompressionType::None> {
       return buffer;
     }
     auto out = std::make_shared<Buffer>();
-    out->ReserveExact(buffer->readable_bytes() + 1);
+    // front room for the stages after this one: the encryption byte and the
+    // transport's frame
+    out->ReserveHeadroom(3);
+    out->ReserveExact(buffer->readable_bytes() + 4);
     out->WriteInt(GetCompressionTypeRaw(type()));
     out->Write(buffer->read_cursor_data(), buffer->readable_bytes());
     return out;
@@ -85,11 +88,15 @@ std::shared_ptr<Buffer> DecompressZstd(std::shared_ptr<Buffer> buffer) {
 std::shared_ptr<Buffer> CompressZstd(std::shared_ptr<Buffer> buffer) {
   size_t max_size = ZSTD_compressBound(buffer->readable_bytes());
 
+  // front room for the compression type byte, the encryption byte and the
+  // transport's frame, so no stage after this needs another buffer
+  constexpr size_t kFront = 4;
   auto new_buffer = std::make_shared<Buffer>();
-  new_buffer->ReserveExact(max_size);
+  new_buffer->ReserveHeadroom(kFront);
+  new_buffer->ReserveExact(kFront + max_size);
 
   size_t compressed_size =
-      ZSTD_compress(new_buffer->data_mutable(), max_size,
+      ZSTD_compress(new_buffer->data_mutable() + kFront, max_size,
                     buffer->read_cursor_data(), buffer->readable_bytes(),
                     2);  // compression level
 
@@ -99,7 +106,7 @@ std::shared_ptr<Buffer> CompressZstd(std::shared_ptr<Buffer> buffer) {
     return nullptr;
   }
 
-  new_buffer->set_write_cursor(compressed_size);
+  new_buffer->set_write_cursor(kFront + compressed_size);
   return new_buffer;
 }
 
@@ -116,11 +123,12 @@ struct CompressionCodec<CompressionType::Zstandard> {
     if (!compressed) {
       return nullptr;
     }
-    auto out = std::make_shared<Buffer>();
-    out->ReserveExact(compressed->size() + sizeof(CompressionTypeRaw));
-    out->WriteInt(GetCompressionTypeRaw(type()));
-    out->Write(compressed->data(), compressed->size());
-    return out;
+    // CompressZstd left front room, so the type byte goes in place; this
+    // used to be a whole second buffer and a copy of the ciphertext-to-be
+    if (!compressed->PrependInt8(GetCompressionTypeRaw(type()))) {
+      return nullptr;
+    }
+    return compressed;
   }
 };
 #endif

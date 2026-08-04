@@ -12,13 +12,61 @@
 
 namespace znet {
 
-void Codec::Deserialize(std::shared_ptr<Buffer> buffer, PacketHandlerBase& handler) {
+namespace {
+
+// Enough to identify the stream and see the corruption without letting a peer
+// fill the log through it.
+constexpr size_t kDumpMaxBytes = 512;
+
+void DumpUndecodableBuffer(Buffer& buffer, size_t frame_start) {
+  const size_t total = buffer.size();
+  const size_t shown = total < kDumpMaxBytes ? total : kDumpMaxBytes;
+  const char* digits = "0123456789abcdef";
+  const char* data = buffer.data();
+  std::string hex;
+  hex.reserve(shown * 3);
+  for (size_t i = 0; i < shown; i++) {
+    const unsigned char byte = static_cast<unsigned char>(data[i]);
+    hex.push_back(digits[byte >> 4]);
+    hex.push_back(digits[byte & 0x0F]);
+    hex.push_back((i + 1) % 16 == 0 ? '\n' : ' ');
+  }
+  ZNET_LOG_WARN("Undecodable frame at offset {}, buffer ({} of {} bytes):\n{}",
+                frame_start, shown, total, hex);
+}
+
+}  // namespace
+
+DecodeStats Codec::Deserialize(std::shared_ptr<Buffer> buffer,
+                               PacketHandlerBase& handler,
+                               bool dump_on_failure) {
+  DecodeStats stats;
+  // the first failure dumps, once per buffer: every later frame is located by
+  // the same framing that failure already put in doubt
+  auto note_invalid = [&](size_t frame_start) {
+    stats.invalid_frames++;
+    if (dump_on_failure && stats.invalid_frames == 1) {
+      DumpUndecodableBuffer(*buffer, frame_start);
+    }
+  };
   while (buffer->readable_bytes() > 0) {
+    const size_t frame_start = buffer->read_cursor();
     auto packet_id = buffer->ReadVarInt<PacketId>();
-    auto size = buffer->ReadInt<size_t>();
+    const size_t size = buffer->ReadInt<uint32_t>();
     BufferError error = buffer->GetAndClearLastError();
     if (error != BufferError::None) {
-      ZNET_LOG_DEBUG("Reading packet header failed, dropping buffer!");
+      ZNET_LOG_WARN("Reading packet header failed, dropping buffer!");
+      note_invalid(frame_start);
+      stats.framing_lost = true;
+      break;
+    }
+    if (size > buffer->readable_bytes()) {
+      // a declared length no buffer could back is the same untrustworthy
+      // framing as an over-read; nothing after it can be located
+      ZNET_LOG_WARN("Packet {} declares {} bytes with {} left, dropping buffer!",
+                    packet_id, size, buffer->readable_bytes());
+      note_invalid(frame_start);
+      stats.framing_lost = true;
       break;
     }
     size_t read_cursor = buffer->read_cursor();
@@ -35,6 +83,7 @@ void Codec::Deserialize(std::shared_ptr<Buffer> buffer, PacketHandlerBase& handl
     std::shared_ptr<Packet> pk = serializer.Deserialize(buffer);
     if (!pk) {
       ZNET_LOG_WARN("Packet {} was not deserialized!", packet_id);
+      note_invalid(frame_start);
       // it may have read part of the frame, so rewind and skip the whole
       // declared length to land on the next one
       buffer->set_read_cursor(read_cursor);
@@ -52,14 +101,16 @@ void Codec::Deserialize(std::shared_ptr<Buffer> buffer, PacketHandlerBase& handl
     } else if (read_bytes > size) {
       ZNET_LOG_WARN("Packet {} size mismatch! Expected {}, read {}. This will drop the packet and rest of the buffer.",
                     packet_id, size, read_bytes);
+      note_invalid(frame_start);
       // overrunning the read limit means the framing is no longer trustworthy,
       // so nothing after this point can be located. no rewind: the buffer goes.
-      // TODO: option to dump the buffer here, this can be an attack.
+      stats.framing_lost = true;
       break;
     }
     buffer->SetReadLimit(0);
     handler.Handle(pk);
   }
+  return stats;
 }
 
 std::shared_ptr<Buffer> Codec::Serialize(std::shared_ptr<Packet> packet,
@@ -75,7 +126,9 @@ std::shared_ptr<Buffer> Codec::Serialize(std::shared_ptr<Packet> packet,
     buffer->ReserveHeadroom(headroom);
   }
   buffer->WriteVarInt(packet->id());
-  buffer->WriteInt<size_t>(0);  // length placeholder, backfilled below
+  // four bytes, not size_t: a frame is bounded far below 4 GiB and the old
+  // eight-byte field was pure overhead on every message
+  buffer->WriteInt<uint32_t>(0);  // length placeholder, backfilled below
   const size_t write_cursor = buffer->write_cursor();
   const Buffer* framed = buffer.get();
   std::shared_ptr<Buffer> out = serializer.Serialize(packet, buffer);
@@ -92,8 +145,8 @@ std::shared_ptr<Buffer> Codec::Serialize(std::shared_ptr<Packet> packet,
   }
   const size_t write_cursor_end = buffer->write_cursor();
   const size_t size = write_cursor_end - write_cursor;
-  buffer->set_write_cursor(write_cursor - sizeof(size_t));
-  buffer->WriteInt(size);
+  buffer->set_write_cursor(write_cursor - sizeof(uint32_t));
+  buffer->WriteInt(static_cast<uint32_t>(size));
   buffer->set_write_cursor(write_cursor_end);
   return buffer;
 }

@@ -689,7 +689,20 @@ std::shared_ptr<Buffer> EncryptionLayer::HandleOut(
   std::shared_ptr<Buffer> new_buffer = std::make_shared<Buffer>();
   if (enable_encryption_) {
     // GCM is a stream cipher: the ciphertext is exactly as long as the input.
-    std::vector<unsigned char> ciphertext(static_cast<size_t>(buffer_len));
+    // The output is laid out up front and encrypted straight into place; the
+    // scratch ciphertext vector this used to build was a second allocation
+    // and a full copy on every message. The two front bytes let the TCP
+    // transport frame in place afterwards.
+    new_buffer->ReserveHeadroom(2);
+    new_buffer->ReserveExact(2 + 1 + kHeaderLen +
+                             static_cast<size_t>(buffer_len) + kTagLen);
+    new_buffer->WriteInt<uint8_t>(kModeAesGcm);
+    const size_t header_pos = new_buffer->write_cursor();
+    new_buffer->SkipWrite(kHeaderLen);  // backfilled once the counter is taken
+    const size_t ciphertext_pos = new_buffer->write_cursor();
+    auto* ciphertext_dst = reinterpret_cast<unsigned char*>(
+        new_buffer->data_mutable() + ciphertext_pos);
+
     unsigned char tag[kTagLen];
     unsigned char nonce[kNonceLen];
     const unsigned char aad[1] = {kModeAesGcm};
@@ -718,7 +731,7 @@ std::shared_ptr<Buffer> EncryptionLayer::HandleOut(
                       static_cast<int>(sizeof(aad)),
                       reinterpret_cast<const unsigned char*>(
                           buffer->read_cursor_data()),
-                      buffer_len, ciphertext.data(), tag);
+                      buffer_len, ciphertext_dst, tag);
       if (ciphertext_len >= 0) {
         cipher_keyed_ = true;
       }
@@ -728,22 +741,24 @@ std::shared_ptr<Buffer> EncryptionLayer::HandleOut(
       return nullptr;
     }
 
+    new_buffer->SkipWrite(static_cast<size_t>(ciphertext_len));
+    new_buffer->Write(tag, sizeof(tag));
+
     unsigned char header[kHeaderLen];
     header[0] = stream;
     WriteCounter(header + 1, counter);
-    new_buffer->ReserveExact(1 + kHeaderLen + static_cast<size_t>(ciphertext_len) +
-                             kTagLen);
-    new_buffer->WriteInt<uint8_t>(kModeAesGcm);
+    const size_t end = new_buffer->write_cursor();
+    new_buffer->set_write_cursor(header_pos);
     new_buffer->Write(header, sizeof(header));
-    new_buffer->Write(ciphertext.data(), static_cast<size_t>(ciphertext_len));
-    new_buffer->Write(tag, sizeof(tag));
+    new_buffer->set_write_cursor(end);
     return new_buffer;
   }
   // in place when there is headroom left, otherwise a fresh buffer
   if (buffer->PrependInt8(0)) {  // no encryption
     return buffer;
   }
-  new_buffer->ReserveExact(static_cast<size_t>(buffer_len) + 2);
+  new_buffer->ReserveHeadroom(2);  // room for the transport's frame
+  new_buffer->ReserveExact(static_cast<size_t>(buffer_len) + 3);
   new_buffer->WriteInt<uint8_t>(0);  // no encryption
   new_buffer->Write(buffer->read_cursor_data(), static_cast<size_t>(buffer_len));
   return new_buffer;

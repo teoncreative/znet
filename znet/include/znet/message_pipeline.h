@@ -77,9 +77,14 @@ class MessagePipeline {
    */
   std::shared_ptr<Buffer> Decode(std::shared_ptr<Buffer> buffer);
 
-  /** @brief Reads packets out of a decoded payload and hands them to `handler`. */
-  void Dispatch(const std::shared_ptr<Buffer>& payload,
-                PacketHandlerBase& handler);
+  /**
+   * @brief Reads packets out of a decoded payload and hands them to `handler`.
+   *
+   * @return What failed to decode. The session counts these; the codec is
+   *         shared and cannot.
+   */
+  DecodeStats Dispatch(const std::shared_ptr<Buffer>& payload,
+                       PacketHandlerBase& handler);
 
   ZNET_NODISCARD bool has_codec() const { return codec_ != nullptr; }
 
@@ -93,13 +98,19 @@ class MessagePipeline {
   /** @brief Messages below this many bytes skip compression entirely. */
   void SetCompressionThreshold(size_t bytes) { compression_threshold_ = bytes; }
 
+  /** @brief Log a hex dump when a frame in a payload fails to decode. */
+  void SetDumpOnDecodeFailure(bool enabled) {
+    dump_on_decode_failure_ = enabled;
+  }
+
   /**
    * @brief Bytes reserved in front of a serialized payload.
    *
-   * The compression and encryption stages each prepend one byte. Giving them
-   * room to do it in place is worth two full copies of the payload per message.
+   * The compression and encryption stages each prepend one byte, and the TCP
+   * transport prepends its two-byte frame length. Giving every stage room to
+   * work in place is worth several full copies of the payload per message.
    */
-  static constexpr size_t kSendHeadroom = 2;
+  static constexpr size_t kSendHeadroom = 4;
 
  private:
   EncryptionLayer& encryption_;
@@ -107,6 +118,7 @@ class MessagePipeline {
   std::shared_ptr<Codec> codec_;
   CompressionType out_compression_ = CompressionType::None;
   size_t compression_threshold_ = 128;
+  bool dump_on_decode_failure_ = false;
 };
 
 }  // namespace znet

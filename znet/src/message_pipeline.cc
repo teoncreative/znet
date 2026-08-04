@@ -59,9 +59,9 @@ std::shared_ptr<Buffer> MessagePipeline::Decode(
   return buffer;
 }
 
-void MessagePipeline::Dispatch(const std::shared_ptr<Buffer>& payload,
-                               PacketHandlerBase& handler) {
-  codec_->Deserialize(payload, handler);
+DecodeStats MessagePipeline::Dispatch(const std::shared_ptr<Buffer>& payload,
+                                      PacketHandlerBase& handler) {
+  return codec_->Deserialize(payload, handler, dump_on_decode_failure_);
 }
 
 }  // namespace znet

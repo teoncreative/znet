@@ -99,6 +99,16 @@ class Client : public Interface {
     return client_session_;
   }
 
+  /**
+   * @brief Drops the client's reference to a session that already ended.
+   *
+   * The transport closes its descriptor when the last holder lets go, and
+   * that is what frees the local port: a hole punch has to bind the very
+   * port the relay observed, which a merely shut-down socket still owns.
+   * A session that is still alive is left alone.
+   */
+  void ReleaseSession();
+
   ZNET_NODISCARD std::shared_ptr<InetAddress> server_address() const {
     return server_address_;
   }

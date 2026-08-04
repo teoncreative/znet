@@ -95,7 +95,11 @@ Result Client::Connect() {
     std::unique_lock<std::mutex> lock(signal_->mutex, std::defer_lock);
     auto rest_of_tick = [this, paced, &lock]() {
       if (!paced) {
-        return;  // this loop is the only reader; sleeping would stall inbound
+        // this loop is the only reader, so block on the socket itself: it
+        // returns the moment data lands. The old hot spin had the same
+        // latency and a whole core's worth of cost.
+        backend_->WaitReadable(std::chrono::milliseconds(10));
+        return;
       }
       scheduler_.End();
       auto remaining = scheduler_.remaining();
@@ -120,6 +124,14 @@ Result Client::Connect() {
       rest_of_tick();
     }
     if (!client_session_->IsAlive() || task_.IsStopRequested()) {
+      // a deliberate stop is not a failure; a session that died before it
+      // was ready is, and silence here left callers waiting on nothing
+      if (!task_.IsStopRequested()) {
+        ZNET_LOG_DEBUG("Connection attempt to {} failed before it was ready.",
+                       server_address_->readable());
+        ClientConnectionFailedEvent failed_event{client_session_};
+        event_callback()(failed_event);
+      }
       return;
     }
     ZNET_LOG_DEBUG("Connected to the server.");
@@ -149,6 +161,19 @@ Result Client::Disconnect(CloseOptions options) {
   signal_->Raise();  // sleeping out a tick; do not make it wait
   encoder_.Stop();
   return result;
+}
+
+void Client::ReleaseSession() {
+  if (!client_session_ || client_session_->IsAlive()) {
+    return;
+  }
+  // joined first: the loop may still be dispatching on the dead session
+  task_.Wait();
+  client_session_->ReleaseHandler();
+  client_session_ = nullptr;
+  // the backend keeps its own reference, and it is just as capable of
+  // keeping the port alive
+  backend_->ReleaseSession();
 }
 
 ZNET_NODISCARD std::shared_ptr<InetAddress> Client::local_address() const {

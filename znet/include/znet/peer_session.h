@@ -56,7 +56,14 @@ class PeerSession {
   PeerSession(PeerSession&&) = delete;
   ~PeerSession();
 
-  void Process();
+  /**
+   * @brief One pass: transport upkeep, receive, dispatch, drain.
+   *
+   * @return true when the pass did something, i.e. a message arrived or the
+   *         outbound queue drained. A self-managed session's loop naps after
+   *         an idle pass instead of spinning a core.
+   */
+  bool Process();
 
   Result Close(CloseOptions options = {});
 
@@ -227,6 +234,14 @@ class PeerSession {
   }
 
   /**
+   * @brief Inbound frames from this peer that failed to decode.
+   *
+   * What CommonOptions::max_invalid_frames is judged against. Counted whether
+   * or not metrics are compiled in.
+   */
+  ZNET_NODISCARD uint64_t invalid_frames() const { return invalid_frames_; }
+
+  /**
    * @brief Derives bytes unique to this session, for binding an application
    *        credential to it.
    *
@@ -359,6 +374,9 @@ class PeerSession {
   std::chrono::steady_clock::time_point connect_time_;
   std::chrono::steady_clock::time_point expire_at_;
   bool has_expiry_ = false;
+  // touched only by the thread that drives this session, like metrics_, but
+  // lives outside the metrics build flag: the close threshold depends on it
+  uint64_t invalid_frames_ = 0;
   std::shared_ptr<void> user_ptr_;
   Task task_;
 

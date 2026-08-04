@@ -50,6 +50,7 @@ PeerSession::PeerSession(std::shared_ptr<InetAddress> local_address,
       // order between the two
       outbound_(options.common.send_queue_capacity) {
   pipeline_.SetCompressionThreshold(options_.common.compression_threshold);
+  pipeline_.SetDumpOnDecodeFailure(options_.common.dump_on_decode_failure);
   // only the accepting side's options count; an initiator adopts whatever the
   // server announces at handshake
   negotiated_compression_ =
@@ -59,7 +60,11 @@ PeerSession::PeerSession(std::shared_ptr<InetAddress> local_address,
   if (self_managed) {
     task_.Run([this]() {
       while (IsAlive() && !task_.IsStopRequested()) {
-        Process();
+        // an idle pass earns a nap: spinning would pin a core per session,
+        // and a millisecond of doze is inside any game's tick
+        if (!Process()) {
+          std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
       }
     });
   }
@@ -75,16 +80,17 @@ PeerSession::~PeerSession() {
   task_.Wait();
 }
 
-void PeerSession::Process() {
+bool PeerSession::Process() {
   if (!IsAlive()) {
-    return;
+    return false;
   }
   if (IsExpired()) {
     ZNET_LOG_INFO("Session {} was expired!", id_);
     Close();
-    return;
+    return true;
   }
   transport_layer_->Update();
+  bool worked = false;
   // drain what is already buffered rather than one message per tick, otherwise
   // throughput is capped at the caller's tick rate. The bound keeps one busy
   // session from starving the others sharing this worker.
@@ -94,6 +100,7 @@ void PeerSession::Process() {
     if (!buffer) {
       break;
     }
+    worked = true;
     buffer = pipeline_.Decode(std::move(buffer));
     if (!buffer) {
       continue;
@@ -101,7 +108,20 @@ void PeerSession::Process() {
     if (handler_ && pipeline_.has_codec()) {
       ZNET_METRIC(metrics_.common.messages_received++);
       ZNET_METRIC(metrics_.common.message_bytes_received += buffer->size());
-      pipeline_.Dispatch(buffer, *handler_);
+      DecodeStats stats = pipeline_.Dispatch(buffer, *handler_);
+      if (stats.invalid_frames > 0) {
+        invalid_frames_ += stats.invalid_frames;
+        ZNET_METRIC(metrics_.common.invalid_frames += stats.invalid_frames);
+        const uint32_t limit = options_.common.max_invalid_frames;
+        if (limit != 0 && invalid_frames_ >= limit) {
+          ZNET_LOG_WARN("Session {} reached {} undecodable frames, closing.",
+                        id_, invalid_frames_);
+          CloseOptions close_options;
+          close_options.Set<NoLingerKey>(true);
+          Close(close_options);
+          break;
+        }
+      }
     }
   }
   // handlers above almost always answer, and Update() already ran, so without
@@ -109,11 +129,12 @@ void PeerSession::Process() {
   // two. A dead session drains anyway, to release what it queued rather than
   // hold it until destruction. Who encodes is OutboundQueue's rule.
   if (outbound_.ShouldEncodeInline() || !IsAlive()) {
-    DrainOutbound();
+    worked = DrainOutbound() || worked;
   }
   if (IsAlive()) {
     transport_layer_->Flush();
   }
+  return worked;
 }
 
 Result PeerSession::Close(CloseOptions options) {

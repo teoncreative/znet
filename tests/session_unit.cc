@@ -10,13 +10,18 @@
 
 //
 // Socket-free tests for the session's send-path plumbing: the lock-free queue
-// underneath it, the arbitration built on top, and the codec's framing. All are
-// reachable only through a live connection otherwise, which is why the race
-// that made throughput bimodal showed up as a benchmark artifact rather than a
-// failure, and why a serializer breaking the frame header went unnoticed.
+// underneath it, the arbitration built on top, and the codec's framing in both
+// directions, including what the decode side counts against a misbehaving
+// peer. All are reachable only through a live connection otherwise, which is
+// why the race that made throughput bimodal showed up as a benchmark artifact
+// rather than a failure, and why a serializer breaking the frame header went
+// unnoticed.
 //
 
+#include "session_pair.h"
+
 #include "znet/codec.h"
+#include "znet/init.h"
 #include "znet/mpsc_queue.h"
 #include "znet/outbound_queue.h"
 #include "znet/packet_serializer.h"
@@ -24,6 +29,7 @@
 #include <gtest/gtest.h>
 
 #include <atomic>
+#include <memory>
 #include <set>
 #include <thread>
 #include <vector>
@@ -335,7 +341,7 @@ TEST(CodecFramingTest, WritesTheDeclaredLengthOfWhatTheSerializerWrote) {
   ASSERT_TRUE(buffer) << "the serializer honored the contract";
 
   EXPECT_EQ(buffer->ReadVarInt<PacketId>(), 7u);
-  EXPECT_EQ(buffer->ReadInt<size_t>(), sizeof(uint32_t))
+  EXPECT_EQ(buffer->ReadInt<uint32_t>(), sizeof(uint32_t))
       << "the placeholder was backfilled with the body length";
   EXPECT_EQ(buffer->ReadInt<uint32_t>(), 0xABCD1234u);
 }
@@ -350,7 +356,7 @@ TEST(CodecFramingTest, FramesABodyTheSerializerBuiltItself) {
   // the header stays in the codec's buffer and the body is copied in behind it,
   // so the frame is indistinguishable from one written in place
   EXPECT_EQ(buffer->ReadVarInt<PacketId>(), 7u);
-  EXPECT_EQ(buffer->ReadInt<size_t>(), sizeof(uint32_t));
+  EXPECT_EQ(buffer->ReadInt<uint32_t>(), sizeof(uint32_t));
   EXPECT_EQ(buffer->ReadInt<uint32_t>(), 0xABCD1234u);
 }
 
@@ -379,4 +385,230 @@ TEST(CodecFramingTest, DropsThePacketWhenTheSerializerRefuses) {
 TEST(CodecFramingTest, DropsThePacketWhenNoSerializerIsRegistered) {
   Codec codec;
   EXPECT_FALSE(codec.Serialize(std::make_shared<TinyPacket>(), 0));
+}
+
+// --- Codec decode failures ----------------------------------------------------
+
+namespace {
+
+class OtherPacket : public Packet {
+ public:
+  OtherPacket() : Packet(8) {}
+  uint32_t value = 0x11223344u;
+};
+
+class OtherSerializer : public PacketSerializer<OtherPacket> {
+ public:
+  std::shared_ptr<Buffer> SerializeTyped(std::shared_ptr<OtherPacket> packet,
+                                         std::shared_ptr<Buffer> buffer) override {
+    buffer->WriteInt<uint32_t>(packet->value);
+    return buffer;
+  }
+  std::shared_ptr<OtherPacket> DeserializeTyped(std::shared_ptr<Buffer> buffer) override {
+    auto packet = std::make_shared<OtherPacket>();
+    packet->value = buffer->ReadInt<uint32_t>();
+    return packet;
+  }
+};
+
+// walks the cursor out of its frame by hand: the read limit only fences reads,
+// which is exactly the misbehaviour the over-read branch exists to catch
+class OverreadingSerializer : public PacketSerializer<TinyPacket> {
+ public:
+  std::shared_ptr<Buffer> SerializeTyped(std::shared_ptr<TinyPacket> packet,
+                                         std::shared_ptr<Buffer> buffer) override {
+    (void)packet;
+    return buffer;
+  }
+  std::shared_ptr<TinyPacket> DeserializeTyped(std::shared_ptr<Buffer> buffer) override {
+    buffer->SkipRead(sizeof(uint32_t) + 2);
+    return std::make_shared<TinyPacket>();
+  }
+};
+
+class CountingHandler : public PacketHandlerBase {
+ public:
+  void Handle(std::shared_ptr<Packet> packet) override {
+    (void)packet;
+    handled++;
+  }
+  int handled = 0;
+};
+
+std::shared_ptr<Buffer> TinyFrame() {
+  Codec codec;
+  codec.Add(7, std::make_unique<GoodSerializer>());
+  return codec.Serialize(std::make_shared<TinyPacket>(), 0);
+}
+
+std::shared_ptr<Buffer> OtherFrame() {
+  Codec codec;
+  codec.Add(8, std::make_unique<OtherSerializer>());
+  return codec.Serialize(std::make_shared<OtherPacket>(), 0);
+}
+
+std::shared_ptr<Buffer> Concat(std::initializer_list<std::shared_ptr<Buffer>> frames) {
+  auto out = std::make_shared<Buffer>();
+  for (const auto& frame : frames) {
+    out->Write(frame->read_cursor_data(), frame->readable_bytes());
+  }
+  return out;
+}
+
+}  // namespace
+
+TEST(CodecDecodeTest, CleanFramesCountNothing) {
+  Codec codec;
+  codec.Add(7, std::make_unique<GoodSerializer>());
+  CountingHandler handler;
+
+  DecodeStats stats =
+      codec.Deserialize(Concat({TinyFrame(), TinyFrame()}), handler);
+  EXPECT_EQ(handler.handled, 2);
+  EXPECT_EQ(stats.invalid_frames, 0u);
+  EXPECT_FALSE(stats.framing_lost);
+}
+
+TEST(CodecDecodeTest, RefusedFrameIsCountedAndTheNextOneStillDecodes) {
+  Codec codec;
+  codec.Add(7, std::make_unique<RefusingSerializer>());
+  codec.Add(8, std::make_unique<OtherSerializer>());
+  CountingHandler handler;
+
+  DecodeStats stats =
+      codec.Deserialize(Concat({TinyFrame(), OtherFrame()}), handler);
+  EXPECT_EQ(handler.handled, 1) << "the refused frame was skipped, not fatal";
+  EXPECT_EQ(stats.invalid_frames, 1u);
+  EXPECT_FALSE(stats.framing_lost);
+}
+
+TEST(CodecDecodeTest, UnknownIdSkipsWithoutCounting) {
+  Codec codec;
+  codec.Add(8, std::make_unique<OtherSerializer>());
+  CountingHandler handler;
+
+  DecodeStats stats =
+      codec.Deserialize(Concat({TinyFrame(), OtherFrame()}), handler);
+  EXPECT_EQ(handler.handled, 1);
+  EXPECT_EQ(stats.invalid_frames, 0u) << "version skew is not an offence";
+  EXPECT_FALSE(stats.framing_lost);
+}
+
+TEST(CodecDecodeTest, OverreadDropsTheRestAndLosesFraming) {
+  Codec codec;
+  codec.Add(7, std::make_unique<OverreadingSerializer>());
+  codec.Add(8, std::make_unique<OtherSerializer>());
+  CountingHandler handler;
+
+  DecodeStats stats =
+      codec.Deserialize(Concat({TinyFrame(), OtherFrame()}), handler);
+  EXPECT_EQ(handler.handled, 0) << "nothing after the overrun can be located";
+  EXPECT_EQ(stats.invalid_frames, 1u);
+  EXPECT_TRUE(stats.framing_lost);
+}
+
+TEST(CodecDecodeTest, DeclaredSizeBeyondTheBufferLosesFraming) {
+  Codec codec;
+  codec.Add(7, std::make_unique<GoodSerializer>());
+  CountingHandler handler;
+
+  auto buffer = Concat({OtherFrame()});  // one healthy unknown-id frame first
+  buffer->WriteVarInt<PacketId>(7);
+  buffer->WriteInt<uint32_t>(100);  // a length nothing here can back
+
+  DecodeStats stats = codec.Deserialize(buffer, handler);
+  EXPECT_EQ(stats.invalid_frames, 1u);
+  EXPECT_TRUE(stats.framing_lost);
+}
+
+TEST(CodecDecodeTest, GarbageHeaderLosesFraming) {
+  Codec codec;
+  codec.Add(7, std::make_unique<GoodSerializer>());
+  CountingHandler handler;
+
+  auto buffer = std::make_shared<Buffer>();
+  buffer->WriteInt<uint8_t>(7);  // a valid id varint, then a truncated size
+  buffer->WriteInt<uint8_t>(1);
+
+  DecodeStats stats = codec.Deserialize(buffer, handler);
+  EXPECT_EQ(handler.handled, 0);
+  EXPECT_EQ(stats.invalid_frames, 1u);
+  EXPECT_TRUE(stats.framing_lost);
+}
+
+TEST(CodecDecodeTest, DumpWritesTheEvidenceToTheLog) {
+  Codec codec;
+  codec.Add(7, std::make_unique<OverreadingSerializer>());
+  CountingHandler handler;
+
+  std::ostringstream captured;
+  SetLogStream(captured);
+  DecodeStats stats =
+      codec.Deserialize(Concat({TinyFrame()}), handler, /*dump_on_failure=*/true);
+  SetLogStream(std::cout);
+
+  EXPECT_EQ(stats.invalid_frames, 1u);
+  EXPECT_NE(captured.str().find("Undecodable frame at offset"), std::string::npos)
+      << "the dump names itself so it can be found in a log";
+}
+
+// --- Invalid-frame threshold over a session -----------------------------------
+
+namespace {
+
+// the same misbehaviour as OverreadingSerializer, on the probe packet the
+// session pair speaks
+class OverreadingProbeSerializer : public PacketSerializer<ProbePacket> {
+ public:
+  std::shared_ptr<Buffer> SerializeTyped(std::shared_ptr<ProbePacket> packet,
+                                         std::shared_ptr<Buffer> buffer) override {
+    (void)packet;
+    return buffer;
+  }
+  std::shared_ptr<ProbePacket> DeserializeTyped(std::shared_ptr<Buffer> buffer) override {
+    buffer->SkipRead(sizeof(uint32_t) + 2);
+    return std::make_shared<ProbePacket>();
+  }
+};
+
+std::shared_ptr<Codec> MakeOverreadingCodec() {
+  auto codec = std::make_shared<Codec>();
+  codec->Add(kPacketProbe, std::make_unique<OverreadingProbeSerializer>());
+  return codec;
+}
+
+}  // namespace
+
+TEST(InvalidFrameThreshold, ClosesTheSessionAtTheLimit) {
+  ASSERT_EQ(Init(), Result::Success);
+  SessionOptions base;
+  base.common.max_invalid_frames = 3;
+  Pair pair(/*encryption=*/true, base);
+  ASSERT_TRUE(pair.Handshake());
+
+  // every probe the client sends arrives as one undecodable frame
+  pair.server->SetCodec(MakeOverreadingCodec());
+
+  for (uint32_t i = 0; i < 3; i++) {
+    EXPECT_TRUE(pair.server->IsAlive());
+    pair.Deliver(pair.Emit(i, 0));
+  }
+  EXPECT_FALSE(pair.server->IsAlive()) << "the third bad frame is the limit";
+  EXPECT_EQ(pair.server->invalid_frames(), 3u);
+}
+
+TEST(InvalidFrameThreshold, ZeroDisablesTheClose) {
+  ASSERT_EQ(Init(), Result::Success);
+  SessionOptions base;
+  base.common.max_invalid_frames = 0;
+  Pair pair(/*encryption=*/true, base);
+  ASSERT_TRUE(pair.Handshake());
+
+  pair.server->SetCodec(MakeOverreadingCodec());
+
+  for (uint32_t i = 0; i < 5; i++) {
+    pair.Deliver(pair.Emit(i, 0));
+  }
+  EXPECT_TRUE(pair.server->IsAlive()) << "counted, never acted on";
+  EXPECT_EQ(pair.server->invalid_frames(), 5u);
 }

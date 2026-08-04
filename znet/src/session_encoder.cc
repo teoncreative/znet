@@ -68,6 +68,9 @@ void SessionEncoder::Stop() {
   if (session_) {
     session_->SetHasDedicatedEncoder(false);
   }
+  // a stopped encoder has no use for the session, and holding on would keep
+  // the transport's descriptor (and so its port) alive with it
+  session_ = nullptr;
 }
 
 }  // namespace znet
