@@ -38,7 +38,7 @@ namespace znet {
 namespace backends {
 
 /** @brief Protocol version, checked for strict equality during the handshake. */
-ZNET_INLINE_CONSTEXPR uint8_t kZDTProtocolVersion = 3;
+ZNET_INLINE_CONSTEXPR uint8_t kZDTProtocolVersion = 4;
 
 /**
  * @brief Prefix on offline (pre-connection) messages.
