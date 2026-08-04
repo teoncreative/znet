@@ -706,7 +706,7 @@ std::chrono::steady_clock::duration ZDTTransportLayer::TailProbeDelay() const {
   if (delay < floor) {
     delay = floor;
   }
-  delay *= 1 << (tail_probes_fired_ < 6 ? tail_probes_fired_ : 6);
+  delay *= std::int64_t{1} << (tail_probes_fired_ < 6 ? tail_probes_fired_ : 6);
   const auto ceiling =
       std::chrono::duration_cast<steady_clock::duration>(config_.rto_max);
   return delay > ceiling ? ceiling : delay;
