@@ -180,6 +180,17 @@ struct LocatorProbe {
   }
 };
 
+// waits until the locator reports either outcome; true means connected
+bool WaitForPunchOutcome(LocatorProbe& probe, int ms) {
+  auto deadline =
+      std::chrono::steady_clock::now() + std::chrono::milliseconds(ms);
+  while (!probe.connected.load() && !probe.failed.load() &&
+         std::chrono::steady_clock::now() < deadline) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(5));
+  }
+  return probe.connected.load();
+}
+
 void RunPunchEndToEnd(ConnectionType punch_type) {
   ASSERT_EQ(Init(), Result::Success);
   p2p::RendezvousServer::Config config;
@@ -191,29 +202,48 @@ void RunPunchEndToEnd(ConnectionType punch_type) {
   const PortNumber port = relay.bind_address()->port();
   ASSERT_NE(port, 0);
 
-  LocatorProbe a{port};
-  LocatorProbe b{port};
-  ASSERT_EQ(a.locator.Connect(), Result::Success);
-  ASSERT_EQ(b.locator.Connect(), Result::Success);
-  ASSERT_TRUE(WaitFor(a.ready, 5000)) << "a never got a peer name";
-  ASSERT_TRUE(WaitFor(b.ready, 5000)) << "b never got a peer name";
+  // a TCP punch must rebind the relay connection's exact port, and on a busy
+  // machine (CI runners especially) an unrelated connection's TIME_WAIT can
+  // hold that port for its full 60s. A clean failure is retryable: fresh
+  // relay connections land on fresh ports, which is what an application
+  // would do too. A hang, or failing every attempt, is still a bug.
+  constexpr int kAttempts = 3;
+  for (int attempt = 0; attempt < kAttempts; attempt++) {
+    LocatorProbe a{port};
+    LocatorProbe b{port};
+    ASSERT_EQ(a.locator.Connect(), Result::Success);
+    ASSERT_EQ(b.locator.Connect(), Result::Success);
+    ASSERT_TRUE(WaitFor(a.ready, 5000)) << "a never got a peer name";
+    ASSERT_TRUE(WaitFor(b.ready, 5000)) << "b never got a peer name";
 
-  ASSERT_EQ(a.locator.AskPeer(b.Name()), Result::Success);
-  ASSERT_EQ(b.locator.AskPeer(a.Name()), Result::Success);
+    ASSERT_EQ(a.locator.AskPeer(b.Name()), Result::Success);
+    ASSERT_EQ(b.locator.AskPeer(a.Name()), Result::Success);
 
-  ASSERT_TRUE(WaitFor(a.connected, 15000)) << "a's punch never completed";
-  ASSERT_TRUE(WaitFor(b.connected, 15000)) << "b's punch never completed";
+    const bool a_ok = WaitForPunchOutcome(a, 15000);
+    const bool b_ok = WaitForPunchOutcome(b, 15000);
+    if (!a_ok || !b_ok) {
+      ASSERT_TRUE(a.connected.load() || a.failed.load())
+          << "a's punch neither completed nor failed";
+      ASSERT_TRUE(b.connected.load() || b.failed.load())
+          << "b's punch neither completed nor failed";
+      continue;
+    }
 
-  // the punched sessions drive themselves; the post-punch handshake has to
-  // settle on both ends
-  auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
-  while ((!a.Session()->IsReady() || !b.Session()->IsReady()) &&
-         std::chrono::steady_clock::now() < deadline) {
-    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    // the punched sessions drive themselves; the post-punch handshake has to
+    // settle on both ends
+    auto deadline =
+        std::chrono::steady_clock::now() + std::chrono::seconds(10);
+    while ((!a.Session()->IsReady() || !b.Session()->IsReady()) &&
+           std::chrono::steady_clock::now() < deadline) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    EXPECT_TRUE(a.Session()->IsReady());
+    EXPECT_TRUE(b.Session()->IsReady());
+    relay.Stop();
+    return;
   }
-  EXPECT_TRUE(a.Session()->IsReady());
-  EXPECT_TRUE(b.Session()->IsReady());
   relay.Stop();
+  FAIL() << "the punch failed on every attempt";
 }
 
 }  // namespace
