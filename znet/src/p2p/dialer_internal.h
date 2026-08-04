@@ -20,19 +20,22 @@
 #include "znet/peer_session.h"
 #include "znet/precompiled.h"
 
+#include <vector>
+
 namespace znet {
 namespace p2p {
 
 // each returns a connected, self-managed PeerSession and sets *out_result to
 // Result::Success, or returns nullptr with the failure reason in *out_result.
+// `peers` are candidates for the same peer; the first that answers wins.
 std::shared_ptr<PeerSession> PunchSyncTCP(
     const std::shared_ptr<InetAddress>& local,
-    const std::shared_ptr<InetAddress>& peer, Result* out_result,
+    const std::vector<std::shared_ptr<InetAddress>>& peers, Result* out_result,
     bool is_initiator, int timeout_ms);
 
 std::shared_ptr<PeerSession> PunchSyncZDT(
     const std::shared_ptr<InetAddress>& local,
-    const std::shared_ptr<InetAddress>& peer, Result* out_result,
+    const std::vector<std::shared_ptr<InetAddress>>& peers, Result* out_result,
     bool is_initiator, int timeout_ms);
 
 }  // namespace p2p

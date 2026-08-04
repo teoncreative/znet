@@ -64,7 +64,8 @@ enum class Result {
   NotConnected,
   IncompatibleVersion,
   ConnectionRefused,
-  ServerFull
+  ServerFull,
+  PeerNotFound
 };
 
 inline std::string GetResultString(Result result) {
@@ -115,6 +116,8 @@ inline std::string GetResultString(Result result) {
       return "ConnectionRefused";
     case Result::ServerFull:
       return "ServerFull";
+    case Result::PeerNotFound:
+      return "PeerNotFound";
     default:
       return "Unknown";
   }

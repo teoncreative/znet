@@ -58,4 +58,25 @@ class ClientDisconnectedFromServerEvent : public Event {
   std::shared_ptr<PeerSession> session_;
 };
 
+/**
+ * @class ClientConnectionFailedEvent
+ * @brief The connection was made but the session died before it was ready,
+ *        e.g. the handshake failed or timed out.
+ *
+ * Distinct from ClientDisconnectedFromServerEvent, which only follows a
+ * connection that reached the application.
+ */
+class ClientConnectionFailedEvent : public Event {
+ public:
+  explicit ClientConnectionFailedEvent(std::shared_ptr<PeerSession> session)
+      : session_(session) {}
+
+  std::shared_ptr<PeerSession> session() { return session_; }
+
+  ZNET_EVENT_CLASS_TYPE(ClientConnectionFailedEvent)
+  ZNET_EVENT_CLASS_CATEGORY(EventCategoryClient)
+ private:
+  std::shared_ptr<PeerSession> session_;
+};
+
 }  // namespace znet

@@ -141,8 +141,8 @@ class CallbackPacketHandler : public PacketHandlerBase {
 
   ZNET_TPL_DERIVED_FROM_PACKET(T)
   void AddRef(std::function<void(const T&)> fn) {
-    refHandlers[typeid(T)] = [fn](std::shared_ptr<Packet> p) {
-      fn(*std::static_pointer_cast<T>(p));
+    refHandlers[typeid(T)] = [fn](const Packet& p) {
+      fn(static_cast<const T&>(p));
     };
   }
 

@@ -26,18 +26,27 @@ namespace p2p {
 
 // ZDT UDP hole-punch. Both peers bind the local endpoint (SO_REUSEADDR reuses the
 // just-closed rendezvous port) and spray Punch datagrams to open the mappings.
-// The post-punch handshake skips the cookie round-trip: the rendezvous already
-// vouched for both peers and the punch itself proves return-routability.
+// Every candidate is sprayed from the one socket and whichever answers first
+// wins, which is how two peers behind the same NAT find each other's private
+// address. The post-punch handshake skips the cookie round-trip: the
+// rendezvous already vouched for both peers and the punch itself proves
+// return-routability.
 std::shared_ptr<PeerSession> PunchSyncZDT(
     const std::shared_ptr<InetAddress>& local,
-    const std::shared_ptr<InetAddress>& peer, Result* out_result,
+    const std::vector<std::shared_ptr<InetAddress>>& peers, Result* out_result,
     bool is_initiator, int timeout_ms) {
   using namespace backends;
   using clock = std::chrono::steady_clock;
 
-  if (!local || !peer || !local->is_valid() || !peer->is_valid()) {
+  if (!local || !local->is_valid() || peers.empty()) {
     *out_result = Result::InvalidAddress;
     return nullptr;
+  }
+  for (const auto& candidate : peers) {
+    if (!candidate || !candidate->is_valid()) {
+      *out_result = Result::InvalidAddress;
+      return nullptr;
+    }
   }
 
   auto socket = std::make_shared<UDPSocket>();
@@ -53,8 +62,10 @@ std::shared_ptr<PeerSession> PunchSyncZDT(
     *out_result = Result::CannotBind;
     return nullptr;
   }
-  ZNET_LOG_INFO("ZDT punch: {} -> {} (initiator={})", local->readable(),
-                peer->readable(), is_initiator);
+  for (const auto& candidate : peers) {
+    ZNET_LOG_INFO("ZDT punch: {} -> {} (initiator={})", local->readable(),
+                  candidate->readable(), is_initiator);
+  }
 
   ZDTOptions config;
   // the punched socket carries the whole session afterwards, so it gets the
@@ -78,10 +89,12 @@ std::shared_ptr<PeerSession> PunchSyncZDT(
 
   while (clock::now() < deadline) {
     auto now = clock::now();
-    // keep the hole open from both sides.
+    // keep the hole open from both sides, toward every candidate.
     if (now - last_punch > std::chrono::milliseconds(50)) {
       Buffer punch = build_offline(ZDTOfflineMsg::Punch);
-      socket->SendTo(*peer, punch.data(), punch.size());
+      for (const auto& candidate : peers) {
+        socket->SendTo(*candidate, punch.data(), punch.size());
+      }
       last_punch = now;
     }
     // the initiator also drives the handshake (Request1 doubles as a punch).
@@ -89,7 +102,9 @@ std::shared_ptr<PeerSession> PunchSyncZDT(
       Buffer request = build_offline(ZDTOfflineMsg::OpenConnectionRequest1);
       request.WriteInt<uint8_t>(kZDTProtocolVersion);
       request.WriteInt<uint64_t>(connection.local_guid);
-      socket->SendTo(*peer, request.data(), request.size());
+      for (const auto& candidate : peers) {
+        socket->SendTo(*candidate, request.data(), request.size());
+      }
       last_request = now;
     }
 

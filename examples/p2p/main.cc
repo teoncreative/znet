@@ -163,6 +163,18 @@ bool OnClose(p2p::PeerLocatorCloseEvent& event) {
   return false;
 }
 
+bool OnFailed(p2p::PeerLocatorFailedEvent& event) {
+  // The reason something went wrong. A Rendezvous failure (an unknown peer
+  // name) leaves the relay link up, so you can ask for another name; Relay
+  // and Punch failures are followed by PeerLocatorCloseEvent.
+  ZNET_LOG_ERROR("P2P failed during {}: {}{}{}",
+                 p2p::GetPeerLocatorPhaseString(event.phase()),
+                 GetResultString(event.reason()),
+                 event.target_peer().empty() ? "" : " while seeking ",
+                 event.target_peer());
+  return false;
+}
+
 void OnEvent(Event& event) {
   EventDispatcher dispatcher{event};
   dispatcher.Dispatch<p2p::PeerLocatorReadyEvent>(
@@ -171,6 +183,8 @@ void OnEvent(Event& event) {
       ZNET_BIND_GLOBAL_FN(OnConnect));
   dispatcher.Dispatch<p2p::PeerLocatorCloseEvent>(
       ZNET_BIND_GLOBAL_FN(OnClose));
+  dispatcher.Dispatch<p2p::PeerLocatorFailedEvent>(
+      ZNET_BIND_GLOBAL_FN(OnFailed));
 }
 
 // Note: This example requires a publicly accessible rendezvous server.

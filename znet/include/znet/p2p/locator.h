@@ -14,7 +14,10 @@
 #include "znet/event.h"
 #include "znet/client.h"
 #include "znet/client_events.h"
+#include "znet/p2p/host.h"
 #include "znet/precompiled.h"
+
+#include <vector>
 
 namespace znet {
 namespace p2p {
@@ -24,8 +27,28 @@ static constexpr uint64_t kInvalidPunchId = std::numeric_limits<uint64_t>::max()
 struct PeerLocatorConfig {
   std::string server_ip;
   PortNumber server_port;
-  ConnectionType connection_type = ConnectionType::TCP;
+  // no transport choice here: the relay link is TCP, and the punch transport
+  // is decided by the rendezvous server so both peers always agree
 };
+
+/** @brief Which stage of finding a peer failed. */
+enum class PeerLocatorPhase : uint8_t {
+  Relay,       /**< The link to the rendezvous server. */
+  Rendezvous,  /**< The name exchange on it. */
+  Punch,       /**< The hole punch itself. */
+};
+
+inline const char* GetPeerLocatorPhaseString(PeerLocatorPhase phase) {
+  switch (phase) {
+    case PeerLocatorPhase::Relay:
+      return "Relay";
+    case PeerLocatorPhase::Rendezvous:
+      return "Rendezvous";
+    case PeerLocatorPhase::Punch:
+      return "Punch";
+  }
+  return "Unknown";
+}
 
 class PeerLocatorReadyEvent : public Event {
  public:
@@ -51,6 +74,34 @@ class PeerLocatorCloseEvent : public Event {
   ZNET_EVENT_CLASS_TYPE(PeerLocatorCloseEvent)
   ZNET_EVENT_CLASS_CATEGORY(EventCategoryP2P)
  private:
+};
+
+/**
+ * @brief Something on the way to a peer failed, and this is what and why.
+ *
+ * A Rendezvous failure (an unknown peer name) leaves the relay link up, so
+ * AskPeer can simply be called again. Relay and Punch failures are followed
+ * by PeerLocatorCloseEvent, the terminal "no session is coming" signal.
+ */
+class PeerLocatorFailedEvent : public Event {
+ public:
+  PeerLocatorFailedEvent(PeerLocatorPhase phase, Result reason,
+                         std::string target_peer)
+      : phase_(phase), reason_(reason), target_peer_(std::move(target_peer)) {}
+
+  ZNET_NODISCARD PeerLocatorPhase phase() const { return phase_; }
+
+  ZNET_NODISCARD Result reason() const { return reason_; }
+
+  /** @brief The peer being sought; empty when none was involved yet. */
+  ZNET_NODISCARD const std::string& target_peer() const { return target_peer_; }
+
+  ZNET_EVENT_CLASS_TYPE(PeerLocatorFailedEvent)
+  ZNET_EVENT_CLASS_CATEGORY(EventCategoryP2P)
+ private:
+  PeerLocatorPhase phase_;
+  Result reason_;
+  std::string target_peer_;
 };
 
 class PeerConnectedEvent : public Event {
@@ -107,9 +158,13 @@ class PeerLocator {
   void OnEvent(Event&);
   bool OnConnectEvent(ClientConnectedToServerEvent& event);
   bool OnDisconnectEvent(ClientDisconnectedFromServerEvent& event);
+  bool OnConnectionFailedEvent(ClientConnectionFailedEvent& event);
 
   void SetPeerName(std::string peer_name,
                    std::shared_ptr<InetAddress> endpoint);
+  void OnPeerNotFound(const std::string& target_peer);
+  void FireFailed(PeerLocatorPhase phase, Result reason,
+                  const std::string& target_peer);
 
   EventCallbackFn event_callback_;
   Client client_;
@@ -124,10 +179,89 @@ class PeerLocator {
 
   std::shared_ptr<InetAddress> bind_endpoint_;
   std::shared_ptr<InetAddress> target_endpoint_;
-  ConnectionType connection_type_;
+  std::shared_ptr<InetAddress> target_private_endpoint_;
+  ConnectionType connection_type_ = ConnectionType::ZDT;
   std::string target_peer_name_;
   uint64_t punch_id_ = kInvalidPunchId;
 
+  bool is_running_ = false;
+  bool wake_ = false;  // guarded by mutex_
+};
+
+/**
+ * @brief Stays on the rendezvous and brokers any number of punches through
+ *        one shared-socket Host: the mesh flavor of PeerLocator, for games
+ *        with three or more players. ZDT only, so run the rendezvous with
+ *        punch type zdt.
+ *
+ * Events, through the one callback like everything else in znet:
+ * - PeerLocatorReadyEvent when the relay names this peer
+ * - PeerConnectedEvent once per punched peer, fired on the host's thread,
+ *   which is where the session's codec and handler belong
+ * - PeerLocatorFailedEvent with the phase and reason on any failure
+ * - PeerLocatorCloseEvent when the relay link ends
+ *
+ * AskPeer may be called any number of times and punches overlap freely.
+ * Losing the relay ends matchmaking, not the mesh: punched sessions live
+ * until Disconnect() (or their own idle timers) close them, and Connect()
+ * may be called again to rejoin the relay with the mesh intact.
+ */
+class MeshLocator {
+ public:
+  struct Config {
+    std::string server_ip;
+    PortNumber server_port;
+    /** @brief Options every punched session is built with. */
+    SessionOptions session_options;
+    /** @brief The UDP port to punch from; zero picks one. */
+    PortNumber punch_port = 0;
+  };
+
+  explicit MeshLocator(const Config& config);
+  MeshLocator(const MeshLocator&) = delete;
+  ~MeshLocator();
+
+  Result Connect();
+
+  /** @brief Leaves the mesh: the relay link, pending punches and every
+      punched session all end. */
+  Result Disconnect();
+
+  Result AskPeer(std::string peer_name);
+
+  /** @brief Blocks until the relay link ends. The mesh may outlive it. */
+  void Wait();
+
+  void SetEventCallback(EventCallbackFn fn) { event_callback_ = std::move(fn); }
+
+  ZNET_NODISCARD std::string peer_name() const;
+
+  /** @brief The socket everything punches from, e.g. for session_count(). */
+  ZNET_NODISCARD Host& host() { return host_; }
+
+ private:
+  friend class MeshLocatorPacketHandler;
+
+  void OnEvent(Event& event);
+  bool OnConnectEvent(ClientConnectedToServerEvent& event);
+  bool OnDisconnectEvent(ClientDisconnectedFromServerEvent& event);
+  bool OnConnectionFailedEvent(ClientConnectionFailedEvent& event);
+  void SetPeerName(std::string peer_name,
+                   std::shared_ptr<InetAddress> endpoint);
+  void OnPeerNotFound(const std::string& target_peer);
+  void OnPunchRequest(std::string target_peer,
+                      std::vector<std::shared_ptr<InetAddress>> candidates,
+                      uint64_t punch_id, ConnectionType connection_type);
+  void FireFailed(PeerLocatorPhase phase, Result reason,
+                  const std::string& target_peer);
+
+  Config config_;
+  Host host_;
+  Client client_;
+  EventCallbackFn event_callback_;
+  mutable std::mutex mutex_;
+  std::string peer_name_;
+  std::shared_ptr<PeerSession> relay_session_;
   bool is_running_ = false;
 };
 

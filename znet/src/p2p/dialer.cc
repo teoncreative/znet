@@ -15,17 +15,18 @@
 namespace znet {
 namespace p2p {
 
-std::shared_ptr<PeerSession> PunchSync(const std::shared_ptr<InetAddress>& local,
-                                       const std::shared_ptr<InetAddress>& peer,
-                                       Result* out_result,
-                                       bool is_initiator,
-                                       ConnectionType connection_type,
-                                       int timeout_ms) {
+std::shared_ptr<PeerSession> PunchSync(
+    const std::shared_ptr<InetAddress>& local,
+    const std::vector<std::shared_ptr<InetAddress>>& peer_candidates,
+    Result* out_result, bool is_initiator, ConnectionType connection_type,
+    int timeout_ms) {
   if (connection_type == ConnectionType::TCP) {
-    return PunchSyncTCP(local, peer, out_result, is_initiator, timeout_ms);
+    return PunchSyncTCP(local, peer_candidates, out_result, is_initiator,
+                        timeout_ms);
   }
   if (connection_type == ConnectionType::ZDT) {
-    return PunchSyncZDT(local, peer, out_result, is_initiator, timeout_ms);
+    return PunchSyncZDT(local, peer_candidates, out_result, is_initiator,
+                        timeout_ms);
   }
   *out_result = Result::InvalidBackend;
   return nullptr;

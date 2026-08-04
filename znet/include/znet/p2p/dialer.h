@@ -15,6 +15,8 @@
 #include "znet/peer_session.h"
 #include "znet/precompiled.h"
 
+#include <vector>
+
 namespace znet {
 namespace p2p {
 
@@ -40,12 +42,32 @@ inline bool IsInitiator(uint64_t punch_id,
   }
 }
 
-std::shared_ptr<PeerSession> PunchSync(const std::shared_ptr<InetAddress>& local,
-                                       const std::shared_ptr<InetAddress>& peer,
-                                       Result* out_result,
-                                       bool is_initiator,
-                                       ConnectionType connection_type = ConnectionType::TCP,
-                                       int timeout_ms = 5000);
+/**
+ * @brief Punches to the first of `peer_candidates` that answers.
+ *
+ * Candidates are the same peer seen from different places, typically its
+ * public (NAT-observed) endpoint and its private one: two peers behind the
+ * same NAT usually cannot reach each other's public mapping, and the private
+ * address is the one that works. ZDT races every candidate on one socket;
+ * TCP cycles through them across connect attempts.
+ */
+std::shared_ptr<PeerSession> PunchSync(
+    const std::shared_ptr<InetAddress>& local,
+    const std::vector<std::shared_ptr<InetAddress>>& peer_candidates,
+    Result* out_result, bool is_initiator,
+    ConnectionType connection_type = ConnectionType::ZDT,
+    int timeout_ms = 5000);
+
+inline std::shared_ptr<PeerSession> PunchSync(
+    const std::shared_ptr<InetAddress>& local,
+    const std::shared_ptr<InetAddress>& peer,
+    Result* out_result, bool is_initiator,
+    ConnectionType connection_type = ConnectionType::ZDT,
+    int timeout_ms = 5000) {
+  return PunchSync(local,
+                   std::vector<std::shared_ptr<InetAddress>>{peer},
+                   out_result, is_initiator, connection_type, timeout_ms);
+}
 
 }  // namespace p2p
 }  // namespace znet

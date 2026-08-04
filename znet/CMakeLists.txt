@@ -43,6 +43,7 @@ set(ZNET_SOURCES
         src/scheduler.cc
         src/signal_handler.cc
         src/inet_addr.cc
+        src/admission.cc
         src/server.cc
         src/client.cc
         src/error.cc
@@ -57,6 +58,8 @@ set(ZNET_SOURCES
         src/pch.cc
         src/init.cc
         src/version.cc
+        src/p2p/rendezvous_server.cc
+        src/p2p/host.cc
         src/backend/backend.cc
         src/backend/tcp.cc
         src/backend/zdt/zdt_ack_history.cc
