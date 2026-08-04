@@ -281,12 +281,13 @@ void MaybePrintMetrics(const Harnessed& h, ConnectionType type,
   }
   SessionMetrics m = h.client_session->metrics();
   std::printf("%-10s %-6s metrics    %-6s  mtu %5u  cwnd %5u  dgram_tx %8llu  "
-              "rtx %6llu  nak_rx %5llu  in_drop %5llu  reasm_drop %5llu  "
-              "srtt %6u us  rtt_min %6u us  rto %7u us\n",
+              "rtx %6llu  tlp %5llu  nak_rx %5llu  in_drop %5llu  "
+              "reasm_drop %5llu  srtt %6u us  rtt_min %6u us  rto %7u us\n",
               LibraryName().c_str(), TransportName(type), case_name,
               m.zdt.mtu, m.zdt.cwnd,
               static_cast<unsigned long long>(m.zdt.datagrams_sent),
               static_cast<unsigned long long>(m.zdt.retransmits),
+              static_cast<unsigned long long>(m.zdt.tail_probes),
               static_cast<unsigned long long>(m.zdt.naks_received),
               static_cast<unsigned long long>(m.zdt.inbound_dropped),
               static_cast<unsigned long long>(m.zdt.reassemblies_dropped),

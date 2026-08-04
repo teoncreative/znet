@@ -140,6 +140,13 @@ ZNET_INLINE_CONSTEXPR int kZDTRttMinWindowMs = 10000;
 ZNET_INLINE_CONSTEXPR double kZDTQueueingRttRatio = 1.25;
 ZNET_INLINE_CONSTEXPR double kZDTQueueingBackoff = 0.85;
 
+// tail-loss probe: how long the ack stream may stay silent with reliable data
+// outstanding before the newest unacked message is resent once. A lost burst
+// tail is invisible to the NAK path (nothing later arrives to expose the gap),
+// so without the probe it always waits out the full RTO floor. The delay is
+// max(2 * srtt, this floor), doubling per probe while the silence lasts.
+ZNET_INLINE_CONSTEXPR int kZDTTailProbeFloorMs = 10;
+
 ZNET_INLINE_CONSTEXPR int kZDTMaxDatagramsInFlight =
     static_cast<int>(kZDTAckHistoryBits);
 

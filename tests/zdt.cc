@@ -402,8 +402,34 @@ static ZDTOptions FastConfig() {
   config.rto_min = std::chrono::milliseconds(5);
   config.rto_max = std::chrono::milliseconds(60);
   config.max_retries = 200;
-  config.keepalive_interval = std::chrono::hours(1);
   return config;
+}
+
+// Keepalive and idle timers silenced, so a test sees only the datagrams it
+// causes and a slow run cannot idle a transport out.
+static CommonOptions QuietCommon() {
+  CommonOptions common;
+  common.keepalive_interval = std::chrono::hours(1);
+  common.idle_timeout = std::chrono::hours(1);
+  return common;
+}
+
+// Zero means disabled, per the CommonOptions contract. It used to mean
+// "expired before the first tick", which closed the connection instantly.
+TEST(ZDTTimers, ZeroDisablesIdleAndKeepalive) {
+  ASSERT_EQ(Init(), Result::Success);
+  auto socket = OpenBoundSocket();
+  CommonOptions common;
+  common.keepalive_interval = std::chrono::milliseconds(0);
+  common.idle_timeout = std::chrono::milliseconds(0);
+  ZDTConnection connection;
+  ZDTTransportLayer transport(socket, socket->local_address(), FastConfig(),
+                              false, nullptr, connection, common);
+  for (int i = 0; i < 5; i++) {
+    transport.Update();
+    std::this_thread::sleep_for(std::chrono::milliseconds(2));
+  }
+  EXPECT_FALSE(transport.IsClosed());
 }
 
 TEST(ZDTUdpSocket, Loopback) {
@@ -449,7 +475,7 @@ TEST(ZDTTransport, OrderingDomainIsTheChannel) {
   ZDTOptions config = FastConfig();
   ZDTConnection connection;
   ZDTTransportLayer transport(socket, socket->local_address(), config, false,
-                              nullptr, connection);
+                              nullptr, connection, QuietCommon());
 
   EXPECT_EQ(transport.OrderingDomain(SendOptions{}), 0)
       << "an unset channel is channel 0";
@@ -485,7 +511,7 @@ TEST(ZDTTransport, LoopbackDataPath) {
   ZDTConnection connection;
   ZDTTransportLayer client(client_socket, server_addr, config,
                            /*drains_own_socket=*/true, /*inbox=*/nullptr,
-                           connection);
+                           connection, QuietCommon());
 
   const char message[] = "hello-zdt";
   auto payload = std::make_shared<Buffer>();
@@ -496,7 +522,7 @@ TEST(ZDTTransport, LoopbackDataPath) {
   // the server demux does this routing; here we do it by hand.
   ZDTTransportLayer server(server_socket, client_addr, config,
                            /*drains_own_socket=*/false, /*inbox=*/nullptr,
-                           connection);
+                           connection, QuietCommon());
   uint8_t buf[ZNET_MAX_BUFFER_SIZE];
   size_t len = 0;
   std::shared_ptr<InetAddress> from;
@@ -707,13 +733,12 @@ TEST(ZDTReliability, ReliableOrderedDeliversInOrderUnderLoss) {
   config.rto_min = std::chrono::milliseconds(5);
   config.rto_max = std::chrono::milliseconds(60);
   config.max_retries = 100;
-  config.keepalive_interval = std::chrono::hours(1);  // silence keepalive noise
 
   ZDTConnection connection;
   ZDTTransportLayer client(client_socket, server_addr, config, false, nullptr,
-                           connection);
+                           connection, QuietCommon());
   ZDTTransportLayer server(server_socket, client_addr, config, false, nullptr,
-                           connection);
+                           connection, QuietCommon());
 
   const uint32_t kMessages = 300;
   for (uint32_t i = 0; i < kMessages; i++) {
@@ -765,7 +790,8 @@ TEST(ZDTReliability, ReliableOrderedDeliversInOrderUnderLoss) {
 //
 // This is the harder half: the dropped datagram is the connection's first, so
 // the receiver has no packet_seq to measure a gap against and cannot NAK.
-// Nothing but the sender's own RTO can recover it.
+// Only the sender itself can recover it, normally via the tail-loss probe
+// (see TailLossRecoversBeforeTheRtoFloor), with the RTO as the backstop.
 TEST(ZDTReliability, FirstMessageOnAnUnusedChannelSurvivesLoss) {
   ASSERT_EQ(Init(), Result::Success);
 
@@ -777,9 +803,9 @@ TEST(ZDTReliability, FirstMessageOnAnUnusedChannelSurvivesLoss) {
   ZDTOptions config = FastConfig();
   ZDTConnection connection;
   ZDTTransportLayer client(client_socket, server_addr, config, false, nullptr,
-                           connection);
+                           connection, QuietCommon());
   ZDTTransportLayer server(server_socket, client_addr, config, false, nullptr,
-                           connection);
+                           connection, QuietCommon());
 
   const uint8_t kChannel = 7;  // never used, on either side
   const uint32_t kValue = 0xABCDEF01;
@@ -809,8 +835,135 @@ TEST(ZDTReliability, FirstMessageOnAnUnusedChannelSurvivesLoss) {
 
   SessionMetrics client_metrics;
   client.FillMetrics(client_metrics);
-  EXPECT_GT(client_metrics.zdt.retransmits, 0u)
-      << "it arrived without a retransmit, so the drop did not take";
+  EXPECT_GT(client_metrics.zdt.retransmits + client_metrics.zdt.tail_probes, 0u)
+      << "it arrived without a resend, so the drop did not take";
+}
+
+// A channel gets its own send lane, not just its own sequence space. With one
+// FIFO, a bulk transfer's backlog parked everything queued after it, so a small
+// message on another channel waited for the whole backlog to clear the
+// congestion window. The lanes are serviced round-robin, so the probe must
+// leave within the first window while the bulk has barely started.
+TEST(ZDTReliability, BulkBacklogDoesNotDelayAnotherChannel) {
+  ASSERT_EQ(Init(), Result::Success);
+
+  auto server_socket = OpenBoundSocket();
+  auto client_socket = OpenBoundSocket();
+  auto server_addr = server_socket->local_address();
+  auto client_addr = client_socket->local_address();
+
+  // a small window, so the bulk forms a real backlog behind it
+  ZDTOptions config = FastConfig();
+  config.cwnd = 8;
+
+  ZDTConnection connection;
+  ZDTTransportLayer client(client_socket, server_addr, config, false, nullptr,
+                           connection, QuietCommon());
+  ZDTTransportLayer server(server_socket, client_addr, config, false, nullptr,
+                           connection, QuietCommon());
+
+  // the backlog: one-datagram messages on channel 0, enough to hold the window
+  // shut for many round trips
+  const uint32_t kBulk = 300;
+  const std::vector<char> pad(996, 'b');
+  for (uint32_t i = 0; i < kBulk; i++) {
+    auto payload = std::make_shared<Buffer>();
+    payload->WriteInt<uint32_t>(i);
+    payload->Write(pad.data(), pad.size());
+    ASSERT_TRUE(client.Send(payload));
+  }
+  // the probe, queued after all of it, on its own channel
+  const uint32_t kProbe = 0xFEEDF00D;
+  auto probe = std::make_shared<Buffer>();
+  probe->WriteInt<uint32_t>(kProbe);
+  ASSERT_TRUE(client.Send(probe, MakeSendOptions(true, true, 1)));
+
+  std::vector<uint32_t> bulk_received;
+  bool probe_received = false;
+  uint32_t bulk_before_probe = 0;
+  auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(15);
+  while ((!probe_received || bulk_received.size() < kBulk) &&
+         std::chrono::steady_clock::now() < deadline) {
+    client.Update();
+    Pump(*server_socket, server);
+    server.Update();
+    Pump(*client_socket, client);
+    while (auto buffer = server.Receive()) {
+      if (buffer->readable_bytes() == sizeof(uint32_t)) {
+        EXPECT_EQ(buffer->ReadInt<uint32_t>(), kProbe);
+        probe_received = true;
+        bulk_before_probe = static_cast<uint32_t>(bulk_received.size());
+      } else {
+        bulk_received.push_back(buffer->ReadInt<uint32_t>());
+      }
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  }
+
+  ASSERT_TRUE(probe_received) << "the probe never arrived";
+  // the sharp end: with one FIFO the probe left after the whole backlog, so
+  // this counted every bulk message. lanes put it in the first window.
+  EXPECT_LT(bulk_before_probe, kBulk / 4)
+      << "the probe waited behind the bulk transfer's backlog";
+  // and the lanes must not have cost the bulk anything
+  ASSERT_EQ(bulk_received.size(), kBulk);
+  for (uint32_t i = 0; i < kBulk; i++) {
+    EXPECT_EQ(bulk_received[i], i) << "bulk out of order at " << i;
+  }
+}
+
+// A lost burst tail is invisible to the NAK path: nothing arrives after it, so
+// the receiver cannot see a gap to report, and the sender's window may be shut
+// so it cannot expose one by sending new data. Before the tail-loss probe the
+// only way out was the full RTO floor (100 ms by default); the probe resends
+// after ~10 ms of ack silence, so recovery must land well under that floor.
+TEST(ZDTReliability, TailLossRecoversBeforeTheRtoFloor) {
+  ASSERT_EQ(Init(), Result::Success);
+
+  auto server_socket = OpenBoundSocket();
+  auto client_socket = OpenBoundSocket();
+  auto server_addr = server_socket->local_address();
+  auto client_addr = client_socket->local_address();
+
+  ZDTOptions config;  // default timers: beating the 100 ms rto_min is the point
+  ZDTConnection connection;
+  ZDTTransportLayer client(client_socket, server_addr, config, false, nullptr,
+                           connection, QuietCommon());
+  ZDTTransportLayer server(server_socket, client_addr, config, false, nullptr,
+                           connection, QuietCommon());
+
+  const uint32_t kValue = 0x7A11C0DE;
+  auto payload = std::make_shared<Buffer>();
+  payload->WriteInt<uint32_t>(kValue);
+  ASSERT_TRUE(client.Send(payload));
+  client.Update();
+  // the tail (and only) datagram of the burst is lost on the wire
+  ASSERT_GE(CollectDatagrams(*server_socket, 1).size(), 1u)
+      << "the message was never sent, so the test drops nothing";
+
+  const auto t0 = std::chrono::steady_clock::now();
+  std::shared_ptr<Buffer> received;
+  const auto deadline = t0 + std::chrono::seconds(5);
+  while (!received && std::chrono::steady_clock::now() < deadline) {
+    client.Update();
+    Pump(*server_socket, server);
+    server.Update();
+    Pump(*client_socket, client);
+    received = server.Receive();
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  }
+  const auto elapsed = std::chrono::steady_clock::now() - t0;
+
+  ASSERT_TRUE(received != nullptr) << "the tail loss was never recovered";
+  EXPECT_EQ(received->ReadInt<uint32_t>(), kValue);
+  EXPECT_LT(
+      std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count(),
+      80)
+      << "recovered by the RTO, not the tail probe";
+
+  SessionMetrics metrics;
+  client.FillMetrics(metrics);
+  EXPECT_GT(metrics.zdt.tail_probes, 0u) << "no tail probe ever fired";
 }
 
 // The same first-on-a-channel message, but with the connection already running,
@@ -828,9 +981,9 @@ TEST(ZDTReliability, NewChannelOpenedMidConnectionKeepsItsOrder) {
   ZDTOptions config = FastConfig();
   ZDTConnection connection;
   ZDTTransportLayer client(client_socket, server_addr, config, false, nullptr,
-                           connection);
+                           connection, QuietCommon());
   ZDTTransportLayer server(server_socket, client_addr, config, false, nullptr,
-                           connection);
+                           connection, QuietCommon());
 
   const uint8_t kChannel = 7;
   const uint32_t kWarmup = 1000;
@@ -908,13 +1061,12 @@ TEST(ZDTReliability, FragmentedMessagesStayWithinTheAckWindow) {
   ZDTOptions config;  // defaults: this is what the fix has to hold for
   config.rto_min = std::chrono::milliseconds(5);
   config.rto_max = std::chrono::milliseconds(60);
-  config.keepalive_interval = std::chrono::hours(1);
 
   ZDTConnection connection;
   ZDTTransportLayer client(client_socket, server_socket->local_address(), config,
-                           false, nullptr, connection);
+                           false, nullptr, connection, QuietCommon());
   ZDTTransportLayer server(server_socket, client_socket->local_address(), config,
-                           false, nullptr, connection);
+                           false, nullptr, connection, QuietCommon());
 
   // Each message spans several datagrams once fragmented, which is what pushes
   // the outstanding count past what one ack can report.
@@ -973,9 +1125,9 @@ TEST(ZDTReliability, SimultaneousOpenDoesNotFalselyAck) {
   ZDTOptions config = FastConfig();
   ZDTConnection connection;
   ZDTTransportLayer a(socket_a, socket_b->local_address(), config, false,
-                      nullptr, connection);
+                      nullptr, connection, QuietCommon());
   ZDTTransportLayer b(socket_b, socket_a->local_address(), config, false,
-                      nullptr, connection);
+                      nullptr, connection, QuietCommon());
 
   auto payload_a = std::make_shared<Buffer>();
   payload_a->WriteInt<uint32_t>(0xAAAA);
@@ -1025,14 +1177,12 @@ TEST(ZDTReliability, SequenceWraparoundDoesNotBreakConnection) {
   ZDTOptions config;
   config.rto_min = std::chrono::milliseconds(20);
   config.rto_max = std::chrono::milliseconds(200);
-  config.keepalive_interval = std::chrono::hours(1);
-  config.idle_timeout = std::chrono::hours(1);
   config.cwnd = 256;
   ZDTConnection connection;
   ZDTTransportLayer a(socket_a, socket_b->local_address(), config, false,
-                      nullptr, connection);
+                      nullptr, connection, QuietCommon());
   ZDTTransportLayer b(socket_b, socket_a->local_address(), config, false,
-                      nullptr, connection);
+                      nullptr, connection, QuietCommon());
 
   const uint32_t kMessages = 70000;  // > 65536
   uint32_t sent = 0;
@@ -1354,9 +1504,9 @@ TEST(ZDTMetrics, CountsRetransmitsAndDuplicates) {
   ZDTOptions config = FastConfig();
   ZDTConnection connection;
   ZDTTransportLayer client(client_socket, server_socket->local_address(), config,
-                           false, nullptr, connection);
+                           false, nullptr, connection, QuietCommon());
   ZDTTransportLayer server(server_socket, client_socket->local_address(), config,
-                           false, nullptr, connection);
+                           false, nullptr, connection, QuietCommon());
 
   const uint32_t kMessages = 100;
   for (uint32_t i = 0; i < kMessages; i++) {
@@ -1464,9 +1614,9 @@ TEST(ZDTChannels, ReliableUnorderedDeliversAllExactlyOnce) {
   ZDTOptions config = FastConfig();
   ZDTConnection connection;
   ZDTTransportLayer client(client_socket, server_socket->local_address(), config,
-                           false, nullptr, connection);
+                           false, nullptr, connection, QuietCommon());
   ZDTTransportLayer server(server_socket, client_socket->local_address(), config,
-                           false, nullptr, connection);
+                           false, nullptr, connection, QuietCommon());
 
   const uint32_t kMessages = 200;
   SendOptions options = MakeSendOptions(true, false, 1);
@@ -1509,9 +1659,9 @@ TEST(ZDTChannels, UnreliableSequencedDeliversMonotonic) {
   ZDTOptions config = FastConfig();
   ZDTConnection connection;
   ZDTTransportLayer client(client_socket, server_socket->local_address(), config,
-                           false, nullptr, connection);
+                           false, nullptr, connection, QuietCommon());
   ZDTTransportLayer server(server_socket, client_socket->local_address(), config,
-                           false, nullptr, connection);
+                           false, nullptr, connection, QuietCommon());
 
   const uint32_t kMessages = 200;
   SendOptions options = MakeSendOptions(false, true, 2);
@@ -1549,9 +1699,9 @@ TEST(ZDTChannels, UnreliableUnorderedDeliversAllWithoutLoss) {
   ZDTOptions config = FastConfig();
   ZDTConnection connection;
   ZDTTransportLayer client(client_socket, server_socket->local_address(), config,
-                           false, nullptr, connection);
+                           false, nullptr, connection, QuietCommon());
   ZDTTransportLayer server(server_socket, client_socket->local_address(), config,
-                           false, nullptr, connection);
+                           false, nullptr, connection, QuietCommon());
 
   const uint32_t kMessages = 200;
   SendOptions options = MakeSendOptions(false, false, 3);
@@ -1588,9 +1738,9 @@ TEST(ZDTChannels, ReliableAndUnreliableCoexistOnOneChannel) {
   ZDTOptions config = FastConfig();
   ZDTConnection connection;
   ZDTTransportLayer client(client_socket, server_socket->local_address(), config,
-                           false, nullptr, connection);
+                           false, nullptr, connection, QuietCommon());
   ZDTTransportLayer server(server_socket, client_socket->local_address(), config,
-                           false, nullptr, connection);
+                           false, nullptr, connection, QuietCommon());
 
   const uint32_t kMessages = 100;
   SendOptions reliable = MakeSendOptions(true, true, 5);
@@ -1643,9 +1793,9 @@ TEST(ZDTFragmentation, LargeMessageRoundTrip) {
   ZDTConnection connection;
   connection.mtu = 300;  // force fragmentation (~9 fragments for 2500 bytes)
   ZDTTransportLayer client(client_socket, server_socket->local_address(), config,
-                           false, nullptr, connection);
+                           false, nullptr, connection, QuietCommon());
   ZDTTransportLayer server(server_socket, client_socket->local_address(), config,
-                           false, nullptr, connection);
+                           false, nullptr, connection, QuietCommon());
 
   std::vector<uint8_t> original(2500);
   std::mt19937 rng(1234);
@@ -1687,9 +1837,9 @@ TEST(ZDTFragmentation, LargeMessagesReassembleInOrderUnderLoss) {
   ZDTConnection connection;
   connection.mtu = 300;
   ZDTTransportLayer client(client_socket, server_socket->local_address(), config,
-                           false, nullptr, connection);
+                           false, nullptr, connection, QuietCommon());
   ZDTTransportLayer server(server_socket, client_socket->local_address(), config,
-                           false, nullptr, connection);
+                           false, nullptr, connection, QuietCommon());
 
   const uint32_t kMessages = 20;
   std::vector<std::vector<uint8_t>> originals(kMessages);
@@ -1743,9 +1893,9 @@ TEST(ZDTCongestion, WindowBoundsBurstThenDrains) {
   config.cwnd = 8;
   ZDTConnection connection;
   ZDTTransportLayer client(client_socket, server_socket->local_address(), config,
-                           false, nullptr, connection);
+                           false, nullptr, connection, QuietCommon());
   ZDTTransportLayer server(server_socket, client_socket->local_address(), config,
-                           false, nullptr, connection);
+                           false, nullptr, connection, QuietCommon());
 
   const uint32_t kMessages = 100;
   for (uint32_t i = 0; i < kMessages; i++) {
@@ -1798,9 +1948,9 @@ TEST(ZDTCongestion, DatagramsStayWithinTheMtu) {
   ZDTConnection connection;
   const size_t mtu = connection.mtu;
   ZDTTransportLayer client(client_socket, server_socket->local_address(), config,
-                           false, nullptr, connection);
+                           false, nullptr, connection, QuietCommon());
   ZDTTransportLayer server(server_socket, client_socket->local_address(), config,
-                           false, nullptr, connection);
+                           false, nullptr, connection, QuietCommon());
 
   // the interesting payload is the one that exactly fills a datagram: with any
   // slack left the ack blocks fit by luck. sweep down from that size so the
@@ -1872,9 +2022,9 @@ TEST(ZDTReliability, ReportedGapRetransmitsWithoutWaitingOutTheRto) {
   config.rto_max = std::chrono::milliseconds(10000);
   ZDTConnection connection;
   ZDTTransportLayer client(client_socket, server_socket->local_address(), config,
-                           false, nullptr, connection);
+                           false, nullptr, connection, QuietCommon());
   ZDTTransportLayer server(server_socket, client_socket->local_address(), config,
-                           false, nullptr, connection);
+                           false, nullptr, connection, QuietCommon());
 
   // one datagram each, so dropping one leaves an unambiguous gap
   const size_t kPayload = 1100;
@@ -1927,9 +2077,9 @@ TEST(ZDTReliability, ReorderIsRecoveredExactlyOnce) {
   config.rto_max = std::chrono::milliseconds(10000);
   ZDTConnection connection;
   ZDTTransportLayer client(client_socket, server_socket->local_address(), config,
-                           false, nullptr, connection);
+                           false, nullptr, connection, QuietCommon());
   ZDTTransportLayer server(server_socket, client_socket->local_address(), config,
-                           false, nullptr, connection);
+                           false, nullptr, connection, QuietCommon());
 
   const size_t kPayload = 1100;
   const uint32_t kMessages = 6;
@@ -1991,9 +2141,9 @@ TEST(ZDTReliability, TailGapIsReportedRatherThanHeldForever) {
   config.rto_max = std::chrono::milliseconds(10000);
   ZDTConnection connection;
   ZDTTransportLayer client(client_socket, server_socket->local_address(), config,
-                           false, nullptr, connection);
+                           false, nullptr, connection, QuietCommon());
   ZDTTransportLayer server(server_socket, client_socket->local_address(), config,
-                           false, nullptr, connection);
+                           false, nullptr, connection, QuietCommon());
 
   const size_t kPayload = 1100;
   for (uint32_t i = 0; i < 5; i++) {

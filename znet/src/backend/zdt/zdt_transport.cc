@@ -41,7 +41,8 @@ ZDTTransportLayer::ZDTTransportLayer(std::shared_ptr<UDPSocket> socket,
                                      std::shared_ptr<InetAddress> peer,
                                      ZDTOptions config, bool drains_own_socket,
                                      std::shared_ptr<ZDTInbox> inbox,
-                                     ZDTConnection connection)
+                                     ZDTConnection connection,
+                                     CommonOptions common)
     : socket_(std::move(socket)),
       peer_(std::move(peer)),
       config_(std::move(config)),
@@ -50,6 +51,8 @@ ZDTTransportLayer::ZDTTransportLayer(std::shared_ptr<UDPSocket> socket,
       connection_(connection),
       // config_, not the parameter, which has been moved from by this point
       outbound_(config_.outbound_queue_capacity),
+      keepalive_interval_(common.keepalive_interval),
+      idle_timeout_(common.idle_timeout),
       last_recv_(steady_clock::now()),
       last_send_(steady_clock::now()) {
   rtt_.Reset(compat::Clamp(std::chrono::milliseconds(200), config_.rto_min,
@@ -250,50 +253,9 @@ void ZDTTransportLayer::FlushOutbound() {
   constexpr SequenceId kMaxSeqGap = (SequenceId{1} << 16) / 2;
   const TimePoint now = steady_clock::now();
 
-  // drain up front even with staged_ non-empty: the ring is only the producers'
-  // hand-off, staged_ is where this worker parks what the send window refused.
-  // waiting for staged_ to empty would back a shut window into the ring, where
-  // overflow costs sends. bounded, so past this the ring fills and Send()
-  // refuses, which a caller can at least see.
-  if (staged_.size() < config_.outbound_queue_capacity) {
-    outbound_.DrainTo(staged_);
-  }
-
-  while (true) {
-    // and again as staged_ empties, so a message encoded while this loop runs
-    // still goes out in this flush rather than waiting for the next
-    if (staged_.empty() && outbound_.DrainTo(staged_) == 0) {
-      break;
-    }
-    {
-      const SendOptions& next = staged_.front().options;
-      const bool next_reliable = next.GetOr<ReliableKey>(true);
-      // only reliable traffic is windowed; unreliable sends are never held back.
-      if (next_reliable &&
-          unacked_.size() >= static_cast<size_t>(config_.cwnd)) {
-        break;
-      }
-      // the real congestion window: anything past what an ack can describe is
-      // resent for nothing and eventually trips max_retries.
-      if (next_reliable &&
-          in_flight_datagrams_ >= static_cast<size_t>(SendWindow())) {
-        break;
-      }
-      if (next_reliable && !unacked_.empty()) {
-        uint8_t next_channel = next.GetOr<ChannelKey>(0);
-        auto oldest = unacked_.lower_bound(MsgKey{next_channel, true, 0, 0});
-        if (oldest != unacked_.end() && oldest->first.channel == next_channel &&
-            oldest->first.reliable &&
-            channels_[next_channel].rel_send - oldest->first.message_seq >=
-                kMaxSeqGap) {
-          break;  // stalled until the oldest unacked message is retired
-        }
-      }
-    }
-    QueuedOut queued = std::move(staged_.front());
-    staged_.pop_front();
-
-    uint8_t channel = queued.options.GetOr<ChannelKey>(0);
+  // packs one message: batched when it fits a shared datagram, split into
+  // per-datagram fragments when it does not
+  auto pack_message = [&](QueuedOut queued, uint8_t channel) {
     bool reliable = queued.options.GetOr<ReliableKey>(true);
     bool ordered = queued.options.GetOr<OrderedKey>(true);
     uint8_t data_flags = 0;
@@ -329,7 +291,7 @@ void ZDTTransportLayer::FlushOutbound() {
       }
       batch.push_back(std::move(pending));
       batch_bytes += need;
-      continue;
+      return;
     }
 
     // too big for one datagram: each fragment fills its own and is its own
@@ -340,7 +302,7 @@ void ZDTTransportLayer::FlushOutbound() {
       ZNET_LOG_ERROR(
           "ZDT: message of {} bytes needs {} fragments (>255), dropping.", total,
           fragment_count);
-      continue;
+      return;
     }
     uint8_t frag_count = static_cast<uint8_t>(fragment_count);
     uint8_t frag_flags = static_cast<uint8_t>(data_flags | kRecFragment);
@@ -355,8 +317,98 @@ void ZDTTransportLayer::FlushOutbound() {
         TrackReliable(pending, read_base + rel_offset, now, MakeLog(packet));
       }
     }
+  };
+
+  // drain up front even with lanes non-empty: the ring is only the producers'
+  // hand-off, the lanes are where this worker parks what the send window
+  // refused. waiting for them to empty would back a shut window into the ring,
+  // where overflow costs sends. bounded, so past this the ring fills and
+  // Send() refuses, which a caller can at least see.
+  if (staged_count_ < config_.outbound_queue_capacity) {
+    StageOutbound();
+  }
+
+  while (true) {
+    // and again as the lanes empty, so a message encoded while this loop runs
+    // still goes out in this flush rather than waiting for the next
+    if (staged_count_ == 0 && StageOutbound() == 0) {
+      break;
+    }
+    // one message per lane per cycle: a lane the window refuses is skipped,
+    // not waited on, and a bulk transfer takes one slot per pass, so it can
+    // neither park another channel's traffic behind its backlog nor drain the
+    // window dry before another lane gets a turn.
+    bool sent_any = false;
+    const size_t lanes = staged_.size();
+    for (size_t step = 0; step < lanes; step++) {
+      StagedLane& lane = staged_[(staged_cursor_ + step) % lanes];
+      if (lane.messages.empty()) {
+        continue;
+      }
+      const SendOptions& next = lane.messages.front().options;
+      const bool next_reliable = next.GetOr<ReliableKey>(true);
+      // only reliable traffic is windowed; unreliable sends are never held
+      // back.
+      if (next_reliable) {
+        // both windows are global, but the lane is only skipped: another
+        // lane's front may be unreliable and free to go
+        if (unacked_.size() >= static_cast<size_t>(config_.cwnd)) {
+          continue;
+        }
+        // the real congestion window: anything past what an ack can describe
+        // is resent for nothing and eventually trips max_retries.
+        if (in_flight_datagrams_ >= static_cast<size_t>(SendWindow())) {
+          continue;
+        }
+        if (!unacked_.empty()) {
+          auto oldest = unacked_.lower_bound(MsgKey{lane.channel, true, 0, 0});
+          if (oldest != unacked_.end() &&
+              oldest->first.channel == lane.channel &&
+              oldest->first.reliable &&
+              channels_[lane.channel].rel_send - oldest->first.message_seq >=
+                  kMaxSeqGap) {
+            continue;  // stalled until its oldest unacked message is retired
+          }
+        }
+      }
+      QueuedOut queued = std::move(lane.messages.front());
+      lane.messages.pop_front();
+      staged_count_--;
+      pack_message(std::move(queued), lane.channel);
+      sent_any = true;
+    }
+    if (!sent_any) {
+      break;  // every lane is empty or refused by the window
+    }
+    // rotate so a window with room for fewer messages than there are lanes
+    // serves a different lane first next time
+    staged_cursor_ = (staged_cursor_ + 1) % lanes;
   }
   flush_batch();  // whatever is left over goes out now, not next tick
+}
+
+size_t ZDTTransportLayer::StageOutbound() {
+  size_t count = 0;
+  QueuedOut queued;
+  while (outbound_.Pop(queued)) {
+    const uint8_t channel = queued.options.GetOr<ChannelKey>(0);
+    StagedLane* lane = nullptr;
+    for (StagedLane& candidate : staged_) {
+      if (candidate.channel == channel) {
+        lane = &candidate;
+        break;
+      }
+    }
+    if (lane == nullptr) {
+      staged_.push_back(StagedLane{});
+      staged_.back().channel = channel;
+      lane = &staged_.back();
+    }
+    lane->messages.push_back(std::move(queued));
+    count++;
+  }
+  staged_count_ += count;
+  return count;
 }
 
 ZDTTransportLayer::PendingRecord ZDTTransportLayer::MakeRecord(
@@ -383,6 +435,9 @@ void ZDTTransportLayer::TrackReliable(const PendingRecord& pending,
                                       TransmissionLog log) {
   // rtt_.rto() can shrink, so this message may fall due before the cached deadline
   next_retransmit_scan_ = std::min(next_retransmit_scan_, now + rtt_.rto());
+  // the probe measures silence after the newest send, so every send pushes it
+  tail_probes_fired_ = 0;
+  tail_probe_at_ = now + TailProbeDelay();
   unacked_[pending.key] = OutReliable{pending.owner,             // message
                                       offset,                    // offset
                                       pending.payload_len,       // length
@@ -553,6 +608,12 @@ void ZDTTransportLayer::ProcessAcks(const ZDTHeader& header) {
   }
   if (newly_acked > 0) {
     congestion_.OnAcked(newly_acked, rtt_, next_packet_seq_, SendWindowCap());
+    // progress breaks the silence; a duplicate ack does not, because a peer
+    // that answers without retiring anything is describing exactly the stall
+    // the probe exists to break
+    tail_probes_fired_ = 0;
+    tail_probe_at_ = unacked_.empty() ? TimePoint::max()
+                                      : steady_clock::now() + TailProbeDelay();
   }
 }
 
@@ -622,6 +683,9 @@ void ZDTTransportLayer::RetransmitUnacked() {
     ZNET_METRIC(metrics_.zdt.retransmits++);
     msg.last_send = now;
     msg.send_count++;
+    // a resend breaks the silence as well, so the tail probe restarts from it
+    // (fired count kept: this is recovery traffic, not ack progress)
+    tail_probe_at_ = now + TailProbeDelay();
     if (!nak_forced) {
       timed_out = true;
     }
@@ -631,6 +695,48 @@ void ZDTTransportLayer::RetransmitUnacked() {
     congestion_.OnRetransmitTimeout(rtt_, next_packet_seq_);
   }
   next_retransmit_scan_ = earliest;
+}
+
+std::chrono::steady_clock::duration ZDTTransportLayer::TailProbeDelay() const {
+  auto delay = std::chrono::duration_cast<steady_clock::duration>(
+      std::chrono::duration<double, std::milli>(2.0 * rtt_.srtt_ms()));
+  const auto floor =
+      std::chrono::duration_cast<steady_clock::duration>(
+          std::chrono::milliseconds(kZDTTailProbeFloorMs));
+  if (delay < floor) {
+    delay = floor;
+  }
+  delay *= 1 << (tail_probes_fired_ < 6 ? tail_probes_fired_ : 6);
+  const auto ceiling =
+      std::chrono::duration_cast<steady_clock::duration>(config_.rto_max);
+  return delay > ceiling ? ceiling : delay;
+}
+
+void ZDTTransportLayer::MaybeTailProbe(TimePoint now) {
+  if (now < tail_probe_at_ || unacked_.empty()) {
+    return;
+  }
+  // the newest transmission is the likeliest tail loss. >= so that within one
+  // burst, whose sends share a timestamp, the highest key (the actual tail)
+  // wins.
+  auto newest = unacked_.begin();
+  for (auto it = unacked_.begin(); it != unacked_.end(); ++it) {
+    if (it->second.last_send >= newest->second.last_send) {
+      newest = it;
+    }
+  }
+  OutReliable& msg = newest->second;
+  PendingRecord pending =
+      MakeRecord(msg.message, msg.offset, msg.length, msg.data_flags,
+                 msg.channel, newest->first.message_seq, msg.frag_index,
+                 msg.frag_count, /*reliable=*/true);
+  WireSeq packet = SendBatch(0, &pending, 1);
+  msg.packets.Add(packet);
+  ZNET_METRIC(metrics_.zdt.tail_probes++);
+  // last_send and send_count stay untouched: the RTO backstop keeps both its
+  // schedule and its give-up accounting, the probe is extra traffic on top.
+  tail_probes_fired_++;
+  tail_probe_at_ = now + TailProbeDelay();
 }
 
 void ZDTTransportLayer::PruneSentPackets() {
@@ -723,12 +829,13 @@ void ZDTTransportLayer::DeliverMessage(const ZDTRecord& record,
 
 void ZDTTransportLayer::CheckTimers() {
   auto now = steady_clock::now();
-  if (now - last_recv_ > config_.idle_timeout) {
+  if (idle_timeout_.count() > 0 && now - last_recv_ > idle_timeout_) {
     ZNET_LOG_DEBUG("ZDT: closing {} due to idle timeout", peer_->readable());
     Close();
     return;
   }
-  if (now - last_send_ > config_.keepalive_interval) {
+  if (keepalive_interval_.count() > 0 &&
+      now - last_send_ > keepalive_interval_) {
     SendControl(kFlagPing);
   }
 }
@@ -749,6 +856,7 @@ void ZDTTransportLayer::Update() {
   if (is_closed_) {
     return;
   }
+  MaybeTailProbe(steady_clock::now());
   CheckTimers();
   if (is_closed_) {
     return;

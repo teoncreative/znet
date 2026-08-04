@@ -57,10 +57,14 @@ struct ZDTConnection {
 // it just appends raw bytes to the inbox which Update() drains.
 class ZDTTransportLayer : public TransportLayer {
  public:
+  // `common` carries the transport-agnostic keepalive knobs; the defaults
+  // match CommonOptions so call sites without a SessionOptions in hand (the
+  // dialer, the tests) behave like a default session
   ZDTTransportLayer(std::shared_ptr<UDPSocket> socket,
                     std::shared_ptr<InetAddress> peer, ZDTOptions config,
                     bool drains_own_socket, std::shared_ptr<ZDTInbox> inbox,
-                    ZDTConnection connection);
+                    ZDTConnection connection,
+                    CommonOptions common = CommonOptions());
   ~ZDTTransportLayer() override;
 
   std::shared_ptr<Buffer> Receive() override;
@@ -102,6 +106,7 @@ class ZDTTransportLayer : public TransportLayer {
   void DrainSocket();     // client-side: recvfrom own socket -> inbox
   void ProcessInbound();  // parse queued raw datagrams (worker thread)
   void FlushOutbound();   // send queued NEW messages (worker thread)
+  size_t StageOutbound(); // move ring entries into their channel lanes
   void SendControl(uint8_t flags);
   void CheckTimers();
 
@@ -134,6 +139,12 @@ class ZDTTransportLayer : public TransportLayer {
   void ProcessAcks(const ZDTHeader& header);  // consume the peer's ack blocks
   bool AckPacket(WireSeq packet_seq);  // true if this ack was new
   void RetransmitUnacked();
+  // resends the newest unacked message when acks go silent, so a lost burst
+  // tail does not wait out the RTO floor. Even when the probed message was not
+  // the one lost, its fresh packet_seq advances the peer's ack horizon and the
+  // real gap comes back as a NAK. See kZDTTailProbeFloorMs.
+  void MaybeTailProbe(TimePoint now);
+  std::chrono::steady_clock::duration TailProbeDelay() const;
   void PruneSentPackets();
   // expands the record's truncated message_seq to a full SequenceId, using the
   // matching substream's position on that channel as context.
@@ -261,8 +272,17 @@ class ZDTTransportLayer : public TransportLayer {
   // Send() runs on whichever thread is encoding the session, FlushOutbound()
   // on the owning worker, so the hand-off is lock-free.
   MpscQueue<QueuedOut> outbound_;
-  // what the send window had no room for. Worker only, so it needs no lock.
-  std::deque<QueuedOut> staged_;
+  // what the send window had no room for, one lane per channel so a stalled
+  // or backlogged channel cannot hold another channel's traffic behind it.
+  // Worker only, so it needs no lock. Lanes persist once created: a channel
+  // that bursts repeatedly reuses its deque's nodes instead of allocating.
+  struct StagedLane {
+    uint8_t channel = 0;
+    std::deque<QueuedOut> messages;
+  };
+  std::vector<StagedLane> staged_;
+  size_t staged_count_ = 0;   // total queued across lanes; bounds the drain
+  size_t staged_cursor_ = 0;  // rotates so no lane is always served first
   // reused across ProcessInbound() calls. a default-constructed std::deque
   // allocates its map and first node immediately, so declaring this local meant
   // two mallocs on every tick whether or not a datagram had arrived. swapping
@@ -278,6 +298,9 @@ class ZDTTransportLayer : public TransportLayer {
   ThreadDomain worker_domain_;
 #endif
 
+  // the transport-agnostic keepalive knobs, from CommonOptions
+  std::chrono::milliseconds keepalive_interval_;
+  std::chrono::milliseconds idle_timeout_;
   TimePoint last_recv_;
   TimePoint last_send_;
 
@@ -304,6 +327,10 @@ class ZDTTransportLayer : public TransportLayer {
   // soonest moment any unacked message can fall due; before it, the retransmit
   // scan has nothing to find and is skipped entirely
   TimePoint next_retransmit_scan_ = TimePoint::min();
+  // when the next tail-loss probe fires. Armed while reliable data is
+  // outstanding; sends and ack progress push it back, each fire doubles it.
+  TimePoint tail_probe_at_ = TimePoint::max();
+  int tail_probes_fired_ = 0;
 
   // reliability, receiver: ack state and per-channel ordered delivery.
   // what arrived from the peer, and the ack blocks built from it
