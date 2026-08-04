@@ -91,7 +91,19 @@ int main() {
   // We're listening on localhost (127.0.0.1) port 25000
   // In a real application, you'd typically get these values from
   // command line arguments or a config file or from ui
+  // On POSIX the address can also be a Unix socket path,
+  // e.g. {"unix:/run/demo.sock", 0, ...} with ConnectionType::TCP.
   ServerConfig config{"localhost", 25000, std::chrono::seconds(10)};
+
+  // A public server usually wants admission control; all of it lives in
+  // config.options. See the wiki's Configuration Reference for the details.
+  // config.options.max_connections = 1024;
+  // config.options.max_attempts_per_source = 10;  // per 10 s window
+  // config.options.denylist.push_back(CIDRBlock::Parse("203.0.113.0/24"));
+  // Sessions ping when idle and drop after silence; both knobs are
+  // per-session and default to 1 s pings and a 10 s timeout:
+  // config.child_options.common.keepalive_interval = std::chrono::seconds(1);
+  // config.child_options.common.idle_timeout = std::chrono::seconds(10);
 
   // Initialize the server with our configuration
   // This sets up the internal server state but doesn't start listening yet

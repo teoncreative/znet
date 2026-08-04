@@ -61,7 +61,7 @@ everything else.
   build it, then a server and client that talk
 * [Packets and Serialization](https://github.com/teoncreative/znet/wiki/Packets-and-Serialization):
   defining messages
-* [Events](https://github.com/teoncreative/znet/wiki/Events): the six events and
+* [Events](https://github.com/teoncreative/znet/wiki/Events): every event and
   what to do in each
 * [Session State](https://github.com/teoncreative/znet/wiki/Session-State):
   attaching your own per-connection object to a session

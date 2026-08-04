@@ -43,6 +43,36 @@ target_link_libraries(znet-tests-session PRIVATE gtest_main znet)
 
 add_test(NAME session-unit-tests COMMAND znet-tests-session)
 
+add_executable(znet-tests-p2p p2p_host.cc)
+znet_apply_cxx_standard(znet-tests-p2p)
+target_link_libraries(znet-tests-p2p PRIVATE gtest_main znet)
+
+add_test(NAME p2p-host-tests COMMAND znet-tests-p2p)
+
+add_executable(znet-tests-admission admission.cc)
+znet_apply_cxx_standard(znet-tests-admission)
+target_link_libraries(znet-tests-admission PRIVATE gtest_main znet)
+
+add_test(NAME admission-tests COMMAND znet-tests-admission)
+
+add_executable(znet-tests-unix unix_socket.cc)
+znet_apply_cxx_standard(znet-tests-unix)
+target_link_libraries(znet-tests-unix PRIVATE gtest_main znet)
+
+add_test(NAME unix-socket-tests COMMAND znet-tests-unix)
+
+add_executable(znet-tests-tcp tcp_transport.cc)
+znet_apply_cxx_standard(znet-tests-tcp)
+target_link_libraries(znet-tests-tcp PRIVATE gtest_main znet)
+
+add_test(NAME tcp-transport-tests COMMAND znet-tests-tcp)
+
+add_executable(znet-tests-locator locator.cc)
+znet_apply_cxx_standard(znet-tests-locator)
+target_link_libraries(znet-tests-locator PRIVATE gtest_main znet)
+
+add_test(NAME locator-tests COMMAND znet-tests-locator)
+
 add_executable(znet-tests-encryption encryption.cc)
 znet_apply_cxx_standard(znet-tests-encryption)
 target_link_libraries(znet-tests-encryption PRIVATE gtest_main znet)

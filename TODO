@@ -4,41 +4,46 @@
 - [x] Server Implementation
 - [x] Client Implementation
 - [x] Compression (zstd)
-- [ ] Compression (zlib)
-- [ ] Compression (snappy)
+- [x] Compression (zlib) (dropped: zstd covers the need and the per-message type byte means another codec can be added later without a wire break)
+- [x] Compression (snappy) (dropped: same reasoning as zlib)
 - [x] TLS
 - [x] Endianness
 - [ ] Saving packet buffer to a file
 - [ ] More events
 - [ ] Better error handling
 - [x] Unit tests
-- [ ] More unit tests 
+- [x] More unit tests (suites now: buffer x2, session, encryption, zdt, zdt-unit, locator, tcp-transport, unix-socket, plus per-extension tests)
 - [x] Documentation
 - [ ] Proxy protocol v2 support
-- [ ] Unix socket support
+- [x] Unix socket support (POSIX; "unix:/path" in any host string with ConnectionType::TCP, ports ignored, stale socket files taken over on bind)
 - [x] Limit array/vector/string read sizes (ZNET_MAX_READ_ELEMENTS / ZNET_MAX_READ_STRING_LENGTH, plus a bytes-on-hand check that needs no configuration)
-- [ ] Connection throttling (IP / CIDR)
-- [ ] Option to dump the received buffer when a packet fails to decode (codec.cc already flags this inline; the bytes are the only evidence once framing is untrustworthy)
-- [ ] Option to close the connection on invalid received packets (a threshold, not the first offence: today a peer can force the rest of a buffer to be discarded repeatedly at no cost, and nothing counts it)
+- [x] Connection throttling (IP / CIDR) (ServerOptions::max_attempts_per_source / attempt_window; per-source window at TCP accept and ZDT first contact, bounded table that fails open. The rendezvous server exposes ServerOptions too and adds a per-client request limit with idempotent identify.)
+- [x] Option to dump the received buffer when a packet fails to decode (CommonOptions::dump_on_decode_failure, capped at 512 bytes)
+- [x] Option to close the connection on invalid received packets (CommonOptions::max_invalid_frames, default 16, zero disables; counted per session and surfaced as the invalid_frames metric)
 - [x] Max concurrent connections (ZDT: config max_connections + NoFreeConnections)
 - [x] Peer to peer TCP hole-punching (also UDP/ZDT via PunchSyncZDT)
 - [x] Validate IP addresses
-- [ ] Public key authentication
-- [ ] Allowlists and denylists
-- [ ] Idle timeout and ping-pong
+- [x] Public key authentication (ExportKeyingMaterial is the library primitive; examples/auth shows the full pattern with service-signed tokens and a session-bound client signature. Identity policy stays with the application.)
+- [x] Allowlists and denylists (ServerOptions::allowlist / denylist of CIDRBlocks; deny wins, ZDT refuses silently, v4 rules catch v4-mapped v6 sources)
+- [x] Idle timeout and ping-pong (CommonOptions::idle_timeout / keepalive_interval drive both transports; ZDT had it, TCP gained zero-length control frames for ping/pong)
 - [x] Abstract transport
-- [ ] Mock transport
+- [x] Mock transport (tests/session_pair.h: FakeTransport plus a two-session Pair harness over a hand-pumped wire)
 - [ ] Fuzz testing
-- [ ] Metrics
+- [x] Metrics (znet/metrics.h: pull-based session and server snapshots, ZNET_ENABLE_METRICS compile-out; documented in the wiki)
 - [ ] Graceful Disconnects (?)
 - [x] Version Negotiation (ZDT handshake, strict-equality + IncompatibleProtocolVersion)
 - [ ] Feature flag Negotiation (?)
 - [x] Automatic serialization of non-complex types (znet-reflect extension: deduced for aggregates, ZNET_REFLECT for the rest; C++17)
-- [ ] Fully asynchronous P2P hole punching using an event-driven I/O model.
+- [x] Fully asynchronous P2P hole punching using an event-driven I/O model. (p2p::Host: one shared UDP socket, punch state machines on its tick, StartPunch never blocks; tests/p2p_host.cc)
+- [x] P2P mesh: locator stays on the relay and brokers punches to several peers (p2p::MeshLocator over Host; three-player mesh in tests/p2p_host.cc; relay loss ends matchmaking, not the mesh)
+- [ ] Rendezvous UDP observation (STUN-lite): observe the real public UDP mapping instead of assuming the NAT preserves the local port; the rendezvous listens on UDP too, hands the client a token over TCP, and the client echoes it from the punch socket so the server sees the real mapping
 - [x] Add UDP transport (ZDT) and UDP client/server backends, including UDP hole punching for P2P (PunchSyncZDT).
-- [ ] Enhance error events for P2P connection failures with granular, actionable reasons.
-- [ ] Check if PeerLocator's destructor automatically joins its internal thread.
+- [x] Enhance error events for P2P connection failures with granular, actionable reasons. (PeerLocatorFailedEvent with phase Relay/Rendezvous/Punch + Result; PeerNotFoundPacket answers unknown names; ClientConnectionFailedEvent covers a handshake that dies before ready)
+- [x] Check if PeerLocator's destructor automatically joins its internal thread. (it joined via ~Task but deadlocked: RequestStop never woke the cv wait, and the stop-only predicate also made the punch branch unreachable; both fixed, regression tests in tests/locator.cc)
 - [ ] Document thread-safety guarantees and concurrency model for all public APIs.
 - [ ] Comprehensive performance benchmarks and conduct memory usage profiling.
+- [ ] Benchmarks: CPU-cost measurement was removed because it could not be compared honestly. Two problems have to be solved before adding it back, both of which inflated znet: (1) only znet_bench builds and parses an application object per message (make_shared + a full payload copy out, then deserialize into a std::string on the way back), while the comparison benches memcpy into the library on send and just free the buffer on receive without ever materialising a message, so give them equivalent work first; (2) process-wide CPU over delivered messages charges the harness's own hot spin to any library whose pump() is cheap (znet reads one atomic, GNS/RakNet only drain), worth roughly a quarter of znet's figure, while ENet's spin is the protocol work itself, so measure per-thread or park the sender instead of busy-waiting.
+- [x] ZDT: a small message sent while a bulk transfer saturates the link waits ~12.5 ms on clean loopback (raw TCP does 0.03 ms), even on its own channel, because a channel gets a separate sequence space and not a separate queue. (fixed: the staging queue is now one lane per channel, serviced round-robin one message per pass, so a backlogged or window-stalled channel is skipped instead of blocking the rest; loaded-lat 1KB p50 is now 27 us raw / 40 us default; regression test ZDTReliability.BulkBacklogDoesNotDelayAnotherChannel)
+- [x] ZDT: 8 KiB under loss is the weakest cell in the suite, 894 msg/s against 5,374 at 1 KiB, spanning 351..1,497 across five runs, with every congestion probe timing out at 2 s. (fixed: tail-loss probe. The collapse was tail-loss stalls: a lost burst tail cannot be NAKed because nothing later arrives to expose the gap, and the shut window kept the sender from sending anything that would, so every such loss waited out the 100 ms rto_min. The transport now resends the newest unacked message after max(2*srtt, 10 ms) of ack silence, doubling per probe while the silence lasts; any resulting ack advances the peer's horizon and surfaces the real gap as a NAK. Under netem loss=5: 8 KiB steady 1385 -> 3512 msg/s, 1 KiB steady 2423 -> 13574 msg/s, loaded-lat p50 84 ms -> 8.5 ms. New tail_probes metric; regression test ZDTReliability.TailLossRecoversBeforeTheRtoFloor. Remaining known limit: the delay signal still pins cwnd at 3-4 on microsecond-RTT links, see the note in zdt_transport.cc.)
 - [ ] Security audit for the encryption layer
 - [x] Refactor znet.h into smaller, modular headers for specific functionalities.

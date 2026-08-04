@@ -67,6 +67,16 @@ bool OnConnectEvent(ClientConnectedToServerEvent& event) {
   return false;
 }
 
+// Called when the dial or its handshake fails: no session ever became ready.
+// A session that connected and later ended fires
+// ClientDisconnectedFromServerEvent instead; the two never overlap.
+bool OnConnectionFailedEvent(ClientConnectionFailedEvent& event) {
+  (void)event;
+  ZNET_LOG_ERROR("Could not connect to the server.");
+  // This is the place to schedule a retry or surface an error in your UI.
+  return false;
+}
+
 // Main event dispatcher - routes different types of events
 // to their appropriate handlers
 void OnEvent(Event& event) {
@@ -74,6 +84,8 @@ void OnEvent(Event& event) {
   // Route for different types of events
   dispatcher.Dispatch<ClientConnectedToServerEvent>(
       ZNET_BIND_GLOBAL_FN(OnConnectEvent));
+  dispatcher.Dispatch<ClientConnectionFailedEvent>(
+      ZNET_BIND_GLOBAL_FN(OnConnectionFailedEvent));
 }
 
 int main() {
