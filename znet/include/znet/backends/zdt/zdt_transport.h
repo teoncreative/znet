@@ -89,8 +89,8 @@ class ZDTTransportLayer : public TransportLayer {
   struct MsgKey {
     uint8_t channel = 0;
     bool reliable = false;
-    SequenceId message_seq = 0;
     uint8_t frag_index = 0;
+    SequenceId message_seq = 0;
     bool operator<(const MsgKey& other) const {
       return std::tie(channel, reliable, message_seq, frag_index) <
              std::tie(other.channel, other.reliable, other.message_seq,

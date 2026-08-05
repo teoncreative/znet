@@ -427,7 +427,7 @@ ZDTTransportLayer::PendingRecord ZDTTransportLayer::MakeRecord(
   pending.payload = owner->data() + offset;
   pending.payload_len = length;
   pending.reliable = reliable;
-  pending.key = MsgKey{channel, reliable, message_seq, frag_index};
+  pending.key = MsgKey{channel, reliable, frag_index, message_seq};
   return pending;
 }
 
@@ -496,7 +496,8 @@ WireSeq ZDTTransportLayer::SendBatch(uint8_t extra_flags,
   send_scratch_.Reset();
   Buffer& datagram = send_scratch_;
   WriteZDTHeader(datagram, header);
-  SentInfo info;
+  RetireSentPacket(header.packet_seq);
+  SentInfo& info = sent_packets_[header.packet_seq];
   for (size_t i = 0; i < count; i++) {
     const PendingRecord& pending = batch[i];
     WriteZDTRecord(datagram, pending.record);
@@ -515,13 +516,9 @@ WireSeq ZDTTransportLayer::SendBatch(uint8_t extra_flags,
   last_send_ = steady_clock::now();
   needs_ack_ = false;  // this datagram piggybacked our current ack
   info.send_time = last_send_;
-  // replacing a live entry would leak its count, though a 16-bit sequence
-  // wrapping onto one still tracked means far worse is already wrong
-  RetireSentPacket(header.packet_seq);
   if (info.key_count > 0) {
     in_flight_datagrams_++;
   }
-  sent_packets_[header.packet_seq] = info;
   return header.packet_seq;
 }
 
@@ -627,24 +624,29 @@ bool ZDTTransportLayer::AckPacket(WireSeq packet_seq) {
   if (it == sent_packets_.end()) {
     return false;
   }
-  SentInfo info = it->second;
-  RetireSentPacket(it);
   // packet_seq is unique per transmission, so there is no Karn ambiguity.
   const TimePoint now = steady_clock::now();
-  rtt_.OnSample(now - info.send_time, now, config_.rto_min, config_.rto_max);
+  rtt_.OnSample(now - it->second.send_time, now, config_.rto_min,
+                config_.rto_max);
   // one datagram can carry several reliable messages; acking it retires all of
   // them. dropping each message's other transmissions keeps a sent_packets_
-  // entry from outliving the unacked_ entry that owns it.
-  for (const MsgKey& key : info) {
+  // entry from outliving the unacked_ entry that owns it. the entry is walked
+  // in place rather than copied out (SentInfo is about 1 KB), which is safe
+  // because erasing other entries leaves this one's reference valid; only its
+  // own erase must wait until the walk is done, so the walk skips it.
+  for (const MsgKey& key : it->second) {
     auto msg = unacked_.find(key);
     if (msg == unacked_.end()) {
       continue;
     }
     for (WireSeq seq : msg->second.packets) {
-      RetireSentPacket(seq);
+      if (seq != packet_seq) {
+        RetireSentPacket(seq);
+      }
     }
     unacked_.erase(msg);
   }
+  RetireSentPacket(it);
   return true;
 }
 
@@ -913,7 +915,7 @@ bool ZDTTransportLayer::OnDataFragment(const ZDTRecord& record,
     return true;  // malformed, but nothing to retransmit that would help
   }
   bool reliable = record.flags & kRecReliable;
-  MsgKey key{record.channel, reliable, ReconstructSeqFor(record), 0};
+  MsgKey key{record.channel, reliable, 0, ReconstructSeqFor(record)};
   auto existing = reassembly_.find(key);
   if (existing == reassembly_.end() &&
       (reassembly_.size() >= config_.max_reassemblies ||
