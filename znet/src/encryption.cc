@@ -643,7 +643,11 @@ std::shared_ptr<Buffer> EncryptionLayer::HandleDecrypt(
   unsigned char nonce[kNonceLen];
   BuildNonce(rx_salt_, stream, counter, nonce);
 
-  std::vector<unsigned char> actual(static_cast<size_t>(cipher_len));
+  // GCM's plaintext is at most cipher_len, so the returned buffer is laid out
+  // up front and decrypted straight into place; the scratch vector this used
+  // to fill was a second allocation and a full copy on every message.
+  auto out = std::make_shared<Buffer>();
+  out->ReserveExact(static_cast<size_t>(cipher_len));
   if (!dec_ctx_) {
     dec_ctx_ = EVP_CIPHER_CTX_new();
     dec_keyed_ = false;
@@ -653,7 +657,7 @@ std::shared_ptr<Buffer> EncryptionLayer::HandleDecrypt(
   int actual_len =
       DecryptData(dec_ctx_, set_dec_key, rx_key_, nonce, aad,
                   static_cast<int>(sizeof(aad)), body, cipher_len, tag,
-                  actual.data());
+                  reinterpret_cast<unsigned char*>(out->data_mutable()));
   if (actual_len >= 0) {
     dec_keyed_ = true;
   }
@@ -671,8 +675,8 @@ std::shared_ptr<Buffer> EncryptionLayer::HandleDecrypt(
                    stream, counter);
     return nullptr;
   }
-  return std::make_shared<Buffer>(reinterpret_cast<char*>(actual.data()),
-                                  static_cast<size_t>(actual_len));
+  out->set_write_cursor(static_cast<size_t>(actual_len));
+  return out;
 }
 
 std::shared_ptr<Buffer> EncryptionLayer::HandleIn(
@@ -690,8 +694,8 @@ std::shared_ptr<Buffer> EncryptionLayer::HandleOut(
     return nullptr;
   }
   int buffer_len = static_cast<int>(buffer->readable_bytes());
-  std::shared_ptr<Buffer> new_buffer = std::make_shared<Buffer>();
   if (enable_encryption_) {
+    std::shared_ptr<Buffer> new_buffer = std::make_shared<Buffer>();
     // GCM is a stream cipher: the ciphertext is exactly as long as the input.
     // The output is laid out up front and encrypted straight into place; the
     // scratch ciphertext vector this used to build was a second allocation
@@ -761,6 +765,7 @@ std::shared_ptr<Buffer> EncryptionLayer::HandleOut(
   if (buffer->PrependInt8(0)) {  // no encryption
     return buffer;
   }
+  auto new_buffer = std::make_shared<Buffer>();
   new_buffer->ReserveHeadroom(2);  // room for the transport's frame
   new_buffer->ReserveExact(static_cast<size_t>(buffer_len) + 3);
   new_buffer->WriteInt<uint8_t>(0);  // no encryption

@@ -283,6 +283,13 @@ class ZDTTransportLayer : public TransportLayer {
   // two mallocs on every tick whether or not a datagram had arrived. swapping
   // into a member keeps those nodes alive between calls. session worker only.
   std::deque<std::vector<uint8_t>> inbound_scratch_;
+  // reused across SendBatch() calls, so a datagram costs no allocation once
+  // warm. worker only: Close() writes its FIN from the application's thread
+  // and builds its own buffer for exactly that reason.
+  Buffer send_scratch_{Endianness::BigEndian};
+  // reused across FlushOutbound() calls; holds up to SentInfo::kMaxKeys
+  // records, which as a local was a ~5 KB malloc and free every tick.
+  std::vector<PendingRecord> batch_scratch_;
   // read via IsAlive() from whichever thread owns the application, written by
   // Close() from the same, so it cannot be a plain bool
   std::atomic_bool is_closed_{false};

@@ -794,12 +794,19 @@ class Buffer {
   void ReserveExact(size_t size) { Reserve(size, true); }
 
   void Reserve(size_t size, bool exact = false) {
+    // growth floor: doubling from the requested size alone makes a buffer
+    // filled a few bytes at a time crawl through 2, 6, 14... byte
+    // reallocations, one per write. exact reservations are left exact.
+    constexpr size_t kMinGrowth = 64;
     if (ZNET_UNLIKELY(!data_)) ZNET_UNLIKELY_ATTR {
       size_t target_size;
       if (exact) {
         target_size = size;
       } else {
         target_size = size * 2;
+        if (target_size < kMinGrowth) {
+          target_size = kMinGrowth;
+        }
       }
       data_ = new (std::nothrow) char[target_size];
       if (ZNET_UNLIKELY(!data_)) ZNET_UNLIKELY_ATTR {
@@ -817,6 +824,9 @@ class Buffer {
       return;
     }
     size_t target_size_ = size * 2;
+    if (target_size_ < kMinGrowth) {
+      target_size_ = kMinGrowth;
+    }
     char* tmp_data = new (std::nothrow) char[target_size_];
     if (ZNET_UNLIKELY(!tmp_data)) ZNET_UNLIKELY_ATTR {
       last_error_ = BufferError::CannotAllocate;

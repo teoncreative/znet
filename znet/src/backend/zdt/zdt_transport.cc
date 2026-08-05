@@ -226,7 +226,8 @@ void ZDTTransportLayer::FlushOutbound() {
   const size_t frag_capacity = mtu - kZDTHeaderReserve - kZDTFragRecordHeaderSize;
 
   // pack into as few datagrams as the MTU allows rather than one each
-  std::vector<PendingRecord> batch;
+  std::vector<PendingRecord>& batch = batch_scratch_;
+  batch.clear();
   batch.reserve(SentInfo::kMaxKeys);
   size_t batch_bytes = kZDTHeaderReserve;
   auto flush_batch = [&]() {
@@ -492,7 +493,8 @@ WireSeq ZDTTransportLayer::SendBatch(uint8_t extra_flags,
   }
 #endif
 
-  Buffer datagram(Endianness::BigEndian);
+  send_scratch_.Reset();
+  Buffer& datagram = send_scratch_;
   WriteZDTHeader(datagram, header);
   SentInfo info;
   for (size_t i = 0; i < count; i++) {
