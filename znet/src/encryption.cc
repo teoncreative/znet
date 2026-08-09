@@ -657,7 +657,7 @@ std::shared_ptr<Buffer> EncryptionLayer::HandleDecrypt(
   int actual_len =
       DecryptData(dec_ctx_, set_dec_key, rx_key_, nonce, aad,
                   static_cast<int>(sizeof(aad)), body, cipher_len, tag,
-                  reinterpret_cast<unsigned char*>(out->data_mutable()));
+                  reinterpret_cast<unsigned char*>(out->write_cursor_data()));
   if (actual_len >= 0) {
     dec_keyed_ = true;
   }
@@ -675,7 +675,7 @@ std::shared_ptr<Buffer> EncryptionLayer::HandleDecrypt(
                    stream, counter);
     return nullptr;
   }
-  out->set_write_cursor(static_cast<size_t>(actual_len));
+  out->CommitWrite(static_cast<size_t>(actual_len));
   return out;
 }
 
@@ -707,9 +707,8 @@ std::shared_ptr<Buffer> EncryptionLayer::HandleOut(
     new_buffer->WriteInt<uint8_t>(kModeAesGcm);
     const size_t header_pos = new_buffer->write_cursor();
     new_buffer->SkipWrite(kHeaderLen);  // backfilled once the counter is taken
-    const size_t ciphertext_pos = new_buffer->write_cursor();
-    auto* ciphertext_dst = reinterpret_cast<unsigned char*>(
-        new_buffer->data_mutable() + ciphertext_pos);
+    auto* ciphertext_dst =
+        reinterpret_cast<unsigned char*>(new_buffer->write_cursor_data());
 
     unsigned char tag[kTagLen];
     unsigned char nonce[kNonceLen];
@@ -749,7 +748,7 @@ std::shared_ptr<Buffer> EncryptionLayer::HandleOut(
       return nullptr;
     }
 
-    new_buffer->SkipWrite(static_cast<size_t>(ciphertext_len));
+    new_buffer->CommitWrite(static_cast<size_t>(ciphertext_len));
     new_buffer->Write(tag, sizeof(tag));
 
     unsigned char header[kHeaderLen];

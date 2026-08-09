@@ -16,6 +16,7 @@
 #include "znet/types.h"
 
 #include <iomanip>
+#include <limits>
 #include <ostream>
 #include <sstream>
 
@@ -102,6 +103,90 @@ inline bool ShutdownSocketRead(SocketHandle socket) {
   return shutdown(socket, SD_RECEIVE) == 0;
 #else
   return shutdown(socket, SHUT_RD) == 0;
+#endif
+}
+
+namespace detail {
+
+/**
+ * @brief Caps a transfer length at what one platform call can express.
+ *
+ * Winsock's length parameter is an int, so a plain cast of anything above
+ * INT_MAX wraps negative and the call fails. Capping instead makes it a short
+ * transfer, which every caller already handles by looping or re-polling.
+ */
+inline size_t SocketIoLength(size_t len) {
+#ifdef ZNET_TARGET_WIN
+  constexpr size_t kMax = static_cast<size_t>((std::numeric_limits<int>::max)());
+  return len > kMax ? kMax : len;
+#else
+  return len;
+#endif
+}
+
+}  // namespace detail
+
+//
+// send/recv with one signature: a size_t length and an ssize_t result, the
+// POSIX shape. Winsock spells both as int and takes char* rather than void*,
+// so without these every call site carries its own ifdef around what is one
+// operation. Flags are not a parameter: the only one znet ever wants is the
+// SIGPIPE suppression below, which is a platform detail rather than a
+// caller's choice.
+//
+
+/**
+ * @brief Sends over a connected socket. @return bytes sent, or -1 on error.
+ */
+inline ssize_t SocketSend(SocketHandle socket, const void* data, size_t len) {
+  const size_t length = detail::SocketIoLength(len);
+#ifdef ZNET_TARGET_WIN
+  return send(socket, static_cast<const char*>(data), static_cast<int>(length),
+              0);
+#elif defined(MSG_NOSIGNAL)
+  // a peer that reset the connection turns further sends into EPIPE errors
+  // instead of a process-killing SIGPIPE. Apple has no such flag; the
+  // per-socket SO_NOSIGPIPE is set at construction instead.
+  return send(socket, data, length, MSG_NOSIGNAL);
+#else
+  return send(socket, data, length, 0);
+#endif
+}
+
+/**
+ * @brief Receives from a connected socket. @return bytes read, 0 on an orderly
+ *        shutdown by the peer, or -1 on error.
+ */
+inline ssize_t SocketRecv(SocketHandle socket, void* data, size_t len) {
+  const size_t length = detail::SocketIoLength(len);
+#ifdef ZNET_TARGET_WIN
+  return recv(socket, static_cast<char*>(data), static_cast<int>(length), 0);
+#else
+  return recv(socket, data, length, 0);
+#endif
+}
+
+/** @brief Sends one datagram. @return bytes sent, or -1 on error. */
+inline ssize_t SocketSendTo(SocketHandle socket, const void* data, size_t len,
+                            const sockaddr* addr, socklen_t addr_len) {
+  const size_t length = detail::SocketIoLength(len);
+#ifdef ZNET_TARGET_WIN
+  return sendto(socket, static_cast<const char*>(data),
+                static_cast<int>(length), 0, addr, addr_len);
+#else
+  return sendto(socket, data, length, 0, addr, addr_len);
+#endif
+}
+
+/** @brief Receives one datagram. @return bytes read, or -1 on error. */
+inline ssize_t SocketRecvFrom(SocketHandle socket, void* data, size_t len,
+                              sockaddr* addr, socklen_t* addr_len) {
+  const size_t length = detail::SocketIoLength(len);
+#ifdef ZNET_TARGET_WIN
+  return recvfrom(socket, static_cast<char*>(data), static_cast<int>(length), 0,
+                  addr, addr_len);
+#else
+  return recvfrom(socket, data, length, 0, addr, addr_len);
 #endif
 }
 

@@ -282,7 +282,10 @@ class ZDTTransportLayer : public TransportLayer {
   // allocates its map and first node immediately, so declaring this local meant
   // two mallocs on every tick whether or not a datagram had arrived. swapping
   // into a member keeps those nodes alive between calls. session worker only.
-  std::deque<std::vector<uint8_t>> inbound_scratch_;
+  std::deque<Buffer> inbound_scratch_;
+  // where DrainSocket() lands each recvfrom before the right-sized copy goes
+  // into the inbox. reserved once; worker only.
+  Buffer recv_scratch_{Endianness::BigEndian};
   // reused across SendBatch() calls, so a datagram costs no allocation once
   // warm. worker only: Close() writes its FIN from the application's thread
   // and builds its own buffer for exactly that reason.

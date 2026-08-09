@@ -83,7 +83,9 @@ Result ZDTClientBackend::Handshake(ZDTConnection& out) {
   uint64_t server_guid = 0;
   bool got_reply1 = false;
 
-  uint8_t buf[ZNET_MAX_BUFFER_SIZE];
+  // replies land and are parsed here; reset per datagram, reserved once
+  Buffer reply(Endianness::BigEndian);
+  reply.ReserveExact(ZNET_MAX_BUFFER_SIZE);
 
   // phase 1: OpenConnectionRequest1 -> OpenConnectionReply1, walking the MTU
   // ladder. The request is padded to the candidate MTU so the padded datagram
@@ -108,9 +110,11 @@ Result ZDTClientBackend::Handshake(ZDTConnection& out) {
 
       auto deadline = steady_clock::now() + config_.handshake_retransmit;
       while (steady_clock::now() < deadline && !got_reply1) {
+        reply.Reset();
         size_t len = 0;
         std::shared_ptr<InetAddress> from;
-        RecvResult r = socket_->RecvFrom(buf, sizeof(buf), len, from);
+        RecvResult r = socket_->RecvFrom(reply.write_cursor_data(),
+                                         reply.writable_bytes(), len, from);
         if (r == RecvResult::WouldBlock) {
           std::this_thread::sleep_for(std::chrono::milliseconds(1));
           continue;
@@ -118,11 +122,11 @@ Result ZDTClientBackend::Handshake(ZDTConnection& out) {
         if (r == RecvResult::Error) {
           break;
         }
-        if (len == 0 || (buf[0] & kFlagOnline)) {
+        reply.CommitWrite(len);
+        if (len == 0 ||
+            (static_cast<uint8_t>(reply.data()[0]) & kFlagOnline)) {
           continue;
         }
-        Buffer reply(reinterpret_cast<const char*>(buf), len,
-                     Endianness::BigEndian);
         ZDTOfflineMsg id;
         if (!ReadOfflineHeader(reply, id)) {
           continue;
@@ -166,9 +170,11 @@ Result ZDTClientBackend::Handshake(ZDTConnection& out) {
 
     auto deadline = steady_clock::now() + config_.handshake_retransmit;
     while (steady_clock::now() < deadline) {
+      reply.Reset();
       size_t len = 0;
       std::shared_ptr<InetAddress> from;
-      RecvResult r = socket_->RecvFrom(buf, sizeof(buf), len, from);
+      RecvResult r = socket_->RecvFrom(reply.write_cursor_data(),
+                                       reply.writable_bytes(), len, from);
       if (r == RecvResult::WouldBlock) {
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
         continue;
@@ -176,10 +182,10 @@ Result ZDTClientBackend::Handshake(ZDTConnection& out) {
       if (r == RecvResult::Error) {
         break;
       }
-      if (len == 0 || (buf[0] & kFlagOnline)) {
+      reply.CommitWrite(len);
+      if (len == 0 || (static_cast<uint8_t>(reply.data()[0]) & kFlagOnline)) {
         continue;
       }
-      Buffer reply(reinterpret_cast<const char*>(buf), len, Endianness::BigEndian);
       ZDTOfflineMsg id;
       if (!ReadOfflineHeader(reply, id)) {
         continue;
@@ -249,11 +255,14 @@ Result ZDTClientBackend::Connect() {
 }
 
 void ZDTClientBackend::ReceiveLoop() {
-  uint8_t buffer[ZNET_MAX_BUFFER_SIZE];
+  Buffer scratch(Endianness::BigEndian);
+  scratch.ReserveExact(ZNET_MAX_BUFFER_SIZE);
   while (receiving_.load(std::memory_order_relaxed)) {
+    scratch.Reset();
     size_t len = 0;
     std::shared_ptr<InetAddress> from;
-    RecvResult result = socket_->RecvFrom(buffer, sizeof(buffer), len, from);
+    RecvResult result = socket_->RecvFrom(scratch.write_cursor_data(),
+                                          scratch.writable_bytes(), len, from);
     if (result == RecvResult::WouldBlock) {
       continue;  // receive timeout expired, just re-check the stop flag
     }
@@ -267,7 +276,9 @@ void ZDTClientBackend::ReceiveLoop() {
     if (!(*from == *server_address_)) {
       continue;
     }
-    inbox_->Push(buffer, len, config_.max_inbox_datagrams);
+    scratch.CommitWrite(len);
+    inbox_->Push(Buffer(scratch.data(), scratch.size(), Endianness::BigEndian),
+                 config_.max_inbox_datagrams);
     if (on_data_) {
       on_data_();  // the session has work; do not make it wait out its tick
     }
@@ -373,11 +384,14 @@ Result ZDTServerBackend::Listen() {
 }
 
 void ZDTServerBackend::ReceiveLoop() {
-  uint8_t buffer[ZNET_MAX_BUFFER_SIZE];
+  Buffer scratch(Endianness::BigEndian);
+  scratch.ReserveExact(ZNET_MAX_BUFFER_SIZE);
   while (receiving_.load(std::memory_order_relaxed)) {
+    scratch.Reset();
     size_t len = 0;
     std::shared_ptr<InetAddress> from;
-    RecvResult result = socket_->RecvFrom(buffer, sizeof(buffer), len, from);
+    RecvResult result = socket_->RecvFrom(scratch.write_cursor_data(),
+                                          scratch.writable_bytes(), len, from);
     if (result == RecvResult::WouldBlock) {
       continue;  // receive timeout expired, just re-check the stop flag
     }
@@ -387,31 +401,35 @@ void ZDTServerBackend::ReceiveLoop() {
     if (len == 0 || !from) {
       continue;
     }
-    RouteDatagram(buffer, len, from);
+    scratch.CommitWrite(len);
+    RouteDatagram(scratch, from);
     if (on_data_) {
       on_data_();  // a session has work; do not make it wait out its tick
     }
   }
 }
 
-void ZDTServerBackend::RouteDatagram(uint8_t* data, size_t len,
+void ZDTServerBackend::RouteDatagram(Buffer& datagram,
                                      const std::shared_ptr<InetAddress>& from) {
   ZNET_ZDT_ENTER_DOMAIN(receive_domain_);
   std::lock_guard<std::mutex> lock(state_mutex_);
   MaybeRotateSecret();
-  if (data[0] & kFlagOnline) {
+  if (static_cast<uint8_t>(datagram.data()[0]) & kFlagOnline) {
     auto it = routes_.find(from->readable());
     if (it != routes_.end()) {
-      it->second.inbox->Push(data, len, config_.max_inbox_datagrams);
+      // right-sized for the inbox; the scratch's reservation stays behind
+      it->second.inbox->Push(Buffer(datagram.data(), datagram.size(),
+                                    Endianness::BigEndian),
+                             config_.max_inbox_datagrams);
       return;
     }
     // online datagram from an unknown address -> drop.
     ZNET_METRIC(metrics_.zdt.datagrams_unroutable++);
     return;
   }
-  Buffer offline(reinterpret_cast<const char*>(data), len,
-                 Endianness::BigEndian);
-  HandleOffline(offline, from, len);
+  // offline datagrams are parsed straight out of the scratch; the reply
+  // buffers HandleOffline builds are its own
+  HandleOffline(datagram, from, datagram.size());
 }
 
 void ZDTServerBackend::MaybeRotateSecret() {

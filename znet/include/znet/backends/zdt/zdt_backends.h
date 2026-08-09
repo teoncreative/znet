@@ -152,7 +152,7 @@ class ZDTServerBackend : public ServerBackend {
   // handshake path (which may create a session and push it onto
   // pending_accept_). Returns when is_listening_ goes false.
   void ReceiveLoop();
-  void RouteDatagram(uint8_t* data, size_t len,
+  void RouteDatagram(Buffer& datagram,
                      const std::shared_ptr<InetAddress>& from);
   void HandleOffline(Buffer& buffer, const std::shared_ptr<InetAddress>& from,
                      size_t datagram_size);

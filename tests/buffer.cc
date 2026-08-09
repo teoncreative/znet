@@ -348,3 +348,62 @@ TEST_F(BufferTest, ReadLimitBoundsTheCountAsWell) {
   EXPECT_TRUE(buffer_le_->ReadVector<char>(&Buffer::ReadChar).empty());
   EXPECT_EQ(buffer_le_->GetAndClearLastError(), BufferError::ReadOutOfBounds);
 }
+
+// Compact reclaims consumed space for a stream accumulator without touching
+// the allocation or the unread bytes.
+TEST(BufferCompact, SlidesUnreadBytesToTheFront) {
+  Buffer buffer;
+  buffer.ReserveExact(4);
+  buffer.WriteInt<uint8_t>(1);
+  buffer.WriteInt<uint8_t>(2);
+  buffer.WriteInt<uint8_t>(3);
+  buffer.WriteInt<uint8_t>(4);
+  EXPECT_EQ(buffer.ReadInt<uint8_t>(), 1);
+  EXPECT_EQ(buffer.ReadInt<uint8_t>(), 2);
+
+  buffer.Compact();
+  EXPECT_EQ(buffer.read_cursor(), 0u);
+  EXPECT_EQ(buffer.size(), 2u);
+  EXPECT_EQ(buffer.capacity(), 4u);
+  EXPECT_EQ(buffer.mem_allocations(), 1u);
+  EXPECT_EQ(buffer.ReadInt<uint8_t>(), 3);
+  EXPECT_EQ(buffer.ReadInt<uint8_t>(), 4);
+
+  // the consumed front is writable again: two more bytes fit the same
+  // reservation
+  buffer.Compact();
+  buffer.WriteInt<uint8_t>(5);
+  buffer.WriteInt<uint8_t>(6);
+  EXPECT_EQ(buffer.mem_allocations(), 1u);
+  EXPECT_EQ(buffer.ReadInt<uint8_t>(), 5);
+  EXPECT_EQ(buffer.ReadInt<uint8_t>(), 6);
+}
+
+TEST(BufferCompact, NoUnreadBytesResetsTheCursors) {
+  Buffer buffer;
+  buffer.ReserveExact(4);
+  buffer.WriteInt<uint8_t>(7);
+  EXPECT_EQ(buffer.ReadInt<uint8_t>(), 7);
+  buffer.Compact();
+  EXPECT_EQ(buffer.read_cursor(), 0u);
+  EXPECT_EQ(buffer.size(), 0u);
+}
+
+// External writers (recv, ciphers, decompressors) produce straight into the
+// reservation and commit what they actually wrote.
+TEST(BufferCommitWrite, ExternalWritesLandAtTheWriteCursor) {
+  Buffer buffer;
+  buffer.ReserveExact(8);
+  buffer.WriteInt<uint8_t>(1);
+  ASSERT_GE(buffer.writable_bytes(), 3u);
+  char* dst = buffer.write_cursor_data();
+  for (char i = 0; i < 3; i++) {
+    dst[static_cast<size_t>(i)] = static_cast<char>(2 + i);
+  }
+  buffer.CommitWrite(3);
+  EXPECT_EQ(buffer.size(), 4u);
+  EXPECT_EQ(buffer.mem_allocations(), 1u);
+  for (uint8_t i = 1; i <= 4; i++) {
+    EXPECT_EQ(buffer.ReadInt<uint8_t>(), i);
+  }
+}

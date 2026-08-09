@@ -684,6 +684,27 @@ class Buffer {
     allocated_size_ = write_cursor_;
   }
 
+  /**
+   * @brief Slides the unread bytes to the front, making the consumed space
+   *        writable again.
+   *
+   * For a stream accumulator: parse from the read cursor, append at the write
+   * cursor, and compact between rounds so a fixed reservation never fills up
+   * with already-consumed bytes. Never allocates or shrinks.
+   */
+  void Compact() {
+    if (read_cursor_ == 0) {
+      return;
+    }
+    const size_t unread =
+        write_cursor_ > read_cursor_ ? write_cursor_ - read_cursor_ : 0;
+    if (unread > 0) {
+      std::memmove(data_, data_ + read_cursor_, unread);
+    }
+    read_cursor_ = 0;
+    write_cursor_ = unread;
+  }
+
   void Reset(bool deallocate = false) {
     write_cursor_ = 0;
     read_cursor_ = 0;
@@ -706,6 +727,15 @@ class Buffer {
   }
 
   char* data_mutable() { return data_; }
+
+  /**
+   * @brief Where the next write lands.
+   *
+   * For an external writer (a recv, a cipher, a decompressor) that produces
+   * bytes directly into the buffer: reserve the space, write here, then
+   * CommitWrite what was actually produced. writable_bytes() is how much fits.
+   */
+  char* write_cursor_data() { return data_ + write_cursor_; }
 
   ZNET_NODISCARD size_t write_cursor() const { return write_cursor_; }
 
@@ -764,6 +794,20 @@ class Buffer {
   }
 
   void SkipRead(size_t size) { read_cursor_ += size; }
+
+  /**
+   * @brief Advances the write cursor over bytes an external writer already
+   *        placed at write_cursor_data().
+   *
+   * Unlike SkipWrite this never allocates: the bytes exist, so their space
+   * was necessarily reserved before they were written.
+   */
+  void CommitWrite(size_t bytes) {
+#if defined(DEBUG)
+    assert(bytes <= writable_bytes());
+#endif
+    write_cursor_ += bytes;
+  }
 
   void SetReadLimit(size_t limit) {
     if (limit == 0) {

@@ -57,6 +57,7 @@ ZDTTransportLayer::ZDTTransportLayer(std::shared_ptr<UDPSocket> socket,
       last_send_(steady_clock::now()) {
   rtt_.Reset(compat::Clamp(std::chrono::milliseconds(200), config_.rto_min,
                            config_.rto_max));
+  recv_scratch_.ReserveExact(ZNET_MAX_BUFFER_SIZE);
 }
 
 ZDTTransportLayer::~ZDTTransportLayer() {
@@ -90,7 +91,10 @@ bool ZDTTransportLayer::Send(std::shared_ptr<Buffer> buffer, SendOptions options
 }
 
 void ZDTTransportLayer::OnDatagram(const uint8_t* data, size_t len) {
-  if (!inbox_->Push(data, len, config_.max_inbox_datagrams)) {
+  // the copy into a parse-ready buffer happens here, outside the inbox lock
+  Buffer datagram(reinterpret_cast<const char*>(data), len,
+                  Endianness::BigEndian);
+  if (!inbox_->Push(std::move(datagram), config_.max_inbox_datagrams)) {
     ZNET_METRIC(metrics_.zdt.inbound_dropped++);
   }
 }
@@ -118,15 +122,20 @@ void ZDTTransportLayer::FillMetrics(SessionMetrics& out) const {
 }
 
 void ZDTTransportLayer::DrainSocket() {
-  uint8_t buffer[ZNET_MAX_BUFFER_SIZE];
   while (true) {
+    recv_scratch_.Reset();
     size_t len = 0;
     std::shared_ptr<InetAddress> from;
-    RecvResult result = socket_->RecvFrom(buffer, sizeof(buffer), len, from);
+    RecvResult result = socket_->RecvFrom(recv_scratch_.write_cursor_data(),
+                                          recv_scratch_.writable_bytes(), len,
+                                          from);
     if (result != RecvResult::Received) {
       break;
     }
-    inbox_->Push(buffer, len, config_.max_inbox_datagrams);
+    recv_scratch_.CommitWrite(len);
+    inbox_->Push(Buffer(recv_scratch_.data(), recv_scratch_.size(),
+                        Endianness::BigEndian),
+                 config_.max_inbox_datagrams);
   }
 }
 
@@ -135,19 +144,18 @@ void ZDTTransportLayer::ProcessInbound() {
   // swaps, so leftovers would land back in the inbox and be processed twice.
   inbound_scratch_.clear();
   inbox_->Drain(inbound_scratch_);
-  for (auto& raw : inbound_scratch_) {
-    if (raw.empty() || !(raw[0] & kFlagOnline)) {
+  for (Buffer& buffer : inbound_scratch_) {
+    if (buffer.size() == 0 ||
+        !(static_cast<uint8_t>(buffer.data()[0]) & kFlagOnline)) {
       continue;  // stray/offline datagram on a connected transport
     }
-    Buffer buffer(reinterpret_cast<const char*>(raw.data()), raw.size(),
-                  Endianness::BigEndian);
     ZDTHeader header;
     if (!ReadZDTHeader(buffer, header)) {
       continue;
     }
     last_recv_ = steady_clock::now();
     ZNET_METRIC(metrics_.zdt.datagrams_received++);
-    ZNET_METRIC(metrics_.common.wire_bytes_received += raw.size());
+    ZNET_METRIC(metrics_.common.wire_bytes_received += buffer.size());
     // packet_seq 0 is the sentinel used by stateless control datagrams (the
     // FIN a closing peer sends from its own thread); it carries no sequence or
     // ack state to fold in. The peer's acks are always consumed, but ours is

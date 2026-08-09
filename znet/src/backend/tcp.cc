@@ -19,6 +19,7 @@
 #include "znet/transport.h"
 #include "znet/error.h"
 #include "znet/peer_session.h"
+#include "znet/util.h"
 
 namespace znet {
 namespace backends {
@@ -48,6 +49,9 @@ TCPTransportLayer::TCPTransportLayer(SocketHandle socket, CommonOptions common)
       idle_timeout_(common.idle_timeout),
       last_recv_(std::chrono::steady_clock::now()),
       last_send_(std::chrono::steady_clock::now()) {
+  // one reservation for the connection's lifetime; recv() is bounded by the
+  // space left in it, so it never grows
+  recv_buffer_.ReserveExact(ZNET_MAX_BUFFER_SIZE);
 #if defined(ZNET_TARGET_APPLE)
   // no MSG_NOSIGNAL on Apple; this is the per-socket equivalent, so a send
   // into a reset connection reports EPIPE instead of raising SIGPIPE
@@ -71,39 +75,26 @@ std::shared_ptr<Buffer> TCPTransportLayer::Receive() {
     return new_buffer;
   }
 
-  data_size_ = recv(socket_, data_ + read_offset_,
-#ifdef ZNET_TARGET_WIN
-                    static_cast<int>(sizeof(data_) - static_cast<size_t>(read_offset_)),
-#else
-                    sizeof(data_) - static_cast<size_t>(read_offset_),
-#endif
-                    0);
+  // ReadBuffer() compacted, so everything past the write cursor is free to
+  // append into. A partial frame can never fill the reservation (see the
+  // oversize check), so there is always room to make progress.
+  ssize_t received = SocketRecv(socket_, recv_buffer_.write_cursor_data(),
+                                recv_buffer_.writable_bytes());
 
-  if (data_size_ > ZNET_MAX_BUFFER_SIZE) {
-    Close();
-    ZNET_LOG_ERROR(
-        "Received data bigger than maximum buffer size (rx: {}, max: {}), "
-        "closing connection!",
-        data_size_, ZNET_MAX_BUFFER_SIZE);
-    return nullptr;
-  }
-
-  if (data_size_ == 0) {
+  if (received == 0) {
     Close();
     return nullptr;
   }
 
-  if (data_size_ > 0) {
+  if (received > 0) {
     last_recv_ = std::chrono::steady_clock::now();
     ZNET_METRIC(metrics_.tcp.reads++);
-    ZNET_METRIC(metrics_.common.wire_bytes_received += static_cast<uint64_t>(data_size_));
-    size_t full_size = static_cast<size_t>(data_size_) + static_cast<size_t>(read_offset_);
-    buffer_ = std::make_shared<Buffer>(data_, full_size);
-    read_offset_ = 0;
+    ZNET_METRIC(metrics_.common.wire_bytes_received += static_cast<uint64_t>(received));
+    recv_buffer_.CommitWrite(static_cast<size_t>(received));
     return ReadBuffer();
   }
 
-  if (data_size_ == -1) {
+  if (received == -1) {
 #ifdef ZNET_TARGET_WIN
     int err = WSAGetLastError();
     if (err == WSAEWOULDBLOCK) {
@@ -132,55 +123,43 @@ std::shared_ptr<Buffer> TCPTransportLayer::Receive() {
 
 std::shared_ptr<Buffer> TCPTransportLayer::ReadBuffer() {
   // control frames are consumed in place, so this loops until it has a data
-  // frame to hand up or runs out of parseable bytes
-  while (buffer_ && buffer_->readable_bytes() > 0) {
-    size_t cursor = buffer_->read_cursor();
-    size_t size = 0;
-    bool have_prefix = false;
-    if (buffer_->readable_bytes() >= 2) {
-      // a fixed big-endian uint16: cheap to parse, cheap to prepend, and a
-      // frame is bounded far below what it can express
-      const uint8_t high = static_cast<uint8_t>(buffer_->ReadInt<uint8_t>());
-      const uint8_t low = static_cast<uint8_t>(buffer_->ReadInt<uint8_t>());
-      size = (static_cast<size_t>(high) << 8) | low;
-      have_prefix = true;
-    }
-    if (have_prefix && size + 2 > sizeof(data_)) {
-      // could never be completed, let alone have been sent by Send()
+  // frame to hand up or runs out of complete frames. under two readable bytes
+  // the length prefix itself is still in flight.
+  while (recv_buffer_.readable_bytes() >= 2) {
+    const size_t frame_start = recv_buffer_.read_cursor();
+    // a fixed big-endian uint16, which is the buffer's endianness: cheap to
+    // parse, cheap to prepend, and a frame is bounded far below what it can
+    // express
+    const size_t size = recv_buffer_.ReadInt<uint16_t>();
+    if (size + 2 > recv_buffer_.capacity()) {
+      // could never be completed, let alone have been sent by Send(). this is
+      // also what keeps a partial frame from deadlocking a full buffer: any
+      // frame that passes always fits alongside its prefix, so recv() always
+      // has room to complete it.
       ZNET_LOG_ERROR("Received an oversized frame length {}, closing!", size);
       Close();
-      buffer_ = nullptr;
-      read_offset_ = 0;
+      recv_buffer_.Reset();
       return nullptr;
     }
     // a zero length is a control frame; its body is the one byte that follows
     const size_t need = size == 0 ? 1 : size;
-    // a read can end anywhere, so either the prefix or the body may still be in
-    // flight. neither is a framing error: stash the tail and wait.
-    if (!have_prefix || buffer_->readable_bytes() < need) {
-      buffer_->set_read_cursor(cursor);
-      size_t carry = buffer_->readable_bytes();
-      if (carry >= sizeof(data_)) {
-        ZNET_LOG_ERROR("Frame carry-over {} exceeds the buffer, closing!", carry);
-        Close();
-        buffer_ = nullptr;
-        read_offset_ = 0;
-        return nullptr;
-      }
-      memmove(data_, buffer_->data() + cursor, carry);
-      read_offset_ = static_cast<ssize_t>(carry);
-      buffer_ = nullptr;
-      return nullptr;
+    // a read can end anywhere, so the body may still be in flight. not a
+    // framing error: rewind the prefix and let the next recv() complete it.
+    if (recv_buffer_.readable_bytes() < need) {
+      recv_buffer_.set_read_cursor(frame_start);
+      break;
     }
     if (size == 0) {
-      HandleControl(static_cast<uint8_t>(buffer_->ReadInt<uint8_t>()));
+      HandleControl(recv_buffer_.ReadInt<uint8_t>());
       continue;
     }
-    const char* data_ptr = buffer_->read_cursor_data();
-    buffer_->SkipRead(size);
-    return std::make_shared<Buffer>(data_ptr, size);
+    auto frame =
+        std::make_shared<Buffer>(recv_buffer_.read_cursor_data(), size);
+    recv_buffer_.SkipRead(size);
+    return frame;
   }
-  buffer_ = nullptr;
+  // reclaim the consumed front so the next recv() appends after the tail
+  recv_buffer_.Compact();
   return nullptr;
 }
 
@@ -220,18 +199,7 @@ bool TCPTransportLayer::WriteAll(Buffer& buffer) {
     if (IsClosed()) {
       return false;
     }
-#ifdef ZNET_TARGET_WIN
-    int written = send(socket_, data + offset, static_cast<int>(remaining), 0);
-#else
-    // MSG_NOSIGNAL: a peer that reset the connection turns further sends into
-    // EPIPE errors instead of a process-killing SIGPIPE. Apple has no such
-    // flag; SO_NOSIGPIPE is set on the socket in the constructor instead.
-#ifdef MSG_NOSIGNAL
-    ssize_t written = send(socket_, data + offset, remaining, MSG_NOSIGNAL);
-#else
-    ssize_t written = send(socket_, data + offset, remaining, 0);
-#endif
-#endif
+    ssize_t written = SocketSend(socket_, data + offset, remaining);
     if (written > 0) {
       offset += static_cast<size_t>(written);
       remaining -= static_cast<size_t>(written);

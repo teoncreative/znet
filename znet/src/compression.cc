@@ -72,7 +72,7 @@ std::shared_ptr<Buffer> DecompressZstd(std::shared_ptr<Buffer> buffer) {
 
   new_buffer->ReserveExact(decompressed_bound);
   size_t decompressed_size =
-      ZSTD_decompress(new_buffer->data_mutable(), decompressed_bound,
+      ZSTD_decompress(new_buffer->write_cursor_data(), decompressed_bound,
                       buffer->read_cursor_data(), buffer->readable_bytes());
 
   if (ZSTD_isError(decompressed_size)) {
@@ -81,7 +81,7 @@ std::shared_ptr<Buffer> DecompressZstd(std::shared_ptr<Buffer> buffer) {
     return nullptr;
   }
 
-  new_buffer->set_write_cursor(decompressed_size);
+  new_buffer->CommitWrite(decompressed_size);
   return new_buffer;
 }
 
@@ -96,7 +96,7 @@ std::shared_ptr<Buffer> CompressZstd(std::shared_ptr<Buffer> buffer) {
   new_buffer->ReserveExact(kFront + max_size);
 
   size_t compressed_size =
-      ZSTD_compress(new_buffer->data_mutable() + kFront, max_size,
+      ZSTD_compress(new_buffer->write_cursor_data(), max_size,
                     buffer->read_cursor_data(), buffer->readable_bytes(),
                     2);  // compression level
 
@@ -106,7 +106,7 @@ std::shared_ptr<Buffer> CompressZstd(std::shared_ptr<Buffer> buffer) {
     return nullptr;
   }
 
-  new_buffer->set_write_cursor(kFront + compressed_size);
+  new_buffer->CommitWrite(compressed_size);
   return new_buffer;
 }
 

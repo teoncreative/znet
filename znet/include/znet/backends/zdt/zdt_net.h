@@ -107,19 +107,21 @@ class UDPSocket {
 // carries ZDT traffic goes through this: both backends and the P2P punch.
 void ApplySocketBufferSizes(UDPSocket& socket, int recv_bytes, int send_bytes);
 
-// thread-safe raw-datagram queue, shared by a producer and a consumer running on
+// thread-safe datagram queue, shared by a producer and a consumer running on
 // different threads (see ZDTTransportLayer for the threading rule).
 class ZDTInbox {
  public:
-  // drops and returns false once `limit` datagrams are pending, so a flooding
-  // peer cannot grow this queue without bound.
-  bool Push(const uint8_t* data, size_t len, size_t limit);
-  void Drain(std::deque<std::vector<uint8_t>>& out);
+  // moves one ready-to-parse datagram in; the caller builds it outside the
+  // lock, so the critical section is a deque push. drops and returns false
+  // once `limit` datagrams are pending, so a flooding peer cannot grow this
+  // queue without bound (the refused buffer is simply destroyed).
+  bool Push(Buffer&& datagram, size_t limit);
+  void Drain(std::deque<Buffer>& out);
   size_t dropped() const;
 
  private:
   mutable std::mutex mutex_;
-  std::deque<std::vector<uint8_t>> queue_;
+  std::deque<Buffer> queue_;
   size_t dropped_ = 0;
 };
 

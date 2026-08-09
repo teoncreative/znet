@@ -368,3 +368,140 @@ TEST(TCPKeepalive, DataSurvivesInterleavedControlFrames) {
   EXPECT_FALSE(a.IsClosed());
   EXPECT_FALSE(b.IsClosed());
 }
+
+// --- Framing: the receiver parses frames straight out of its recv buffer, so
+// these pin down the split, coalesce and oversize cases against one raw peer.
+
+namespace {
+
+void AppendFrame(std::vector<uint8_t>& stream, const std::vector<uint8_t>& payload) {
+  stream.push_back(static_cast<uint8_t>(payload.size() >> 8));
+  stream.push_back(static_cast<uint8_t>(payload.size() & 0xFF));
+  stream.insert(stream.end(), payload.begin(), payload.end());
+}
+
+std::vector<uint8_t> FrameBytes(const std::shared_ptr<Buffer>& buffer) {
+  const auto* data = reinterpret_cast<const uint8_t*>(buffer->read_cursor_data());
+  return std::vector<uint8_t>(data, data + buffer->readable_bytes());
+}
+
+std::vector<uint8_t> PatternPayload(size_t size) {
+  std::vector<uint8_t> payload(size);
+  for (size_t i = 0; i < size; i++) {
+    payload[i] = static_cast<uint8_t>(i);
+  }
+  return payload;
+}
+
+}  // namespace
+
+// A TCP read can end anywhere: mid-prefix, mid-body, or between frames. One
+// byte per recv is every split at once.
+TEST(TCPFraming, FramesSurviveByteAtATimeDelivery) {
+  ASSERT_EQ(Init(), Result::Success);
+  SocketPair pair;
+  ASSERT_TRUE(pair.ok);
+  TCPTransportLayer transport(pair.b, Timers(0, 0));
+
+  // sizes cross the one-byte length boundary; the ping sits between frames so
+  // consuming it in place is exercised too
+  std::vector<std::vector<uint8_t>> payloads = {
+      PatternPayload(1), PatternPayload(300), PatternPayload(5)};
+  std::vector<uint8_t> stream;
+  AppendFrame(stream, payloads[0]);
+  stream.insert(stream.end(), {0, 0, 1});  // ping control frame
+  AppendFrame(stream, payloads[1]);
+  AppendFrame(stream, payloads[2]);
+
+  std::vector<std::vector<uint8_t>> got;
+  for (uint8_t byte : stream) {
+    ASSERT_EQ(SocketSend(pair.a, &byte, 1), 1);
+    // let the byte cross the loopback, so each recv really sees one byte
+    std::this_thread::sleep_for(std::chrono::microseconds(200));
+    while (auto frame = transport.Receive()) {
+      got.push_back(FrameBytes(frame));
+    }
+  }
+  // whatever the kernel still had in flight when the loop ended
+  const auto drain_deadline =
+      std::chrono::steady_clock::now() + std::chrono::seconds(2);
+  while (got.size() < payloads.size() &&
+         std::chrono::steady_clock::now() < drain_deadline) {
+    while (auto frame = transport.Receive()) {
+      got.push_back(FrameBytes(frame));
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  }
+  EXPECT_EQ(got, payloads);
+  EXPECT_FALSE(transport.IsClosed());
+
+  // the ping was answered from inside the stream: a pong frame waits on a
+  uint8_t pong[3] = {};
+  ssize_t pong_len = 0;
+  const auto deadline =
+      std::chrono::steady_clock::now() + std::chrono::seconds(2);
+  while (pong_len <= 0 && std::chrono::steady_clock::now() < deadline) {
+    pong_len = SocketRecv(pair.a, pong, sizeof(pong));
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  }
+  ASSERT_EQ(pong_len, 3);
+  EXPECT_EQ(pong[0], 0);
+  EXPECT_EQ(pong[1], 0);
+  EXPECT_EQ(pong[2], 2);  // kControlPong
+  CloseSocket(pair.a);
+}
+
+// The other extreme: everything lands in one recv, and every later Receive()
+// must hand out the queued frames without touching the socket again.
+TEST(TCPFraming, CoalescedFramesAllParse) {
+  ASSERT_EQ(Init(), Result::Success);
+  SocketPair pair;
+  ASSERT_TRUE(pair.ok);
+  TCPTransportLayer transport(pair.b, Timers(0, 0));
+
+  std::vector<std::vector<uint8_t>> payloads = {
+      PatternPayload(4), PatternPayload(600), PatternPayload(1)};
+  std::vector<uint8_t> stream;
+  for (const auto& payload : payloads) {
+    AppendFrame(stream, payload);
+  }
+  ASSERT_EQ(SocketSend(pair.a, stream.data(), stream.size()),
+            static_cast<ssize_t>(stream.size()));
+
+  std::vector<std::vector<uint8_t>> got;
+  const auto deadline =
+      std::chrono::steady_clock::now() + std::chrono::seconds(2);
+  while (got.size() < payloads.size() &&
+         std::chrono::steady_clock::now() < deadline) {
+    while (auto frame = transport.Receive()) {
+      got.push_back(FrameBytes(frame));
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  }
+  EXPECT_EQ(got, payloads);
+  EXPECT_FALSE(transport.IsClosed());
+  CloseSocket(pair.a);
+}
+
+// A length no frame could ever complete must close the connection, not wedge
+// the parser waiting for bytes that cannot fit.
+TEST(TCPFraming, OversizedFrameLengthCloses) {
+  ASSERT_EQ(Init(), Result::Success);
+  SocketPair pair;
+  ASSERT_TRUE(pair.ok);
+  TCPTransportLayer transport(pair.b, Timers(0, 0));
+
+  // 4095 + 2 exceeds ZNET_MAX_BUFFER_SIZE (4096)
+  const uint8_t prefix[2] = {0x0F, 0xFF};
+  ASSERT_EQ(SocketSend(pair.a, prefix, 2), 2);
+
+  const auto deadline =
+      std::chrono::steady_clock::now() + std::chrono::seconds(2);
+  while (!transport.IsClosed() &&
+         std::chrono::steady_clock::now() < deadline) {
+    transport.Receive();
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  }
+  EXPECT_TRUE(transport.IsClosed());
+  CloseSocket(pair.a);
+}

@@ -13,6 +13,7 @@
 
 #include "znet/admission.h"
 #include "znet/backends/backend.h"
+#include "znet/buffer.h"
 #include "znet/options.h"
 #include "znet/peer_session.h"
 #include "znet/precompiled.h"
@@ -61,10 +62,7 @@ class TCPTransportLayer : public TransportLayer {
   /** @brief Writes a whole framed message, looping over partial sends. */
   bool WriteAll(Buffer& buffer);
 
-  char data_[ZNET_MAX_BUFFER_SIZE]{};
-  ssize_t read_offset_ = 0;
-  ssize_t data_size_ = 0;
-  std::shared_ptr<Buffer> buffer_;
+  Buffer recv_buffer_{Endianness::BigEndian};
   SocketHandle socket_;
   // read by IsClosed() from whichever thread owns the application, written by
   // Close() from the same, so it cannot be a plain bool

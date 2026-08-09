@@ -56,13 +56,8 @@ Result UDPSocket::Bind(const InetAddress& addr) {
 }
 
 bool UDPSocket::SendTo(const InetAddress& addr, const void* data, size_t len) {
-#ifdef ZNET_TARGET_WIN
-  int n = sendto(handle(), static_cast<const char*>(data), static_cast<int>(len),
-                 0, addr.handle_ptr(), addr.addr_size());
-#else
-  ssize_t n = sendto(handle(), static_cast<const char*>(data), len, 0,
-                     addr.handle_ptr(), addr.addr_size());
-#endif
+  ssize_t n =
+      SocketSendTo(handle(), data, len, addr.handle_ptr(), addr.addr_size());
   if (n < 0) {
     ZNET_LOG_DEBUG("ZDT: sendto {} failed: {}", addr.readable(),
                    GetLastErrorInfo());
@@ -75,13 +70,8 @@ RecvResult UDPSocket::RecvFrom(void* data, size_t cap, size_t& out_len,
                                std::shared_ptr<InetAddress>& out_from) {
   sockaddr_storage from{};
   socklen_t from_len = sizeof(from);
-#ifdef ZNET_TARGET_WIN
-  int n = recvfrom(handle(), static_cast<char*>(data), static_cast<int>(cap), 0,
-                   reinterpret_cast<sockaddr*>(&from), &from_len);
-#else
-  ssize_t n = recvfrom(handle(), static_cast<char*>(data), cap, 0,
-                       reinterpret_cast<sockaddr*>(&from), &from_len);
-#endif
+  ssize_t n = SocketRecvFrom(handle(), data, cap,
+                             reinterpret_cast<sockaddr*>(&from), &from_len);
   if (n < 0) {
 #ifdef ZNET_TARGET_WIN
     int err = WSAGetLastError();
@@ -209,17 +199,17 @@ Result UDPSocket::Close() {
 // ZDTInbox
 // ---------------------------------------------------------------------------
 
-bool ZDTInbox::Push(const uint8_t* data, size_t len, size_t limit) {
+bool ZDTInbox::Push(Buffer&& datagram, size_t limit) {
   std::lock_guard<std::mutex> lock(mutex_);
   if (queue_.size() >= limit) {
     dropped_++;
     return false;
   }
-  queue_.emplace_back(data, data + len);
+  queue_.push_back(std::move(datagram));
   return true;
 }
 
-void ZDTInbox::Drain(std::deque<std::vector<uint8_t>>& out) {
+void ZDTInbox::Drain(std::deque<Buffer>& out) {
   std::lock_guard<std::mutex> lock(mutex_);
   out.swap(queue_);
 }
