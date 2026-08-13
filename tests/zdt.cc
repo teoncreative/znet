@@ -1516,7 +1516,15 @@ TEST(ZDTMetrics, CountsRetransmitsAndDuplicates) {
 
   std::mt19937 rng(5);
   auto drop = [&]() { return (rng() % 100) < 40; };
-  auto pump = [&](UDPSocket& from, ZDTTransportLayer& to) { Pump(from, to, drop); };
+  auto pump = [&](UDPSocket& from, ZDTTransportLayer& to) {
+    for (auto& datagram : CollectDatagrams(from)) {
+      if (drop()) {
+        continue;
+      }
+      to.OnDatagram(datagram.data(), datagram.size());
+      to.OnDatagram(datagram.data(), datagram.size());
+    }
+  };
 
   size_t delivered = 0;
   auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(15);

@@ -362,16 +362,16 @@ Result TCPClientBackend::Bind() {
   // none of these options mean anything on a Unix socket
   if (server_address_->ipv() != InetProtocolVersion::Unix) {
     SetTCPNoDelay(client_socket_);
-    const char option = 1;
-#ifdef ZNET_TARGET_WIN
-    setsockopt(client_socket_, SOL_SOCKET, SO_BROADCAST, &option,
-               sizeof(option));
-    setsockopt(client_socket_, SOL_SOCKET, SO_BROADCAST, &option,
-               sizeof(option));
-#else
-    setsockopt(client_socket_, SOL_SOCKET, SO_REUSEADDR, &option, sizeof(option));
-    setsockopt(client_socket_, SOL_SOCKET, SO_REUSEPORT, &option, sizeof(option));
-    setsockopt(client_socket_, SOL_SOCKET, SO_BROADCAST, &option, sizeof(option));
+    // the TCP punch rebinds this port after the connection ends in TIME_WAIT,
+    // and Linux only honors the rebind when this socket carried the same
+    // flags. `option` must be an int: a 1-byte optlen is EINVAL on Linux and
+    // the flags were silently never set.
+    const int option = 1;
+    setsockopt(client_socket_, SOL_SOCKET, SO_REUSEADDR,
+               reinterpret_cast<const char*>(&option), sizeof(option));
+#ifndef ZNET_TARGET_WIN
+    setsockopt(client_socket_, SOL_SOCKET, SO_REUSEPORT,
+               reinterpret_cast<const char*>(&option), sizeof(option));
 #endif
   }
   is_bind_ = true;
@@ -504,7 +504,6 @@ Result TCPServerBackend::Bind() {
   }
 
   const bool is_unix = bind_address_->ipv() == InetProtocolVersion::Unix;
-  const char option = 1;
   int domain = GetDomainByInetProtocolVersion(bind_address_->ipv());
   server_socket_ = socket(
       domain, SOCK_STREAM,
@@ -515,14 +514,12 @@ Result TCPServerBackend::Bind() {
     return Result::CannotCreateSocket;
   }
   if (!is_unix && server_options_.reuse_address) {
-#ifdef ZNET_TARGET_WIN
-    setsockopt(server_socket_, SOL_SOCKET, SO_REUSEADDR | SO_BROADCAST, &option,
-               sizeof(option));
-#else
-    setsockopt(server_socket_, SOL_SOCKET,
-               SO_REUSEADDR | SO_REUSEPORT | SO_BROADCAST, &option,
-               sizeof(option));
-#endif
+    // one call per option: option names are not flags to OR together, and the
+    // old combined value named a different option entirely. int-sized, as a
+    // 1-byte optlen is EINVAL on Linux.
+    const int option = 1;
+    setsockopt(server_socket_, SOL_SOCKET, SO_REUSEADDR,
+               reinterpret_cast<const char*>(&option), sizeof(option));
   }
   if (!SetSocketBlocking(server_socket_, false)) {
     ZNET_LOG_ERROR("Error setting socket to non-blocking mode: {}",

@@ -39,8 +39,10 @@ Result UDPSocket::Open(InetProtocolVersion ipv) {
     ZNET_LOG_ERROR("ZDT: failed to create UDP socket: {}", GetLastErrorInfo());
     return Result::CannotCreateSocket;
   }
-  const char option = 1;
-  setsockopt(raw, SOL_SOCKET, SO_REUSEADDR, &option, sizeof(option));
+  // int-sized: a 1-byte optlen is EINVAL on Linux and silently sets nothing
+  const int option = 1;
+  setsockopt(raw, SOL_SOCKET, SO_REUSEADDR,
+             reinterpret_cast<const char*>(&option), sizeof(option));
   // published last, so nothing can pick the handle up before it is configured
   socket_.store(raw, std::memory_order_release);
   return Result::Success;

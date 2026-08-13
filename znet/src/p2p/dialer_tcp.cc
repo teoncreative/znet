@@ -21,6 +21,7 @@
 #include <algorithm>
 #include <chrono>
 #include <thread>
+#include <vector>
 
 namespace znet {
 namespace p2p {
@@ -55,12 +56,14 @@ namespace {
 
 // one socket/bind/connect cycle, waited on until `deadline`. A refused or
 // failed connect closes the socket and reports; the caller decides whether
-// the budget allows another cycle.
+// the budget allows another cycle. `log_bind_failure` is off while the caller
+// is retrying an already-reported bind failure, so a stuck port reports once
+// instead of thousands of times over the budget.
 std::shared_ptr<PeerSession> TryPunchTCPOnce(
     const std::shared_ptr<InetAddress>& local,
     const std::shared_ptr<InetAddress>& peer,
     std::chrono::steady_clock::time_point deadline, bool is_initiator,
-    Result* out_result) {
+    bool log_bind_failure, Result* out_result) {
   const int domain = GetDomainByInetProtocolVersion(local->ipv());
   SocketHandle socket_handle = socket(domain, SOCK_STREAM, 0);
   if (!IsValidSocketHandle(socket_handle)) {
@@ -83,8 +86,11 @@ std::shared_ptr<PeerSession> TryPunchTCPOnce(
   }
 
   if (bind(socket_handle, local->handle_ptr(), local->addr_size()) != 0) {
+    if (log_bind_failure) {
+      ZNET_LOG_ERROR("Failed to bind socket to {}: {} ({})", local->readable(),
+                     LastErr(), GetLastErrorInfo());
+    }
     CloseSocket(socket_handle);
-    ZNET_LOG_ERROR("Failed to bind socket to {}: {} ({})", local->readable(), LastErr(), GetLastErrorInfo());
     *out_result = Result::CannotBind;
     return nullptr;
   }
@@ -97,19 +103,6 @@ std::shared_ptr<PeerSession> TryPunchTCPOnce(
     CloseSocket(socket_handle);
     *out_result = Result::CannotConnect;
     return nullptr;
-  }
-
-  sockaddr_storage local_ss{};
-  socklen_t local_len = sizeof(local_ss);
-  if (getsockname(socket_handle, reinterpret_cast<sockaddr*>(&local_ss), &local_len) == 0) {
-    auto confirm_address = InetAddress::from(reinterpret_cast<sockaddr*>(&local_ss));
-    if (confirm_address) {
-      ZNET_LOG_DEBUG("getsockname: {}", confirm_address->readable());
-    } else {
-      ZNET_LOG_DEBUG("getsockname: invalid address");
-    }
-  } else {
-    ZNET_LOG_ERROR("getsockname failed: {}", GetLastErrorInfo());
   }
 
   while (true) {
@@ -201,14 +194,20 @@ std::shared_ptr<PeerSession> PunchSyncTCP(const std::shared_ptr<InetAddress>& lo
   const auto attempt_cap = std::chrono::milliseconds(
       peers.size() > 1 ? 1000 : timeout_ms);
   Result last_result = Result::Timeout;
+  // retries run every few milliseconds for the whole budget, so per-attempt
+  // logging is thousands of identical lines; each candidate reports a reason
+  // only when it changes
+  std::vector<Result> last_logged(peers.size(), Result::Success);
   size_t attempt = 0;
   while (std::chrono::steady_clock::now() < deadline) {
-    const auto& peer = peers[attempt % peers.size()];
+    const size_t candidate = attempt % peers.size();
+    const auto& peer = peers[candidate];
     attempt++;
     Result attempt_result = Result::Failure;
     const auto attempt_deadline =
         std::min(deadline, std::chrono::steady_clock::now() + attempt_cap);
     auto session = TryPunchTCPOnce(local, peer, attempt_deadline, is_initiator,
+                                   last_logged[candidate] != Result::CannotBind,
                                    &attempt_result);
     if (session) {
       *out_result = Result::Success;
@@ -222,8 +221,11 @@ std::shared_ptr<PeerSession> PunchSyncTCP(const std::shared_ptr<InetAddress>& lo
         std::chrono::steady_clock::now() >= deadline) {
       break;
     }
-    ZNET_LOG_DEBUG("Punch attempt to {} failed ({}), retrying.",
-                   peer->readable(), GetResultString(attempt_result));
+    if (attempt_result != last_logged[candidate]) {
+      last_logged[candidate] = attempt_result;
+      ZNET_LOG_DEBUG("Punch attempt to {} failed ({}), retrying.",
+                     peer->readable(), GetResultString(attempt_result));
+    }
     // a failed attempt dies the moment the RST lands, so the window in which
     // the two SYNs can cross is tiny. Retrying fast keeps the windows dense,
     // and the asymmetric cadence keeps two equally-paced loops from settling
