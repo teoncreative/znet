@@ -22,7 +22,7 @@
 #include "znet/mpsc_queue.h"
 #include "znet/options.h"
 #include "znet/peer_session.h"
-#include "znet/precompiled.h"
+#include "znet/compat.h"
 #include "znet/transport.h"
 
 #include <array>

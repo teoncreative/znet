@@ -9,6 +9,8 @@
 //
 
 #include "znet/scheduler.h"
+
+#include <cmath>
 #include <thread>
 
 Scheduler::Scheduler(uint16_t tps) {

@@ -116,8 +116,41 @@ endif()
 # saying it here gives a CMake-level error instead of a preprocessor one.
 target_compile_features(znet PUBLIC cxx_std_14)
 
+# precompiled.h speeds up znet's own build and is included by nothing, so a
+# header that forgets an include still compiles here. PRIVATE is what keeps it
+# out of consumers.
 target_precompile_headers(znet PRIVATE include/znet/precompiled.h)
 target_include_directories(znet PUBLIC include)
+
+# Compiles every public header on its own, which is the only thing that catches
+# a header leaning on whatever its includer happened to include first. Off by
+# default because it is a second pass over the headers for no artifact; CI turns
+# it on. The PCH is disabled for this target, or it would supply the very
+# includes being checked for.
+option(ZNET_CHECK_HEADERS "Compile each public header standalone to prove it is self-contained" OFF)
+if(ZNET_CHECK_HEADERS)
+    file(GLOB_RECURSE ZNET_PUBLIC_HEADERS CONFIGURE_DEPENDS
+         RELATIVE "${CMAKE_CURRENT_LIST_DIR}/include" "include/znet/*.h")
+    list(REMOVE_ITEM ZNET_PUBLIC_HEADERS "znet/precompiled.h")
+    set(ZNET_HEADER_CHECK_SOURCES "")
+    foreach(header ${ZNET_PUBLIC_HEADERS})
+        string(REGEX REPLACE "[/.]" "_" slug "${header}")
+        set(generated "${CMAKE_CURRENT_BINARY_DIR}/header_check/${slug}.cc")
+        file(GENERATE OUTPUT "${generated}" CONTENT "#include \"${header}\"\n")
+        list(APPEND ZNET_HEADER_CHECK_SOURCES "${generated}")
+    endforeach()
+    list(LENGTH ZNET_PUBLIC_HEADERS ZNET_HEADER_COUNT)
+    message(STATUS "znet: header self-containment check on (${ZNET_HEADER_COUNT} headers)")
+
+    add_library(znet-header-check OBJECT ${ZNET_HEADER_CHECK_SOURCES})
+    set_target_properties(znet-header-check PROPERTIES
+        CXX_STANDARD ${ZNET_CXX_STANDARD}
+        CXX_STANDARD_REQUIRED ON
+        CXX_EXTENSIONS OFF
+        DISABLE_PRECOMPILE_HEADERS ON
+    )
+    target_link_libraries(znet-header-check PRIVATE znet)
+endif()
 
 target_compile_options(znet PUBLIC
         # MSVC Options
@@ -252,6 +285,12 @@ endif()
 # OpenSSL
 find_package(OpenSSL REQUIRED)
 target_link_libraries(znet PUBLIC OpenSSL::SSL OpenSSL::Crypto)
+
+# znet uses DH and ENGINE, which OpenSSL 3 deprecated. PRIVATE because it is
+# znet's own sources that need it; encryption.h is the one public header that
+# reaches an OpenSSL header, and it defines this itself so a consumer compiling
+# against it does not have to know.
+target_compile_definitions(znet PRIVATE OPENSSL_SUPPRESS_DEPRECATED)
 
 # zstd
 option(ZNET_USE_EXTERNAL_ZSTD "Looks for ZSTD via find_package" OFF)

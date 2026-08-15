@@ -15,6 +15,7 @@
 
 #include "znet/admission.h"
 #include "znet/client.h"
+#include "znet/detail/socket_ops.h"
 #include "znet/client_events.h"
 #include "znet/init.h"
 #include "znet/inet_addr.h"

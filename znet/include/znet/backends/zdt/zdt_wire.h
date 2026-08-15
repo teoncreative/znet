@@ -19,8 +19,8 @@
 // the state-free wire layer: only the buffer it reads and writes, so nothing
 // above it (sessions, backends) is dragged in underneath
 #include "znet/buffer.h"
+#include "znet/compat.h"
 #include "znet/inet_addr.h"
-#include "znet/precompiled.h"
 
 #include <array>
 #include <atomic>

@@ -16,9 +16,9 @@
 #ifndef ZNET_PARENT_DIALER_INTERNAL_H
 #define ZNET_PARENT_DIALER_INTERNAL_H
 
+#include "znet/compat.h"
 #include "znet/inet_addr.h"
 #include "znet/peer_session.h"
-#include "znet/precompiled.h"
 
 #include <vector>
 

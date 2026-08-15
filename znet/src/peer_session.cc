@@ -13,6 +13,7 @@
 #include "znet/error.h"
 
 #include <atomic>
+#include <cassert>
 #include <utility>
 
 namespace znet {

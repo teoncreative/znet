@@ -11,12 +11,19 @@
 #ifndef ZNET_INET_ADDR_H_
 #define ZNET_INET_ADDR_H_
 
-#include "znet/precompiled.h"
+#include "znet/compat.h"
+#include "znet/detail/platform.h"
 #include "znet/types.h"
+
+#include <cstddef>
+#include <memory>
+#include <string>
 
 #ifndef ZNET_PREFER_IPV4
 #define ZNET_PREFER_IPV4 0
 #endif
+
+struct sockaddr;
 
 namespace znet {
 
@@ -59,7 +66,9 @@ class InetAddress {
    */
   ZNET_NODISCARD virtual std::string host_key() const { return {}; }
 
-  ZNET_NODISCARD virtual socklen_t addr_size() const = 0;
+  /** @brief What bind() and connect() want alongside handle_ptr(): the whole
+   *  struct for IPv4 and IPv6, the used prefix for a unix path. */
+  ZNET_NODISCARD SockLen addr_size() const { return addr_len_; }
 
   ZNET_NODISCARD virtual const sockaddr* handle_ptr() const = 0;
 
@@ -73,6 +82,7 @@ class InetAddress {
  protected:
   InetProtocolVersion ipv_;
   std::string readable_;
+  SockLen addr_len_ = 0;
 };
 
 class InetAddressIPv4 : public InetAddress {
@@ -85,27 +95,20 @@ class InetAddressIPv4 : public InetAddress {
 
   ZNET_NODISCARD bool is_valid() const override { return is_valid_; }
 
-  ZNET_NODISCARD socklen_t addr_size() const override { return sizeof(addr_); }
+  ZNET_NODISCARD const sockaddr* handle_ptr() const override;
 
-  ZNET_NODISCARD const sockaddr* handle_ptr() const override {
-    return reinterpret_cast<const sockaddr*>(&addr_);
-  }
+  ZNET_NODISCARD PortNumber port() const override;
 
-  ZNET_NODISCARD PortNumber port() const override {
-    return ntohs(addr_.sin_port);
-  }
+  ZNET_NODISCARD std::unique_ptr<InetAddress> WithPort(PortNumber port) const override;
 
-  ZNET_NODISCARD std::unique_ptr<InetAddress> WithPort(PortNumber port) const override {
-    return std::make_unique<InetAddressIPv4>(addr_.sin_addr, port);
-  }
+  ZNET_NODISCARD std::string host_key() const override;
 
-  ZNET_NODISCARD std::string host_key() const override {
-    return std::string(reinterpret_cast<const char*>(&addr_.sin_addr),
-                       sizeof(addr_.sin_addr));
-  }
+  /** @brief The host bytes in network order, as they sit on the wire. */
+  ZNET_NODISCARD IPv4Address address() const;
 
  private:
-  sockaddr_in addr_{};
+  // holds a sockaddr_in; inet_addr.cc asserts the size and alignment fit
+  alignas(8) unsigned char storage_[16] = {};
   bool is_valid_;
 };
 
@@ -117,24 +120,20 @@ class InetAddressIPv6 : public InetAddress {
 
   ZNET_NODISCARD bool is_valid() const override { return is_valid_; }
 
-  ZNET_NODISCARD socklen_t addr_size() const override { return sizeof(addr_); }
+  ZNET_NODISCARD const sockaddr* handle_ptr() const override;
 
-  ZNET_NODISCARD const sockaddr* handle_ptr() const override {
-    return reinterpret_cast<const sockaddr*>(&addr_);
-  }
+  ZNET_NODISCARD PortNumber port() const override;
 
-  ZNET_NODISCARD PortNumber port() const override {
-    return ntohs(addr_.sin6_port);
-  }
-
-  ZNET_NODISCARD std::unique_ptr<InetAddress> WithPort(PortNumber port) const override {
-    return std::make_unique<InetAddressIPv6>(addr_.sin6_addr, port);
-  }
+  ZNET_NODISCARD std::unique_ptr<InetAddress> WithPort(PortNumber port) const override;
 
   ZNET_NODISCARD std::string host_key() const override;
 
+  /** @brief The host bytes in network order, as they sit on the wire. */
+  ZNET_NODISCARD IPv6Address address() const;
+
  private:
-  sockaddr_in6 addr_{};
+  // holds a sockaddr_in6; inet_addr.cc asserts the size and alignment fit
+  alignas(8) unsigned char storage_[32] = {};
   bool is_valid_;
 };
 
@@ -153,13 +152,7 @@ class InetAddressUnix : public InetAddress {
 
   ZNET_NODISCARD bool is_valid() const override { return is_valid_; }
 
-  // the used part of sun_path plus its terminator, which is what bind and
-  // connect expect for a pathname socket
-  ZNET_NODISCARD socklen_t addr_size() const override { return addr_len_; }
-
-  ZNET_NODISCARD const sockaddr* handle_ptr() const override {
-    return reinterpret_cast<const sockaddr*>(&addr_);
-  }
+  ZNET_NODISCARD const sockaddr* handle_ptr() const override;
 
   /** @brief Paths have no ports; always 0. */
   ZNET_NODISCARD PortNumber port() const override { return 0; }
@@ -167,11 +160,11 @@ class InetAddressUnix : public InetAddress {
   /** @brief Paths have no ports; returns a copy of this address. */
   ZNET_NODISCARD std::unique_ptr<InetAddress> WithPort(PortNumber port) const override;
 
-  ZNET_NODISCARD const char* path() const { return addr_.sun_path; }
+  ZNET_NODISCARD const char* path() const;
 
  private:
-  sockaddr_un addr_{};
-  socklen_t addr_len_ = 0;
+  // holds a sockaddr_un; inet_addr.cc asserts the size and alignment fit
+  alignas(8) unsigned char storage_[128] = {};
   bool is_valid_ = false;
 };
 #endif  // ZNET_HAS_AF_UNIX

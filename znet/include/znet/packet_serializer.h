@@ -11,9 +11,9 @@
 #ifndef ZNET_PACKET_SERIALIZER_H_
 #define ZNET_PACKET_SERIALIZER_H_
 
-#include "znet/packet.h"
 #include "znet/buffer.h"
-#include "znet/precompiled.h"
+#include "znet/compat.h"
+#include "znet/packet.h"
 
 namespace znet {
 

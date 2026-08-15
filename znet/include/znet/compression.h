@@ -11,8 +11,8 @@
 #ifndef ZNET_COMPRESSION_H_
 #define ZNET_COMPRESSION_H_
 
-#include "znet/precompiled.h"
 #include "znet/buffer.h"
+#include "znet/compat.h"
 
 namespace znet {
 

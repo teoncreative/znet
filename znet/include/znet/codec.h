@@ -11,9 +11,9 @@
 #ifndef ZNET_CODEC_H_
 #define ZNET_CODEC_H_
 
-#include "znet/precompiled.h"
-#include "znet/packet.h"
 #include "znet/buffer.h"
+#include "znet/compat.h"
+#include "znet/packet.h"
 #include "znet/packet_handler.h"
 #include "znet/packet_serializer.h"
 

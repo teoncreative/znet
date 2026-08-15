@@ -11,10 +11,10 @@
 #ifndef ZNET_CLIENT_H_
 #define ZNET_CLIENT_H_
 
-#include "znet/options.h"
+#include "znet/compat.h"
 #include "znet/interface.h"
+#include "znet/options.h"
 #include "znet/peer_session.h"
-#include "znet/precompiled.h"
 #include "znet/scheduler.h"
 #include "znet/session_encoder.h"
 #include "znet/task.h"

@@ -25,9 +25,9 @@
 #ifndef ZNET_OPTIONS_H_
 #define ZNET_OPTIONS_H_
 
+#include "znet/compat.h"
 #include "znet/compression.h"
 #include "znet/inet_addr.h"
-#include "znet/precompiled.h"
 #include "znet/types.h"
 
 #include <array>

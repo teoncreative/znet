@@ -11,13 +11,25 @@
 #ifndef ZNET_BUFFER_H_
 #define ZNET_BUFFER_H_
 
+#include "znet/compat.h"
 #include "znet/inet_addr.h"
+#include "znet/logger.h"
 #include "znet/types.h"
 #include "znet/util.h"
-#include "znet/logger.h"
-#include "znet/precompiled.h"
 
 #include <bitset>
+#include <cstddef>
+#include <cstdint>
+#include <cstring>
+#include <limits>
+#include <map>
+#include <memory>
+#include <new>
+#include <string>
+#include <type_traits>
+#include <unordered_map>
+#include <utility>
+#include <vector>
 #if ZNET_HAS_CXX20
 #include <span>
 #endif
@@ -324,18 +336,16 @@ class Buffer {
       uint16_t raw_port{};
       Read(&raw_ip, 1);
       Read(&raw_port, 1);
-      in_addr ip{};
-      ip.s_addr = raw_ip;
-      auto port = ntohs(raw_port);
-      return std::make_unique<InetAddressIPv4>(ip, port);
+      IPv4Address ip{};
+      std::memcpy(ip.bytes, &raw_ip, sizeof(ip.bytes));
+      return std::make_unique<InetAddressIPv4>(ip, SwapPortByteOrder(raw_port));
     }
     if (ver == 6) {
-      in6_addr ip6{};
-      Read(ip6.s6_addr, 16);
+      IPv6Address ip6{};
+      Read(ip6.bytes, 16);
       uint16_t raw_port{};
       Read(&raw_port, 1);
-      auto port = ntohs(raw_port);
-      return std::make_unique<InetAddressIPv6>(ip6, port);
+      return std::make_unique<InetAddressIPv6>(ip6, SwapPortByteOrder(raw_port));
     }
     ZNET_LOG_WARN("Invalid internet protocol version {}!", ver);
     // unknown version
@@ -531,18 +541,25 @@ class Buffer {
   }
 
   void WriteInetAddress(const InetAddress& address) {
-    if (address.ipv() == InetProtocolVersion::IPv4) {
+    // the cast is checked rather than assumed: ipv() is a field any subclass
+    // may set, so it says which family the address claims, not which class it
+    // is. Anything else writes the same 0 an unknown family does.
+    if (const auto* v4 = dynamic_cast<const InetAddressIPv4*>(&address)) {
       WriteInt<uint8_t>(4);
       // raw IPv4 (network-order) + port (network-order)
-      auto* addr = reinterpret_cast<const sockaddr_in*>(address.handle_ptr());
-      Write(reinterpret_cast<const uint32_t*>(&addr->sin_addr.s_addr), 1);
-      Write(&addr->sin_port, 1);
-    } else if (address.ipv() == InetProtocolVersion::IPv6) {
+      const IPv4Address ip = v4->address();
+      uint32_t raw_ip{};
+      std::memcpy(&raw_ip, ip.bytes, sizeof(ip.bytes));
+      const uint16_t raw_port = SwapPortByteOrder(v4->port());
+      Write(&raw_ip, 1);
+      Write(&raw_port, 1);
+    } else if (const auto* v6 = dynamic_cast<const InetAddressIPv6*>(&address)) {
       WriteInt<uint8_t>(6);
-      auto* addr = reinterpret_cast<const sockaddr_in6*>(address.handle_ptr());
       // raw IPv6 (16 bytes) + port
-      Write(addr->sin6_addr.s6_addr, 16);
-      Write(&addr->sin6_port, 1);
+      const IPv6Address ip = v6->address();
+      const uint16_t raw_port = SwapPortByteOrder(v6->port());
+      Write(ip.bytes, 16);
+      Write(&raw_port, 1);
     } else {
       WriteInt<uint8_t>(0);
     }

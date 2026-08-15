@@ -11,7 +11,11 @@
 #ifndef ZNET_TYPES_H_
 #define ZNET_TYPES_H_
 
-#include "znet/precompiled.h"
+#include "znet/compat.h"
+#include "znet/detail/platform.h"
+
+#include <cstdint>
+#include <string>
 
 namespace znet {
 
@@ -142,19 +146,53 @@ inline std::string GetConnectionTypeString(ConnectionType type) {
   }
 }
 
-#if defined(ZNET_TARGET_APPLE) || defined(ZNET_TARGET_WEB) || defined(ZNET_TARGET_LINUX)
+// The platform's socket vocabulary, respelled so that no znet header has to
+// include <winsock2.h> or <netinet/in.h> to declare anything. Each of these is
+// layout-identical to the type it stands in for; inet_addr.cc static_asserts
+// that against the real system headers, so a platform where the assumption
+// stops holding fails to build rather than to work.
+#if defined(ZNET_TARGET_WIN)
+using SocketHandle = uintptr_t;  // winsock's SOCKET
+using SockLen = int;
+constexpr SocketHandle kSocketInvalid = ~static_cast<SocketHandle>(0);
+#else
 using SocketHandle = int;
-using PortNumber = in_port_t;
-using IPv4Address = in_addr;
-using IPv6Address = in6_addr;
+using SockLen = unsigned int;  // socklen_t
 constexpr SocketHandle kSocketInvalid = -1;
-#elif defined(ZNET_TARGET_WIN)
-using SocketHandle = SOCKET;
-using PortNumber = USHORT;
-using IPv4Address = IN_ADDR;
-using IPv6Address = IN6_ADDR;
-constexpr SocketHandle kSocketInvalid = INVALID_SOCKET;  // winsock's
 #endif
+
+/** @brief A port in host byte order. */
+using PortNumber = uint16_t;
+
+/** @brief Four bytes of IPv4 address in network order, like in_addr. */
+struct IPv4Address {
+  uint8_t bytes[4];
+};
+
+/** @brief Sixteen bytes of IPv6 address in network order, like in6_addr. */
+struct IPv6Address {
+  uint8_t bytes[16];
+};
+
+/** @brief Whether a socket call returned a usable handle. */
+inline bool IsValidSocketHandle(SocketHandle handle) {
+#ifdef ZNET_TARGET_WIN
+  return handle != kSocketInvalid;
+#else
+  return handle >= 0;
+#endif
+}
+
+/**
+ * @brief htons/ntohs for a port, resolved from the endianness compat.h already
+ *        detects so that no caller needs the platform's socket headers. The
+ *        conversion is its own inverse, hence the one function.
+ */
+constexpr uint16_t SwapPortByteOrder(uint16_t port) {
+  return ZNET_SYSTEM_IS_BIG_ENDIAN
+             ? port
+             : static_cast<uint16_t>((port << 8) | (port >> 8));
+}
 
 }  // namespace znet
 

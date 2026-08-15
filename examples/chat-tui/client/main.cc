@@ -216,14 +216,7 @@ int main(int argc, char** argv) {
   // The pid keeps two clients in the same directory from truncating each
   // other's log.
   static std::ofstream log_file("chat-tui-client-" +
-                                std::to_string(
-#ifdef _WIN32
-                                    static_cast<long>(_getpid())
-#else
-                                    static_cast<long>(getpid())
-#endif
-                                        ) +
-                                ".log");
+                                std::to_string(znet::GetProcessId()) + ".log");
   znet::SetLogStream(log_file);
 
   Result result;

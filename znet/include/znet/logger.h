@@ -12,7 +12,7 @@
 #ifndef ZNET_LOGGER_H_
 #define ZNET_LOGGER_H_
 
-#include "znet/precompiled.h"
+#include "znet/compat.h"
 #include <atomic>
 #include <iostream>
 #include <ostream>

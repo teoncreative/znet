@@ -11,7 +11,9 @@
 #ifndef ZNET_ERROR_H_
 #define ZNET_ERROR_H_
 
-#include "znet/precompiled.h"
+#include "znet/compat.h"
+
+#include <string>
 
 namespace znet {
 

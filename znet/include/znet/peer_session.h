@@ -11,16 +11,16 @@
 #ifndef ZNET_PEER_SESSION_H_
 #define ZNET_PEER_SESSION_H_
 
-#include "znet/task.h"
 #include "znet/codec.h"
+#include "znet/compat.h"
 #include "znet/compression.h"
 #include "znet/encryption.h"
 #include "znet/message_pipeline.h"
-#include "znet/outbound_queue.h"
 #include "znet/options.h"
+#include "znet/outbound_queue.h"
 #include "znet/packet_handler.h"
-#include "znet/precompiled.h"
 #include "znet/send_options.h"
+#include "znet/task.h"
 #include "znet/transport.h"
 
 #include <vector>

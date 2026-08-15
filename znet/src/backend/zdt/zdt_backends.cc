@@ -15,6 +15,7 @@
 
 #include "znet/error.h"
 #include "znet/logger.h"
+#include "znet/detail/socket_ops.h"
 #include "znet/util.h"
 
 #include <algorithm>

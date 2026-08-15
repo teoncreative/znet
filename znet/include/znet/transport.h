@@ -12,9 +12,9 @@
 #ifndef ZNET_TRANSPORT_H_
 #define ZNET_TRANSPORT_H_
 
-#include "znet/precompiled.h"
 #include "znet/buffer.h"
 #include "znet/close_options.h"
+#include "znet/compat.h"
 #include "znet/metrics.h"
 #include "znet/send_options.h"
 

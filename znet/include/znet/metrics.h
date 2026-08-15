@@ -28,7 +28,7 @@
 #ifndef ZNET_METRICS_H_
 #define ZNET_METRICS_H_
 
-#include "znet/precompiled.h"
+#include "znet/compat.h"
 #include "znet/types.h"
 
 #include <cstdint>

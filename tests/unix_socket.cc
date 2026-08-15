@@ -14,7 +14,7 @@
 // with ConnectionType::TCP. POSIX only, like the feature.
 //
 
-#include "znet/precompiled.h"
+#include "znet/detail/socket_ops.h"
 
 #if ZNET_HAS_AF_UNIX
 
@@ -37,7 +37,8 @@ using namespace znet;
 namespace {
 
 std::string TestSocketPath(const char* tag) {
-  return "/tmp/znet-test-" + std::to_string(::getpid()) + "-" + tag + ".sock";
+  return "/tmp/znet-test-" + std::to_string(GetProcessId()) + "-" + tag +
+         ".sock";
 }
 
 bool WaitFor(const std::atomic<bool>& flag, int ms) {

@@ -11,7 +11,11 @@
 #ifndef ZNET_EVENT_H_
 #define ZNET_EVENT_H_
 
-#include "znet/precompiled.h"
+#include "znet/compat.h"
+
+#include <cstddef>
+#include <functional>
+#include <typeinfo>
 
 namespace znet {
 

@@ -19,7 +19,7 @@
 #ifndef ZNET_BACKENDS_ZDT_ZDT_DOMAIN_H_
 #define ZNET_BACKENDS_ZDT_ZDT_DOMAIN_H_
 
-#include "znet/precompiled.h"
+#include "znet/compat.h"
 
 #include <cassert>
 

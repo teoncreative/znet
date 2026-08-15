@@ -11,9 +11,9 @@
 #ifndef ZNET_P2P_DIALER_H_
 #define ZNET_P2P_DIALER_H_
 
+#include "znet/compat.h"
 #include "znet/inet_addr.h"
 #include "znet/peer_session.h"
-#include "znet/precompiled.h"
 
 #include <vector>
 

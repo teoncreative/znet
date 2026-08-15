@@ -19,7 +19,7 @@
 #define ZNET_BACKENDS_ZDT_ZDT_ACK_HISTORY_H_
 
 #include "znet/backends/zdt/zdt_wire.h"
-#include "znet/precompiled.h"
+#include "znet/compat.h"
 
 #include <array>
 #include <cstddef>

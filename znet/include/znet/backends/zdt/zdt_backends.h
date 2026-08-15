@@ -24,7 +24,7 @@
 #include "znet/mpsc_queue.h"
 #include "znet/options.h"
 #include "znet/peer_session.h"
-#include "znet/precompiled.h"
+#include "znet/compat.h"
 #include "znet/transport.h"
 
 #include <array>
@@ -33,6 +33,7 @@
 #include <cstdint>
 #include <deque>
 #include <map>
+#include <mutex>
 #include <set>
 #include <thread>
 #include <tuple>

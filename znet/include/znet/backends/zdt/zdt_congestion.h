@@ -22,8 +22,8 @@
 
 #include "znet/backends/zdt/zdt_wire.h"
 #include "znet/compat.h"
+#include "znet/compat.h"
 #include "znet/options.h"
-#include "znet/precompiled.h"
 
 #include <chrono>
 

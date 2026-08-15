@@ -11,9 +11,9 @@
 #ifndef ZNET_ADMISSION_H_
 #define ZNET_ADMISSION_H_
 
+#include "znet/compat.h"
 #include "znet/inet_addr.h"
 #include "znet/options.h"
-#include "znet/precompiled.h"
 
 #include <chrono>
 #include <string>

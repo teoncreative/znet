@@ -11,7 +11,7 @@
 #ifndef ZNET_MPSC_QUEUE_H_
 #define ZNET_MPSC_QUEUE_H_
 
-#include "znet/precompiled.h"
+#include "znet/compat.h"
 
 #include <atomic>
 #include <cstddef>

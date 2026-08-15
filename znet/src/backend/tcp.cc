@@ -10,16 +10,17 @@
 
 #include "znet/backends/tcp.h"
 
-#ifndef ZNET_TARGET_WIN
-#include <poll.h>
-#endif
-
-#include <algorithm>
-#include <thread>
-#include "znet/transport.h"
+#include "znet/detail/socket_ops.h"
+#include "znet/detail/sys_win.h"
 #include "znet/error.h"
 #include "znet/peer_session.h"
+#include "znet/transport.h"
 #include "znet/util.h"
+
+#include <algorithm>
+#include <cerrno>
+#include <cstring>
+#include <thread>
 
 namespace znet {
 namespace backends {

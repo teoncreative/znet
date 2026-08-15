@@ -23,9 +23,9 @@
 #define ZNET_MESSAGE_PIPELINE_H_
 
 #include "znet/codec.h"
+#include "znet/compat.h"
 #include "znet/compression.h"
 #include "znet/packet_handler.h"
-#include "znet/precompiled.h"
 #include "znet/types.h"
 
 #include <memory>

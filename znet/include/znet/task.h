@@ -12,10 +12,11 @@
 #ifndef ZNET_TASK_H_
 #define ZNET_TASK_H_
 
-#include "znet/precompiled.h"
+#include "znet/compat.h"
 #include "znet/types.h"
 
 #include <atomic>
+#include <functional>
 #include <thread>
 #include <utility>
 

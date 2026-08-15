@@ -12,7 +12,7 @@
 #ifndef ZNET_SERVER_EVENTS_H_
 #define ZNET_SERVER_EVENTS_H_
 
-#include "znet/precompiled.h"
+#include "znet/compat.h"
 #include "znet/event.h"
 #include "znet/peer_session.h"
 

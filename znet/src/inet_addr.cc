@@ -9,25 +9,86 @@
 //
 
 #include "znet/inet_addr.h"
+#include "znet/detail/sys_net.h"
 #include "znet/logger.h"
 #include "znet/init.h"
 
 #include <cstddef>
 #include <cstdlib>
 #include <cstring>
+#include <new>
 #include <regex>
+#include <type_traits>
 
 namespace znet {
 
+// The public header describes each address by size alone, so this is the one
+// place that gets to see whether the description still matches the platform.
+static_assert(std::is_same<SockLen, socklen_t>::value,
+              "znet::SockLen must be the platform's socklen_t");
+static_assert(sizeof(SocketHandle) == sizeof(decltype(socket(0, 0, 0))),
+              "znet::SocketHandle must be the platform's socket handle");
+static_assert(std::is_signed<SocketHandle>::value ==
+                  std::is_signed<decltype(socket(0, 0, 0))>::value,
+              "znet::SocketHandle disagrees with the platform on signedness");
+static_assert(sizeof(IPv4Address) == sizeof(in_addr), "in_addr is not 4 bytes");
+static_assert(sizeof(IPv6Address) == sizeof(in6_addr),
+              "in6_addr is not 16 bytes");
+
+namespace {
+
+// Reads back the sockaddr a constructor placement-new'd into an address's
+// storage. Every constructor does so before anything else, including on its
+// failure paths, so this is never handed uninitialized bytes.
+template <typename T, size_t N>
+T* AddrAs(unsigned char (&storage)[N]) {
+  static_assert(sizeof(T) <= N, "sockaddr does not fit in the storage");
+  static_assert(alignof(T) <= 8, "sockaddr wants more than 8-byte alignment");
+  return reinterpret_cast<T*>(storage);
+}
+
+template <typename T, size_t N>
+const T* AddrAs(const unsigned char (&storage)[N]) {
+  static_assert(sizeof(T) <= N, "sockaddr does not fit in the storage");
+  static_assert(alignof(T) <= 8, "sockaddr wants more than 8-byte alignment");
+  return reinterpret_cast<const T*>(storage);
+}
+
+in_addr ToInAddr(IPv4Address ip) {
+  in_addr out{};
+  std::memcpy(&out, ip.bytes, sizeof(ip.bytes));
+  return out;
+}
+
+in6_addr ToIn6Addr(IPv6Address ip) {
+  in6_addr out{};
+  std::memcpy(&out, ip.bytes, sizeof(ip.bytes));
+  return out;
+}
+
+IPv4Address FromInAddr(const in_addr& in) {
+  IPv4Address out{};
+  std::memcpy(out.bytes, &in, sizeof(out.bytes));
+  return out;
+}
+
+IPv6Address FromIn6Addr(const in6_addr& in) {
+  IPv6Address out{};
+  std::memcpy(out.bytes, &in, sizeof(out.bytes));
+  return out;
+}
+
+}  // namespace
+
 IPv4Address ParseIPv4(const std::string& ip_str) {
-  in_addr addr{};
-  inet_pton(AF_INET, ip_str.c_str(), &addr);
+  IPv4Address addr{};
+  inet_pton(AF_INET, ip_str.c_str(), addr.bytes);
   return addr;
 }
 
 IPv6Address ParseIPv6(const std::string& ip_str) {
-  in6_addr addr{};
-  inet_pton(AF_INET6, ip_str.c_str(), &addr);
+  IPv6Address addr{};
+  inet_pton(AF_INET6, ip_str.c_str(), addr.bytes);
   return addr;
 }
 
@@ -173,10 +234,12 @@ std::unique_ptr<InetAddress> InetAddress::from(const std::string& host, PortNumb
 std::unique_ptr<InetAddress> InetAddress::from(sockaddr* sock_addr) {
   if (sock_addr->sa_family == AF_INET) {
     auto* addr = reinterpret_cast<sockaddr_in*>(sock_addr);
-    return std::make_unique<InetAddressIPv4>(addr->sin_addr, ntohs(addr->sin_port));
+    return std::make_unique<InetAddressIPv4>(FromInAddr(addr->sin_addr),
+                                             ntohs(addr->sin_port));
   } else if (sock_addr->sa_family == AF_INET6) {
     auto* addr = reinterpret_cast<sockaddr_in6*>(sock_addr);
-    return std::make_unique<InetAddressIPv6>(addr->sin6_addr, ntohs(addr->sin6_port));
+    return std::make_unique<InetAddressIPv6>(FromIn6Addr(addr->sin6_addr),
+                                             ntohs(addr->sin6_port));
   }
 #if ZNET_HAS_AF_UNIX
   if (sock_addr->sa_family == AF_UNIX) {
@@ -194,126 +257,159 @@ std::unique_ptr<InetAddress> InetAddress::from(sockaddr* sock_addr) {
 }
 
 InetAddressIPv4::InetAddressIPv4(PortNumber port)
-    : InetAddress(InetProtocolVersion::IPv4, "") {
-  addr_.sin_family = AF_INET;
-  addr_.sin_port = htons(port);
-#ifdef ZNET_TARGET_APPLE
-  addr_.sin_len = sizeof(sockaddr_in);
-#endif
-  char src[INET_ADDRSTRLEN];
-  inet_ntop(AF_INET, &addr_.sin_addr, src, INET_ADDRSTRLEN);
-  readable_ = std::string(src) + ":" + std::to_string(ntohs(addr_.sin_port));
-  is_valid_ = true;
-}
+    : InetAddressIPv4(IPv4Address{}, port) {}
 
 InetAddressIPv4::InetAddressIPv4(IPv4Address ip, PortNumber port)
     : InetAddress(InetProtocolVersion::IPv4, "") {
-  addr_.sin_family = AF_INET;
-  addr_.sin_port = htons(port);
-  addr_.sin_addr = ip;
+  auto* addr = new (storage_) sockaddr_in{};
+  addr_len_ = sizeof(sockaddr_in);
+  addr->sin_family = AF_INET;
+  addr->sin_port = htons(port);
+  addr->sin_addr = ToInAddr(ip);
 #ifdef ZNET_TARGET_APPLE
-  addr_.sin_len = sizeof(sockaddr_in);
+  addr->sin_len = sizeof(sockaddr_in);
 #endif
 
   char src[INET_ADDRSTRLEN];
-  inet_ntop(AF_INET, &addr_.sin_addr, src, INET_ADDRSTRLEN);
-  readable_ = std::string(src) + ":" + std::to_string(ntohs(addr_.sin_port));
+  inet_ntop(AF_INET, &addr->sin_addr, src, INET_ADDRSTRLEN);
+  readable_ = std::string(src) + ":" + std::to_string(ntohs(addr->sin_port));
   is_valid_ = true;
 }
 
 InetAddressIPv4::InetAddressIPv4(const std::string& str, PortNumber port)
     : InetAddress(InetProtocolVersion::IPv4, "") {
+  auto* addr = new (storage_) sockaddr_in{};
+  addr_len_ = sizeof(sockaddr_in);
   if (!IsIPv4(str)) {
     is_valid_ = false;
     readable_ = "Invalid Address";
     return;
   }
 
-  addr_.sin_family = AF_INET;
-  addr_.sin_port = htons(port);
-  addr_.sin_addr = ParseIPv4(str);
+  addr->sin_family = AF_INET;
+  addr->sin_port = htons(port);
+  addr->sin_addr = ToInAddr(ParseIPv4(str));
 #ifdef ZNET_TARGET_APPLE
-  addr_.sin_len = sizeof(sockaddr_in);
+  addr->sin_len = sizeof(sockaddr_in);
 #endif
   char src[INET_ADDRSTRLEN];
-  inet_ntop(AF_INET, &addr_.sin_addr, src, INET_ADDRSTRLEN);
-  readable_ = std::string(src) + ":" + std::to_string(ntohs(addr_.sin_port));
+  inet_ntop(AF_INET, &addr->sin_addr, src, INET_ADDRSTRLEN);
+  readable_ = std::string(src) + ":" + std::to_string(ntohs(addr->sin_port));
   is_valid_ = true;
+}
+
+const sockaddr* InetAddressIPv4::handle_ptr() const {
+  return reinterpret_cast<const sockaddr*>(AddrAs<sockaddr_in>(storage_));
+}
+
+PortNumber InetAddressIPv4::port() const {
+  return ntohs(AddrAs<sockaddr_in>(storage_)->sin_port);
+}
+
+std::unique_ptr<InetAddress> InetAddressIPv4::WithPort(PortNumber port) const {
+  return std::make_unique<InetAddressIPv4>(address(), port);
+}
+
+std::string InetAddressIPv4::host_key() const {
+  const IPv4Address ip = address();
+  return std::string(reinterpret_cast<const char*>(ip.bytes), sizeof(ip.bytes));
+}
+
+IPv4Address InetAddressIPv4::address() const {
+  return FromInAddr(AddrAs<sockaddr_in>(storage_)->sin_addr);
 }
 
 InetAddressIPv6::InetAddressIPv6(PortNumber port)
-    : InetAddress(InetProtocolVersion::IPv6, "") {
-  addr_.sin6_family = AF_INET6;
-  addr_.sin6_flowinfo = 0;
-  addr_.sin6_port = htons(port);
-#if !defined(ZNET_TARGET_WIN) && !defined(ZNET_TARGET_WEB) && !defined(ZNET_TARGET_LINUX)
-  addr_.sin6_len = sizeof(sockaddr_in6);
-#endif
-  char src[INET6_ADDRSTRLEN];
-  inet_ntop(AF_INET6, &addr_.sin6_addr, src, sizeof(src));
-  readable_ = std::string(src) + ":" + std::to_string(ntohs(addr_.sin6_port));
-  is_valid_ = true;
-}
+    : InetAddressIPv6(IPv6Address{}, port) {}
 
 InetAddressIPv6::InetAddressIPv6(IPv6Address ip, PortNumber port)
     : InetAddress(InetProtocolVersion::IPv6, "") {
-  addr_.sin6_family = AF_INET6;
-  addr_.sin6_flowinfo = 0;
-  addr_.sin6_port = htons(port);
-  addr_.sin6_addr = ip;
+  auto* addr = new (storage_) sockaddr_in6{};
+  addr_len_ = sizeof(sockaddr_in6);
+  addr->sin6_family = AF_INET6;
+  addr->sin6_flowinfo = 0;
+  addr->sin6_port = htons(port);
+  addr->sin6_addr = ToIn6Addr(ip);
 #if !defined(ZNET_TARGET_WIN) && !defined(ZNET_TARGET_WEB) && !defined(ZNET_TARGET_LINUX)
-  addr_.sin6_len = sizeof(sockaddr_in6);
+  addr->sin6_len = sizeof(sockaddr_in6);
 #endif
   char src[INET6_ADDRSTRLEN];
-  inet_ntop(AF_INET6, &addr_.sin6_addr, src, sizeof(src));
-  readable_ = std::string(src) + ":" + std::to_string(ntohs(addr_.sin6_port));
+  inet_ntop(AF_INET6, &addr->sin6_addr, src, sizeof(src));
+  readable_ = std::string(src) + ":" + std::to_string(ntohs(addr->sin6_port));
   is_valid_ = true;
 }
 
 InetAddressIPv6::InetAddressIPv6(const std::string& str, PortNumber port)
     : InetAddress(InetProtocolVersion::IPv6, "") {
+  auto* addr = new (storage_) sockaddr_in6{};
+  addr_len_ = sizeof(sockaddr_in6);
   if (!IsIPv6(str)) {
     is_valid_ = false;
     readable_ = "Invalid Address";
     return;
   }
 #if !defined(ZNET_TARGET_WIN) && !defined(ZNET_TARGET_WEB) && !defined(ZNET_TARGET_LINUX)
-  addr_.sin6_len = sizeof(sockaddr_in6);
+  addr->sin6_len = sizeof(sockaddr_in6);
 #endif
-  addr_.sin6_family = AF_INET6;
-  addr_.sin6_flowinfo = 0;
-  addr_.sin6_port = htons(port);
-  addr_.sin6_addr = ParseIPv6(str);
+  addr->sin6_family = AF_INET6;
+  addr->sin6_flowinfo = 0;
+  addr->sin6_port = htons(port);
+  addr->sin6_addr = ToIn6Addr(ParseIPv6(str));
   char src[INET6_ADDRSTRLEN];
-  inet_ntop(AF_INET6, &addr_.sin6_addr, src, sizeof(src));
-  readable_ = std::string(src) + ":" + std::to_string(ntohs(addr_.sin6_port));
+  inet_ntop(AF_INET6, &addr->sin6_addr, src, sizeof(src));
+  readable_ = std::string(src) + ":" + std::to_string(ntohs(addr->sin6_port));
   is_valid_ = true;
+}
+
+const sockaddr* InetAddressIPv6::handle_ptr() const {
+  return reinterpret_cast<const sockaddr*>(AddrAs<sockaddr_in6>(storage_));
+}
+
+PortNumber InetAddressIPv6::port() const {
+  return ntohs(AddrAs<sockaddr_in6>(storage_)->sin6_port);
+}
+
+std::unique_ptr<InetAddress> InetAddressIPv6::WithPort(PortNumber port) const {
+  return std::make_unique<InetAddressIPv6>(address(), port);
+}
+
+IPv6Address InetAddressIPv6::address() const {
+  return FromIn6Addr(AddrAs<sockaddr_in6>(storage_)->sin6_addr);
 }
 
 #if ZNET_HAS_AF_UNIX
 InetAddressUnix::InetAddressUnix(const std::string& path)
     : InetAddress(InetProtocolVersion::Unix, "") {
-  if (path.size() >= sizeof(addr_.sun_path)) {
+  auto* addr = new (storage_) sockaddr_un{};
+  if (path.size() >= sizeof(addr->sun_path)) {
     ZNET_LOG_WARN("Unix socket path is too long ({} bytes, limit {}): {}",
-                  path.size(), sizeof(addr_.sun_path) - 1, path);
+                  path.size(), sizeof(addr->sun_path) - 1, path);
     readable_ = "Invalid Address";
     return;
   }
-  addr_.sun_family = AF_UNIX;
-  std::memcpy(addr_.sun_path, path.data(), path.size());
-  addr_.sun_path[path.size()] = '\0';
-  addr_len_ = static_cast<socklen_t>(offsetof(sockaddr_un, sun_path) +
-                                     path.size() + 1);
+  addr->sun_family = AF_UNIX;
+  std::memcpy(addr->sun_path, path.data(), path.size());
+  addr->sun_path[path.size()] = '\0';
+  addr_len_ = static_cast<SockLen>(offsetof(sockaddr_un, sun_path) +
+                                   path.size() + 1);
 #ifdef ZNET_TARGET_APPLE
-  addr_.sun_len = static_cast<unsigned char>(addr_len_);
+  addr->sun_len = static_cast<unsigned char>(addr_len_);
 #endif
   readable_ = "unix:" + path;
   is_valid_ = true;
 }
 
+const sockaddr* InetAddressUnix::handle_ptr() const {
+  return reinterpret_cast<const sockaddr*>(AddrAs<sockaddr_un>(storage_));
+}
+
+const char* InetAddressUnix::path() const {
+  return AddrAs<sockaddr_un>(storage_)->sun_path;
+}
+
 std::unique_ptr<InetAddress> InetAddressUnix::WithPort(PortNumber port) const {
   (void)port;  // paths have no ports
-  return std::make_unique<InetAddressUnix>(std::string(addr_.sun_path));
+  return std::make_unique<InetAddressUnix>(std::string(path()));
 }
 #endif  // ZNET_HAS_AF_UNIX
 
@@ -348,11 +444,11 @@ bool IsV4MappedV6(const unsigned char* bytes) {
 // below the helpers rather than with its siblings: the mapped-v4 collapse is
 // this file's private business
 std::string InetAddressIPv6::host_key() const {
-  const auto* bytes = reinterpret_cast<const unsigned char*>(&addr_.sin6_addr);
-  if (IsV4MappedV6(bytes)) {
-    return std::string(reinterpret_cast<const char*>(bytes + 12), 4);
+  const IPv6Address ip = address();
+  if (IsV4MappedV6(ip.bytes)) {
+    return std::string(reinterpret_cast<const char*>(ip.bytes + 12), 4);
   }
-  return std::string(reinterpret_cast<const char*>(bytes), 16);
+  return std::string(reinterpret_cast<const char*>(ip.bytes), 16);
 }
 
 CIDRBlock CIDRBlock::Parse(const std::string& text) {

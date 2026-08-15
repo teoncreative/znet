@@ -11,12 +11,12 @@
 #ifndef ZNET_SERVER_H_
 #define ZNET_SERVER_H_
 
-#include "znet/scheduler.h"
+#include "znet/compat.h"
 #include "znet/interface.h"
-#include "znet/options.h"
 #include "znet/logger.h"
+#include "znet/options.h"
 #include "znet/peer_session.h"
-#include "znet/precompiled.h"
+#include "znet/scheduler.h"
 #include "znet/task.h"
 #include "znet/worker_signal.h"
 

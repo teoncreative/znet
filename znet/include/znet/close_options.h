@@ -16,7 +16,7 @@
 #ifndef ZNET_CLOSE_OPTIONS_H_
 #define ZNET_CLOSE_OPTIONS_H_
 
-#include "znet/precompiled.h"
+#include "znet/compat.h"
 #include <cstdint>
 #include <type_traits>
 

@@ -10,6 +10,7 @@
 
 #include "znet/signal_handler.h"
 
+#include <cstdlib>
 #include <utility>
 
 namespace znet {

@@ -19,9 +19,9 @@
 #ifndef ZNET_OUTBOUND_QUEUE_H_
 #define ZNET_OUTBOUND_QUEUE_H_
 
+#include "znet/compat.h"
 #include "znet/mpsc_queue.h"
 #include "znet/packet.h"
-#include "znet/precompiled.h"
 #include "znet/send_options.h"
 
 #include <atomic>

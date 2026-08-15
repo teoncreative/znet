@@ -14,11 +14,12 @@
 #include "znet/admission.h"
 #include "znet/backends/backend.h"
 #include "znet/buffer.h"
+#include "znet/compat.h"
 #include "znet/options.h"
 #include "znet/peer_session.h"
-#include "znet/precompiled.h"
 
 #include <deque>
+#include <mutex>
 
 namespace znet {
 namespace backends {

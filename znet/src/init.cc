@@ -9,8 +9,11 @@
 //
 
 #include "znet/init.h"
+#include "znet/detail/sys_net.h"
 #include "znet/logger.h"
 #include "znet/version.h"
+
+#include <memory>
 
 #ifdef ZNET_USE_ZSTD
 #define ZSTD_ENABLED_STR "true"

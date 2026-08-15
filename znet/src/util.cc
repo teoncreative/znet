@@ -10,9 +10,17 @@
 
 #include "znet/util.h"
 
+#include "znet/detail/platform.h"
+
 #include <random>
 #include <string>
 #include <vector>
+
+#ifdef ZNET_TARGET_WIN
+#include "znet/detail/sys_win.h"
+#else
+#include <unistd.h>
+#endif
 
 namespace znet {
 
@@ -36,6 +44,14 @@ std::string GeneratePeerName() {
   std::uniform_int_distribution<size_t> d2(0, second.size() - 1);
 
   return first[d1(gen)] + second[d2(gen)];
+}
+
+uint32_t GetProcessId() {
+#ifdef ZNET_TARGET_WIN
+  return GetCurrentProcessId();
+#else
+  return static_cast<uint32_t>(getpid());
+#endif
 }
 
 }

@@ -9,6 +9,7 @@
 //
 
 #include "znet/error.h"
+#include "znet/detail/sys_win.h"
 
 #ifndef ZNET_TARGET_WIN
 #include <cerrno>

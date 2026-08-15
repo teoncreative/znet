@@ -21,6 +21,7 @@
 
 #include "znet/backends/zdt.h"
 #include "znet/client.h"
+#include "znet/detail/socket_ops.h"
 #include "znet/client_events.h"
 #include "znet/codec.h"
 #include "znet/event.h"

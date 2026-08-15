@@ -12,7 +12,10 @@
 #ifndef ZNET_SIGNAL_HANDLER_H_
 #define ZNET_SIGNAL_HANDLER_H_
 
-#include "znet/precompiled.h"
+#include "znet/compat.h"
+#include "znet/detail/platform.h"
+
+#include <csignal>
 #include <functional>
 
 namespace znet {

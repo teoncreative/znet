@@ -12,7 +12,7 @@
 #ifndef ZNET_SCHEDULER_H_
 #define ZNET_SCHEDULER_H_
 
-#include "znet/precompiled.h"
+#include "znet/compat.h"
 #include <chrono>
 
 #ifndef ZNET_PREFER_STD_SLEEP

@@ -13,6 +13,8 @@
 
 #include "znet/backends/zdt/zdt_net.h"
 
+#include "znet/detail/socket_ops.h"
+#include "znet/detail/sys_win.h"
 #include "znet/error.h"
 #include "znet/logger.h"
 #include "znet/util.h"

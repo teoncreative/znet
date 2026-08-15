@@ -9,6 +9,7 @@
 //
 
 #include "znet/logger.h"
+#include "znet/detail/sys_win.h"
 
 namespace znet {
 

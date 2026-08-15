@@ -15,6 +15,7 @@
 #include "dialer_internal.h"
 
 #include "znet/backends/tcp.h"
+#include "znet/detail/socket_ops.h"
 #include "znet/error.h"
 #include "znet/transport.h"
 

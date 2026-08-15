@@ -11,7 +11,7 @@
 #ifndef ZNET_INIT_H_
 #define ZNET_INIT_H_
 
-#include "znet/precompiled.h"
+#include "znet/compat.h"
 #include "znet/types.h"
 
 namespace znet {

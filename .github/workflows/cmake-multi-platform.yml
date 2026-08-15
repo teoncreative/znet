@@ -45,6 +45,7 @@ jobs:
         -DCMAKE_C_COMPILER=${{ matrix.platform.c_compiler }}
         -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
         -DZNET_CXX_STANDARD=${{ matrix.cpp_standard }}
+        -DZNET_CHECK_HEADERS=ON
         -S ${{ github.workspace }}
 
     - name: Build

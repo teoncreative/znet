@@ -11,9 +11,9 @@
 #ifndef ZNET_INTERFACE_H_
 #define ZNET_INTERFACE_H_
 
+#include "znet/compat.h"
 #include "znet/event.h"
 #include "znet/packet_handler.h"
-#include "znet/precompiled.h"
 
 #include <utility>
 

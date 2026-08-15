@@ -11,7 +11,9 @@
 #ifndef ZNET_PACKET_H_
 #define ZNET_PACKET_H_
 
-#include "znet/precompiled.h"
+#include "znet/compat.h"
+
+#include <cstdint>
 
 namespace znet {
 

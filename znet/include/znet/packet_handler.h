@@ -11,9 +11,16 @@
 #ifndef ZNET_PACKET_HANDLER_H_
 #define ZNET_PACKET_HANDLER_H_
 
+#include "znet/compat.h"
 #include "znet/packet.h"
 #include "znet/packet_serializer.h"
-#include "znet/precompiled.h"
+
+#include <functional>
+#include <memory>
+#include <type_traits>
+#include <typeindex>
+#include <unordered_map>
+#include <utility>
 
 namespace znet {
 

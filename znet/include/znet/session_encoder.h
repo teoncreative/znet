@@ -24,8 +24,8 @@
 #ifndef ZNET_SESSION_ENCODER_H_
 #define ZNET_SESSION_ENCODER_H_
 
+#include "znet/compat.h"
 #include "znet/peer_session.h"
-#include "znet/precompiled.h"
 #include "znet/task.h"
 #include "znet/worker_signal.h"
 

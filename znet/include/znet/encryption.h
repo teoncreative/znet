@@ -15,13 +15,24 @@
 #ifndef ZNET_ENCRYPTION_H_
 #define ZNET_ENCRYPTION_H_
 
+#include "znet/compat.h"
 #include "znet/compression.h"
 #include "znet/packet.h"
 #include "znet/packet_handler.h"
-#include "znet/precompiled.h"
 
+// DH and ENGINE are deprecated in OpenSSL 3, and this is the header that
+// includes them, so the suppression belongs here rather than in a build flag a
+// consumer of this header would not have set.
+#ifndef OPENSSL_SUPPRESS_DEPRECATED
+#define OPENSSL_SUPPRESS_DEPRECATED
+#endif
 #include <openssl/dh.h>
 #include <openssl/engine.h>
+
+#include <cstdint>
+#include <memory>
+#include <mutex>
+#include <string>
 
 namespace znet {
 

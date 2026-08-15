@@ -11,11 +11,11 @@
 #ifndef ZNET_P2P_LOCATOR_H_
 #define ZNET_P2P_LOCATOR_H_
 
-#include "znet/event.h"
 #include "znet/client.h"
 #include "znet/client_events.h"
+#include "znet/compat.h"
+#include "znet/event.h"
 #include "znet/p2p/host.h"
-#include "znet/precompiled.h"
 
 #include <vector>
 
