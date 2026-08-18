@@ -30,6 +30,7 @@
 #include <unordered_map>
 #include <utility>
 #include <vector>
+#include <cassert>
 #if ZNET_HAS_CXX20
 #include <span>
 #endif
