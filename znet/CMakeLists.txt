@@ -296,13 +296,24 @@ target_compile_definitions(znet PRIVATE OPENSSL_SUPPRESS_DEPRECATED)
 # zstd
 option(ZNET_USE_EXTERNAL_ZSTD "Looks for ZSTD via find_package" OFF)
 if(ZNET_USE_EXTERNAL_ZSTD)
-    find_package(zstd::zstd CONFIG REQUIRED)
+    # the package is zstd; zstd::zstd is not a target it has ever exported
+    find_package(zstd CONFIG REQUIRED)
 
-    if(TARGET zstd::zstd)
-        target_link_libraries(znet PUBLIC zstd::zstd)
+    # newer configs export libzstd, which picks shared or static; older ones
+    # only name the two concrete targets
+    if(TARGET zstd::libzstd)
+        set(ZNET_ZSTD_TARGET zstd::libzstd)
+    elseif(TARGET zstd::libzstd_shared)
+        set(ZNET_ZSTD_TARGET zstd::libzstd_shared)
+    elseif(TARGET zstd::libzstd_static)
+        set(ZNET_ZSTD_TARGET zstd::libzstd_static)
+    endif()
+
+    if(ZNET_ZSTD_TARGET)
+        target_link_libraries(znet PUBLIC ${ZNET_ZSTD_TARGET})
         target_compile_definitions(znet PUBLIC ZNET_USE_ZSTD=1)
     else()
-        message(STATUS "zstd not found, compression disabled.")
+        message(STATUS "zstd found but exported no usable target, compression disabled.")
     endif()
 else()
     if(TARGET libzstd)
