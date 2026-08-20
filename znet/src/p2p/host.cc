@@ -92,6 +92,7 @@ void Host::Stop() {
   }
   punches_.clear();
   for (auto& item : routes_) {
+    ResolveWaiters(item.second, Result::AlreadyStopped);
     item.second.session->Close();
     item.second.session->ReleaseHandler();
   }
@@ -112,6 +113,7 @@ void Host::StartPunch(std::vector<std::shared_ptr<InetAddress>> candidates,
   punch.punch_id = punch_id;
   punch.connection.mtu = 1200;  // conservative; skips the ladder probe for P2P
   punch.connection.local_guid = GenerateGuid();
+  punch.timeout = timeout;
   punch.deadline = clock::now() + timeout;
   punch.on_done = std::move(on_done);
 
@@ -178,11 +180,11 @@ bool Host::TickPunches() {
   // a punch toward a peer that already routes resolves with the live session,
   // which is what a duplicate pairing amounts to
   for (size_t i = 0; i < punches_.size();) {
-    std::shared_ptr<PeerSession> existing;
+    Route* existing = nullptr;
     for (const auto& candidate : punches_[i].candidates) {
       auto it = routes_.find(candidate->readable());
       if (it != routes_.end()) {
-        existing = it->second.session;
+        existing = &it->second;
         break;
       }
     }
@@ -190,7 +192,11 @@ bool Host::TickPunches() {
       Punch punch = std::move(punches_[i]);
       punches_.erase(punches_.begin() + static_cast<long>(i));
       if (punch.on_done) {
-        punch.on_done(Result::Success, existing);
+        if (existing->session->IsReady()) {
+          punch.on_done(Result::Success, existing->session);
+        } else {
+          existing->waiters.push_back(std::move(punch.on_done));
+        }
       }
       continue;
     }
@@ -232,19 +238,50 @@ bool Host::TickPunches() {
 
 bool Host::ProcessSessions() {
   bool any = false;
+  const auto now = clock::now();
   for (auto it = routes_.begin(); it != routes_.end();) {
-    auto& session = it->second.session;
+    auto& route = it->second;
+    auto& session = route.session;
     if (!session->IsAlive()) {
+      // dying before the handshake finished is a failed punch to whoever asked
+      ResolveWaiters(route, Result::CannotConnect);
       // the same teardown a server worker does; see CleanupAndProcessSessions
       session->ReleaseHandler();
       it = routes_.erase(it);
       continue;
     }
     any = session->Process() || any;
+    // checked after Process(), which is what advances the handshake
+    if (!route.waiters.empty()) {
+      if (session->IsReady()) {
+        ZNET_LOG_INFO("P2P host: session with {} is ready",
+                      session->remote_address()->readable());
+        ResolveWaiters(route, Result::Success);
+      } else if (now >= route.ready_deadline) {
+        ZNET_LOG_WARN("P2P host: {} punched but never finished its handshake",
+                      session->remote_address()->readable());
+        ResolveWaiters(route, Result::Timeout);
+        session->Close();
+        session->ReleaseHandler();
+        it = routes_.erase(it);
+        continue;
+      }
+    }
     ++it;
   }
   session_count_.store(routes_.size(), std::memory_order_relaxed);
   return any;
+}
+
+void Host::ResolveWaiters(Route& route, Result result) {
+  // moved out first: a callback may punch again and reach this route
+  std::vector<PunchCallback> waiters;
+  waiters.swap(route.waiters);
+  for (auto& waiter : waiters) {
+    if (waiter) {
+      waiter(result, result == Result::Success ? route.session : nullptr);
+    }
+  }
 }
 
 void Host::HandleOffline(const std::shared_ptr<InetAddress>& from,
@@ -333,13 +370,18 @@ void Host::CompletePunch(size_t index, const std::shared_ptr<InetAddress>& from,
   auto session = std::make_shared<PeerSession>(
       local_address_, from, std::move(transport), ConnectionType::ZDT,
       punch.is_initiator, /*self_managed=*/false, config_.session_options);
-  routes_[from->readable()] = Route{raw, session};
-  session_count_.store(routes_.size(), std::memory_order_relaxed);
-  ZNET_LOG_INFO("P2P host: punched {} (punch id {})", from->readable(),
-                punch.punch_id);
+  Route route;
+  route.transport = raw;
+  route.session = session;
+  route.ready_deadline = clock::now() + punch.timeout;
   if (punch.on_done) {
-    punch.on_done(Result::Success, session);
+    route.waiters.push_back(std::move(punch.on_done));
   }
+  routes_[from->readable()] = std::move(route);
+  session_count_.store(routes_.size(), std::memory_order_relaxed);
+  // ProcessSessions resolves the waiters once the handshake lands.
+  ZNET_LOG_INFO("P2P host: punched {} (punch id {}), handshaking",
+                from->readable(), punch.punch_id);
 }
 
 void Host::FailPunch(size_t index, Result reason) {

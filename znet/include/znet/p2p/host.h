@@ -50,10 +50,13 @@ namespace p2p {
 class Host {
  public:
   /**
-   * @brief Runs on the host's thread when a punch resolves: Success with the
-   *        session, or a failure with null. Setting the session's codec and
-   *        handler inside the callback is the intended pattern, exactly like
-   *        a connected event.
+   * @brief Runs on the host's thread when a punch resolves: Success with a
+   *        session that has finished its handshake and is ready, or a failure
+   *        with null. Setting the session's codec and handler inside the
+   *        callback is the intended pattern, exactly like a connected event.
+   *
+   * Readiness is what makes that pattern safe: the handshake owns the codec
+   * and handler until it finishes, so installing over it would stall.
    */
   using PunchCallback =
       std::function<void(Result, std::shared_ptr<PeerSession>)>;
@@ -87,6 +90,7 @@ class Host {
    * @param punch_id the rendezvous-issued id, fed to IsInitiator by callers
    *        that need the tiebreak; the host itself only reports it back.
    * @param is_initiator exactly one of the two peers must pass true.
+   * @param timeout allowed for the punch, then again for the handshake.
    */
   void StartPunch(std::vector<std::shared_ptr<InetAddress>> candidates,
                   uint64_t punch_id, bool is_initiator,
@@ -112,6 +116,7 @@ class Host {
     bool is_initiator = false;
     uint64_t punch_id = 0;
     backends::ZDTConnection connection;
+    std::chrono::milliseconds timeout{0};
     std::chrono::steady_clock::time_point deadline;
     std::chrono::steady_clock::time_point last_punch;
     std::chrono::steady_clock::time_point last_request;
@@ -122,6 +127,9 @@ class Host {
     // owned by the session; valid exactly as long as the session lives
     backends::ZDTTransportLayer* transport = nullptr;
     std::shared_ptr<PeerSession> session;
+    // callers still owed a resolution for this peer
+    std::vector<PunchCallback> waiters;
+    std::chrono::steady_clock::time_point ready_deadline;
   };
 
   void TickLoop();
@@ -135,6 +143,7 @@ class Host {
   void CompletePunch(size_t index, const std::shared_ptr<InetAddress>& from,
                      const uint8_t* first_datagram, size_t len);
   void FailPunch(size_t index, Result reason);
+  static void ResolveWaiters(Route& route, Result result);
 
   Config config_;
   std::shared_ptr<backends::UDPSocket> socket_;
