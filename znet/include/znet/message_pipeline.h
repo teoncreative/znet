@@ -66,10 +66,14 @@ class MessagePipeline {
    *                message travels in, from TransportLayer::OrderingDomain().
    *                The cipher keeps a sequence and a replay window per stream,
    *                since a sequence only means anything inside one.
+   * @param out_payload_bytes optionally receives the serialized size, before
+   *        compression and encryption.
+   *
    * @return null if any stage fails, having logged why.
    */
   std::shared_ptr<Buffer> Encode(const std::shared_ptr<Packet>& packet,
-                                 uint8_t stream);
+                                 uint8_t stream,
+                                 size_t* out_payload_bytes = nullptr);
 
   /**
    * @brief Wire bytes to payload: decrypt, then decompress.

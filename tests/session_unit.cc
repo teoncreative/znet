@@ -612,3 +612,49 @@ TEST(InvalidFrameThreshold, ZeroDisablesTheClose) {
   EXPECT_TRUE(pair.server->IsAlive()) << "counted, never acted on";
   EXPECT_EQ(pair.server->invalid_frames(), 5u);
 }
+
+// The four byte counters mean two different things on purpose: message_bytes_*
+// is what crossed the wire, payload_bytes_* is the serialized packet. Encryption
+// makes the two differ by a fixed overhead, which is what pins them apart here.
+TEST(ByteMetrics, WireAndPayloadAreCountedSeparately) {
+  ASSERT_EQ(Init(), Result::Success);
+  Pair pair(/*encryption=*/true);
+  ASSERT_TRUE(pair.Handshake());
+
+  const auto before_sent = pair.client->metrics().common;
+  const auto before_recv = pair.server->metrics().common;
+  pair.Deliver(pair.Emit(7, 0));
+
+  const auto sent = pair.client->metrics().common;
+  const auto recv = pair.server->metrics().common;
+
+  const uint64_t wire_out = sent.message_bytes_sent - before_sent.message_bytes_sent;
+  const uint64_t body_out = sent.payload_bytes_sent - before_sent.payload_bytes_sent;
+  const uint64_t wire_in = recv.message_bytes_received - before_recv.message_bytes_received;
+  const uint64_t body_in = recv.payload_bytes_received - before_recv.payload_bytes_received;
+
+  EXPECT_GT(body_out, 0u);
+  EXPECT_GT(wire_out, body_out) << "encryption only ever adds bytes";
+  // the two ends measure the same message at the same two stages
+  EXPECT_EQ(wire_in, wire_out) << "received wire bytes must match what was sent";
+  EXPECT_EQ(body_in, body_out) << "received payload bytes must match what was serialized";
+}
+
+// Without a codec nothing can be dispatched, but the bytes still arrived, and a
+// bandwidth counter that hides them is worse than useless.
+TEST(ByteMetrics, WireBytesAreCountedWithoutACodec) {
+  ASSERT_EQ(Init(), Result::Success);
+  Pair pair(/*encryption=*/true);
+  ASSERT_TRUE(pair.Handshake());
+
+  auto frame = pair.Emit(9, 0);
+  pair.server->SetHandler(nullptr);
+  const auto before = pair.server->metrics().common;
+  pair.Deliver(frame);
+  const auto after = pair.server->metrics().common;
+
+  EXPECT_GT(after.message_bytes_received, before.message_bytes_received)
+      << "wire bytes are counted even when nothing dispatches them";
+  EXPECT_EQ(after.payload_bytes_received, before.payload_bytes_received)
+      << "payload bytes only count what reached a handler";
+}

@@ -97,13 +97,14 @@ bool PeerSession::Process() {
       break;
     }
     worked = true;
+    ZNET_METRIC(metrics_.common.message_bytes_received += buffer->readable_bytes());
     buffer = pipeline_.Decode(std::move(buffer));
     if (!buffer) {
       continue;
     }
     if (handler_ && pipeline_.has_codec()) {
       ZNET_METRIC(metrics_.common.messages_received++);
-      ZNET_METRIC(metrics_.common.message_bytes_received += buffer->size());
+      ZNET_METRIC(metrics_.common.payload_bytes_received += buffer->readable_bytes());
       DecodeStats stats = pipeline_.Dispatch(buffer, *handler_);
       if (stats.invalid_frames > 0) {
         invalid_frames_ += stats.invalid_frames;
@@ -162,11 +163,13 @@ bool PeerSession::EncodeAndSend(const std::shared_ptr<Packet>& packet,
                                 SendOptions options) {
   // the transport decides what "in order relative to each other" means for
   // these options, and the cipher's sequence has to be scoped the same way
-  auto buffer =
-      pipeline_.Encode(packet, transport_layer_->OrderingDomain(options));
+  size_t payload_bytes = 0;
+  auto buffer = pipeline_.Encode(
+      packet, transport_layer_->OrderingDomain(options), &payload_bytes);
   if (!buffer) {
     return false;
   }
+  ZNET_METRIC(metrics_.common.payload_bytes_sent += payload_bytes);
   ZNET_METRIC(metrics_.common.message_bytes_sent += buffer->readable_bytes());
   if (!transport_layer_->Send(buffer, options)) {
     ZNET_METRIC(metrics_.common.send_failures++);

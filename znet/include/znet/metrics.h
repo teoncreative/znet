@@ -49,8 +49,20 @@ namespace znet {
 struct CommonMetrics {
   uint64_t messages_sent = 0;
   uint64_t messages_received = 0;
-  uint64_t message_bytes_sent = 0;  /**< After encode, before transport framing. */
+  /** @brief On the wire: after compression and encryption, before transport
+   *         framing. Pairs with the peer's message_bytes_received. */
+  uint64_t message_bytes_sent = 0;
+  /** @brief On the wire, as the transport handed it over and before it was
+   *         decrypted or decompressed. Counted whether or not a codec and
+   *         handler are installed to dispatch it. */
   uint64_t message_bytes_received = 0;
+  /** @brief The serialized packet, before compression and encryption. Against
+   *         message_bytes_sent this is what the session's compression is
+   *         actually buying. */
+  uint64_t payload_bytes_sent = 0;
+  /** @brief The serialized packet, after decryption and decompression. Only
+   *         counted for messages that reach a handler. */
+  uint64_t payload_bytes_received = 0;
   /** @brief The transport refused an encoded message, e.g. its own queue was
    *         full. A SendPacket() that never reached the transport, such as one
    *         answered with Result::QueueFull, is not counted here. */

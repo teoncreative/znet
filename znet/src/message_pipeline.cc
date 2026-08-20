@@ -16,7 +16,8 @@
 namespace znet {
 
 std::shared_ptr<Buffer> MessagePipeline::Encode(
-    const std::shared_ptr<Packet>& packet, uint8_t stream) {
+    const std::shared_ptr<Packet>& packet, uint8_t stream,
+    size_t* out_payload_bytes) {
   if (!codec_) {
     ZNET_LOG_WARN("Session {} has no codec, dropping packet!", id_);
     return nullptr;
@@ -24,6 +25,9 @@ std::shared_ptr<Buffer> MessagePipeline::Encode(
   auto buffer = codec_->Serialize(packet, kSendHeadroom);
   if (!buffer) {
     return nullptr;
+  }
+  if (out_payload_bytes != nullptr) {
+    *out_payload_bytes = buffer->readable_bytes();
   }
   // small messages skip compression: the coder tables cost more than they can
   // ever save back.
