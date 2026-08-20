@@ -194,7 +194,7 @@ class PeerLocator {
   Task task_;
 
   std::shared_ptr<InetAddress> target_endpoint_;
-  std::shared_ptr<InetAddress> target_private_endpoint_;
+  std::vector<std::shared_ptr<InetAddress>> target_private_endpoints_;
   ConnectionType connection_type_ = ConnectionType::ZDT;
   std::string target_peer_name_;
   uint64_t punch_id_ = kInvalidPunchId;

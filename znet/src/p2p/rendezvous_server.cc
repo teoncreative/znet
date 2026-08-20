@@ -30,11 +30,14 @@ class RendezvousPacketHandler
       if (!server_.AllowRequest(*data)) {
         return;
       }
-      // the claim is only ever relayed to this client's match, so the worst
-      // a lie can do is cost that match one wasted punch candidate
-      if (pk.local_endpoint_ && pk.local_endpoint_->is_valid() &&
-          pk.local_endpoint_->ipv() != InetProtocolVersion::Unix) {
-        data->private_endpoint = pk.local_endpoint_;
+      // the claims are only ever relayed to this client's match, so the worst
+      // a lie can do is cost that match a few wasted punch candidates
+      data->private_endpoints.clear();
+      for (const auto& endpoint : pk.local_endpoints_) {
+        if (endpoint && endpoint->is_valid() &&
+            endpoint->ipv() != InetProtocolVersion::Unix) {
+          data->private_endpoints.push_back(endpoint);
+        }
       }
       data->punch_port = pk.punch_port_;
       server_.name_await_queue_.push_front(session_);
@@ -293,20 +296,22 @@ void RendezvousServer::TryPair(const std::shared_ptr<PeerSession>& session,
   auto local_address = punch_endpoint_of(data);
 
   // a private address identical to the observed one carries no information;
-  // only a distinct claim is worth a punch candidate
+  // only distinct claims are worth a punch candidate
   auto private_of = [](const std::shared_ptr<ClientData>& client,
                        const std::shared_ptr<InetAddress>& observed) {
-    if (client->private_endpoint &&
-        client->private_endpoint->readable() != observed->readable()) {
-      return client->private_endpoint;
+    std::vector<std::shared_ptr<InetAddress>> out;
+    for (const auto& endpoint : client->private_endpoints) {
+      if (endpoint->readable() != observed->readable()) {
+        out.push_back(endpoint);
+      }
     }
-    return std::shared_ptr<InetAddress>();
+    return out;
   };
 
   auto response = std::make_shared<StartPunchRequestPacket>();
   response->target_peer_ = other_data->peer_name;
   response->target_endpoint_ = other_address;
-  response->target_private_endpoint_ = private_of(other_data, other_address);
+  response->target_private_endpoints_ = private_of(other_data, other_address);
   response->punch_id_ = punch_id;
   response->connection_type_ = config_.punch_connection_type;
   session->SendPacket(response);
@@ -314,7 +319,7 @@ void RendezvousServer::TryPair(const std::shared_ptr<PeerSession>& session,
   response = std::make_shared<StartPunchRequestPacket>();
   response->target_peer_ = data->peer_name;
   response->target_endpoint_ = local_address;
-  response->target_private_endpoint_ = private_of(data, local_address);
+  response->target_private_endpoints_ = private_of(data, local_address);
   response->punch_id_ = punch_id;
   response->connection_type_ = config_.punch_connection_type;
   other_data->session->SendPacket(response);

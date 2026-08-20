@@ -306,6 +306,9 @@ struct RawRelayClient {
   std::shared_ptr<PeerSession> session;
   std::atomic<bool> connected{false};
   std::atomic<int> name_count{0};
+  std::vector<std::shared_ptr<InetAddress>> punch_privates;
+  std::shared_ptr<InetAddress> punch_public;
+  std::atomic<int> punch_count{0};
 
   explicit RawRelayClient(PortNumber port, int timeout_seconds = 5)
       : client(ClientConfig{"127.0.0.1", port,
@@ -323,6 +326,15 @@ struct RawRelayClient {
                     names.push_back(pk.peer_name_);
                   }
                   name_count++;
+                });
+            handler->AddRef<p2p::StartPunchRequestPacket>(
+                [this](const p2p::StartPunchRequestPacket& pk) {
+                  {
+                    std::lock_guard<std::mutex> lock(mutex);
+                    punch_public = pk.target_endpoint_;
+                    punch_privates = pk.target_private_endpoints_;
+                  }
+                  punch_count++;
                 });
             auto s = ev.session();
             s->SetCodec(p2p::BuildRendezvousCodec());
@@ -379,6 +391,116 @@ TEST(RendezvousProtection, RepeatedIdentifyKeepsTheSameName) {
   }
   c.client.Disconnect();
   relay.Stop();
+}
+
+TEST(RendezvousPrivateEndpoints, EveryClaimedAddressReachesTheMatch) {
+  ASSERT_EQ(Init(), Result::Success);
+  p2p::RendezvousServer::Config config;
+  config.bind_address = "127.0.0.1";
+  config.bind_port = 0;
+  p2p::RendezvousServer relay{config};
+  ASSERT_EQ(relay.Start(), Result::Success);
+
+  // a multi-homed peer cannot know which of its networks the match shares,
+  // so all of them have to survive the relay
+  auto identify_with = [](const std::vector<std::string>& addresses) {
+    auto pk = std::make_shared<p2p::IdentifyPacket>();
+    pk->punch_port_ = 4444;
+    for (const auto& address : addresses) {
+      pk->local_endpoints_.push_back(InetAddress::from(address, 4444));
+    }
+    return pk;
+  };
+
+  RawRelayClient a{relay.bind_address()->port()};
+  RawRelayClient b{relay.bind_address()->port()};
+  ASSERT_EQ(a.client.Bind(), Result::Success);
+  ASSERT_EQ(a.client.Connect(), Result::Success);
+  ASSERT_EQ(b.client.Bind(), Result::Success);
+  ASSERT_EQ(b.client.Connect(), Result::Success);
+  ASSERT_TRUE(WaitFor(a.connected, 5000));
+  ASSERT_TRUE(WaitFor(b.connected, 5000));
+
+  a.Session()->SendPacket(identify_with({"10.0.0.1", "192.168.5.5"}));
+  b.Session()->SendPacket(identify_with({"10.0.0.2", "172.20.1.1"}));
+  ASSERT_TRUE(WaitUntil([&]() { return a.name_count.load() >= 1; }, 5000));
+  ASSERT_TRUE(WaitUntil([&]() { return b.name_count.load() >= 1; }, 5000));
+
+  std::string a_name;
+  std::string b_name;
+  {
+    std::lock_guard<std::mutex> lock(a.mutex);
+    a_name = a.names[0];
+  }
+  {
+    std::lock_guard<std::mutex> lock(b.mutex);
+    b_name = b.names[0];
+  }
+
+  auto ask = std::make_shared<p2p::ConnectPeerPacket>();
+  ask->target_peer_ = b_name;
+  a.Session()->SendPacket(ask);
+  ask = std::make_shared<p2p::ConnectPeerPacket>();
+  ask->target_peer_ = a_name;
+  b.Session()->SendPacket(ask);
+
+  ASSERT_TRUE(WaitUntil([&]() { return a.punch_count.load() >= 1; }, 5000));
+  ASSERT_TRUE(WaitUntil([&]() { return b.punch_count.load() >= 1; }, 5000));
+
+  auto readable = [](const std::vector<std::shared_ptr<InetAddress>>& list) {
+    std::vector<std::string> out;
+    for (const auto& address : list) {
+      out.push_back(address->readable());
+    }
+    return out;
+  };
+  std::vector<std::string> a_got;
+  std::vector<std::string> b_got;
+  {
+    std::lock_guard<std::mutex> lock(a.mutex);
+    a_got = readable(a.punch_privates);
+  }
+  {
+    std::lock_guard<std::mutex> lock(b.mutex);
+    b_got = readable(b.punch_privates);
+  }
+  EXPECT_EQ(a_got, (std::vector<std::string>{"10.0.0.2:4444", "172.20.1.1:4444"}))
+      << "the match must see every network the peer offered";
+  EXPECT_EQ(b_got, (std::vector<std::string>{"10.0.0.1:4444", "192.168.5.5:4444"}));
+
+  a.client.Disconnect();
+  b.client.Disconnect();
+  relay.Stop();
+}
+
+TEST(RendezvousPrivateEndpoints, IdentifyRoundTripsEveryEndpoint) {
+  auto packet = std::make_shared<p2p::IdentifyPacket>();
+  packet->punch_port_ = 7000;
+  packet->local_endpoints_.push_back(InetAddress::from("10.0.0.1", 7000));
+  packet->local_endpoints_.push_back(InetAddress::from("192.168.1.9", 7000));
+  packet->local_endpoints_.push_back(InetAddress::from("127.0.0.1", 7000));
+
+  p2p::IdentifySerializer serializer;
+  auto buffer = std::make_shared<Buffer>(Endianness::BigEndian);
+  serializer.SerializeTyped(packet, buffer);
+  auto back = serializer.DeserializeTyped(buffer);
+
+  ASSERT_NE(back, nullptr);
+  EXPECT_EQ(back->punch_port_, 7000);
+  ASSERT_EQ(back->local_endpoints_.size(), 3u);
+  EXPECT_EQ(back->local_endpoints_[0]->readable(), "10.0.0.1:7000");
+  EXPECT_EQ(back->local_endpoints_[1]->readable(), "192.168.1.9:7000");
+  EXPECT_EQ(back->local_endpoints_[2]->readable(), "127.0.0.1:7000");
+}
+
+TEST(RendezvousPrivateEndpoints, AnOversizedClaimIsRefused) {
+  // a count past the cap must cost one refused frame, not an allocation
+  auto buffer = std::make_shared<Buffer>(Endianness::BigEndian);
+  buffer->WriteInt<uint8_t>(static_cast<uint8_t>(p2p::kMaxPrivateEndpoints + 1));
+  buffer->WriteInt<uint16_t>(7000);
+
+  p2p::IdentifySerializer serializer;
+  EXPECT_EQ(serializer.DeserializeTyped(buffer), nullptr);
 }
 
 TEST(RendezvousProtection, RequestSpamGetsTheClientDisconnected) {

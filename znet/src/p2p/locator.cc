@@ -15,6 +15,25 @@
 namespace znet {
 namespace p2p {
 
+namespace {
+
+// Every local address at the port punches leave from
+std::vector<std::shared_ptr<InetAddress>> LocalPunchEndpoints(PortNumber port) {
+  std::vector<std::shared_ptr<InetAddress>> endpoints;
+  for (const auto& address : GetLocalAddresses(InetProtocolVersion::IPv4)) {
+    auto endpoint = InetAddress::from(address, port);
+    if (endpoint && endpoint->is_valid()) {
+      endpoints.push_back(std::move(endpoint));
+    }
+    if (endpoints.size() >= kMaxPrivateEndpoints) {
+      break;
+    }
+  }
+  return endpoints;
+}
+
+}  // namespace
+
 class LocatorPacketHandler : public PacketHandler<LocatorPacketHandler, SetPeerNamePacket, StartPunchRequestPacket, PeerNotFoundPacket> {
  public:
   LocatorPacketHandler(PeerLocator& locator) : locator_(locator) { }
@@ -34,7 +53,7 @@ class LocatorPacketHandler : public PacketHandler<LocatorPacketHandler, SetPeerN
       // the worker reads these under the same mutex once it wakes
       std::lock_guard<std::mutex> lock(locator_.mutex_);
       locator_.target_endpoint_ = pk.target_endpoint_;
-      locator_.target_private_endpoint_ = pk.target_private_endpoint_;
+      locator_.target_private_endpoints_ = pk.target_private_endpoints_;
       locator_.punch_id_ = pk.punch_id_;
       locator_.target_peer_name_ = pk.target_peer_;
       locator_.connection_type_ = pk.connection_type_;
@@ -119,7 +138,7 @@ Result PeerLocator::Connect() {
     // another interface
     auto bind_endpoint = client_.local_address();
     auto target_endpoint = target_endpoint_;
-    auto target_private = target_private_endpoint_;
+    auto target_privates = target_private_endpoints_;
     const uint64_t punch_id = punch_id_;
     const std::string self_name = peer_name_;
     const std::string target_name = target_peer_name_;
@@ -132,14 +151,14 @@ Result PeerLocator::Connect() {
       // closes with the last reference to the session
       client_.Wait();
       client_.ReleaseSession();
-      // the public endpoint first; the private one joins the race when the
-      // peer reported something distinct, which is what makes two peers
-      // behind the same NAT reachable
+      // the public endpoint first; every private one the peer reported joins
+      // the race, which is what makes two peers on a shared network reachable
       std::vector<std::shared_ptr<InetAddress>> candidates;
       candidates.push_back(target_endpoint);
-      if (target_private &&
-          target_private->readable() != target_endpoint->readable()) {
-        candidates.push_back(target_private);
+      for (const auto& target_private : target_privates) {
+        if (target_private->readable() != target_endpoint->readable()) {
+          candidates.push_back(target_private);
+        }
       }
       Result punch_result;
       std::shared_ptr<PeerSession> session =
@@ -216,13 +235,15 @@ bool PeerLocator::OnConnectEvent(ClientConnectedToServerEvent& event) {
   session->SetCodec(BuildRendezvousCodec());
   session->SetHandler(std::make_shared<LocatorPacketHandler>(*this));
   auto identify = std::make_shared<IdentifyPacket>();
-  // the socket's own view of its address; behind a NAT this is the private
-  // endpoint the server relays to the matched peer as a punch candidate.
-  // The one-shot locator punches from the relay connection's own port, so
-  // that is the punch port it reports.
-  identify->local_endpoint_ = client_.local_address();
-  identify->punch_port_ =
-      identify->local_endpoint_ ? identify->local_endpoint_->port() : 0;
+  // the private endpoints the server relays to the matched peer. The one-shot
+  // locator punches from the relay connection's own socket, so its port is the
+  // punch port, and every local address is a candidate at that port: which one
+  // the peer shares is not knowable from here.
+  auto local = client_.local_address();
+  identify->punch_port_ = local ? local->port() : 0;
+  if (local) {
+    identify->local_endpoints_ = LocalPunchEndpoints(local->port());
+  }
   session->SendPacket(identify);
   return false;
 }
@@ -298,10 +319,10 @@ class MeshLocatorPacketHandler
                   pk.target_endpoint_->readable());
     std::vector<std::shared_ptr<InetAddress>> candidates;
     candidates.push_back(pk.target_endpoint_);
-    if (pk.target_private_endpoint_ &&
-        pk.target_private_endpoint_->readable() !=
-            pk.target_endpoint_->readable()) {
-      candidates.push_back(pk.target_private_endpoint_);
+    for (const auto& target_private : pk.target_private_endpoints_) {
+      if (target_private->readable() != pk.target_endpoint_->readable()) {
+        candidates.push_back(target_private);
+      }
     }
     locator_.OnPunchRequest(pk.target_peer_, std::move(candidates),
                             pk.punch_id_, pk.connection_type_);
@@ -419,11 +440,8 @@ bool MeshLocator::OnConnectEvent(ClientConnectedToServerEvent& event) {
   session->SetHandler(std::make_shared<MeshLocatorPacketHandler>(*this));
   auto identify = std::make_shared<IdentifyPacket>();
   identify->punch_port_ = host_.punch_port();
-  auto local = client_.local_address();
-  if (local) {
-    // the LAN candidate is this machine's address with the host's UDP port
-    identify->local_endpoint_ = local->WithPort(host_.punch_port());
-  }
+  // the LAN candidates are this machine's addresses with the host's UDP port
+  identify->local_endpoints_ = LocalPunchEndpoints(host_.punch_port());
   session->SendPacket(identify);
   return false;
 }

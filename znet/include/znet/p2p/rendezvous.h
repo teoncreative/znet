@@ -44,15 +44,53 @@ ZNET_INLINE_CONSTEXPR PacketId kPacketConnectPeer = 2;
 ZNET_INLINE_CONSTEXPR PacketId kPacketStartPunchRequest = 3;
 ZNET_INLINE_CONSTEXPR PacketId kPacketPeerNotFound = 4;
 
+// Cap on the private endpoints a peer may claim
+ZNET_INLINE_CONSTEXPR size_t kMaxPrivateEndpoints = 32;
+
+namespace detail {
+
+inline void WriteEndpoints(
+    const std::shared_ptr<Buffer>& buffer,
+    const std::vector<std::shared_ptr<InetAddress>>& endpoints) {
+  size_t count = endpoints.size();
+  if (count > kMaxPrivateEndpoints) {
+    count = kMaxPrivateEndpoints;
+  }
+  buffer->WriteInt<uint8_t>(static_cast<uint8_t>(count));
+  for (size_t i = 0; i < count; i++) {
+    buffer->WriteInetAddress(*endpoints[i]);
+  }
+}
+
+// Returns false on a corrupt address, so the caller can refuse the frame.
+inline bool ReadEndpoints(const std::shared_ptr<Buffer>& buffer,
+                          std::vector<std::shared_ptr<InetAddress>>& out) {
+  const uint8_t count = buffer->ReadInt<uint8_t>();
+  if (count > kMaxPrivateEndpoints) {
+    return false;
+  }
+  for (uint8_t i = 0; i < count; i++) {
+    auto address = buffer->ReadInetAddress();
+    if (!address) {
+      return false;
+    }
+    out.push_back(std::move(address));
+  }
+  return true;
+}
+
+}  // namespace detail
+
 class IdentifyPacket : public Packet {
  public:
   IdentifyPacket() : Packet(kPacketIdentify) {}
 
-  // the client's own view of its address, e.g. 192.168.1.5:54321. The server
-  // relays it to the matched peer as a punch candidate, which is what lets
-  // two peers behind the same NAT reach each other. Optional: peers that
-  // omit it just punch on the public endpoint alone.
-  std::shared_ptr<InetAddress> local_endpoint_;
+  // every address the client sees itself at, e.g. 192.168.1.5:54321. The
+  // server relays them to the matched peer as punch candidates, which is what
+  // lets two peers on a shared network reach each other. A multi-homed host
+  // cannot know which one the peer shares, so it offers all of them. Optional:
+  // peers that send none just punch on the public endpoint alone.
+  std::vector<std::shared_ptr<InetAddress>> local_endpoints_;
   // the local port this client punches from: the relay connection's own port
   // for the one-shot locator, the Host's UDP port for a mesh. The server
   // pairs it with the address it observed. Note the assumption both cases
@@ -81,9 +119,9 @@ class StartPunchRequestPacket : public Packet {
 
   std::string target_peer_;
   std::shared_ptr<InetAddress> target_endpoint_;
-  // the peer's claimed private address, when it reported one distinct from
-  // what the server observed; a second punch candidate
-  std::shared_ptr<InetAddress> target_private_endpoint_;
+  // the peer's claimed private addresses, minus any matching what the server
+  // observed; further punch candidates
+  std::vector<std::shared_ptr<InetAddress>> target_private_endpoints_;
   // the server picks the punch transport, so both peers always agree
   ConnectionType connection_type_ = ConnectionType::ZDT;
   uint64_t punch_id_ = 0;
@@ -102,22 +140,15 @@ class IdentifySerializer : public PacketSerializer<IdentifyPacket> {
   ~IdentifySerializer() override = default;
 
   std::shared_ptr<Buffer> SerializeTyped(std::shared_ptr<IdentifyPacket> packet, std::shared_ptr<Buffer> buffer) override {
-    const bool has_local = packet->local_endpoint_ != nullptr;
-    buffer->WriteInt<uint8_t>(has_local ? 1 : 0);
-    if (has_local) {
-      buffer->WriteInetAddress(*packet->local_endpoint_);
-    }
+    detail::WriteEndpoints(buffer, packet->local_endpoints_);
     buffer->WriteInt<uint16_t>(static_cast<uint16_t>(packet->punch_port_));
     return buffer;
   }
 
   std::shared_ptr<IdentifyPacket> DeserializeTyped(std::shared_ptr<Buffer> buffer) override {
     auto packet = std::make_shared<IdentifyPacket>();
-    if (buffer->ReadInt<uint8_t>() != 0) {
-      packet->local_endpoint_ = buffer->ReadInetAddress();
-      if (!packet->local_endpoint_) {
-        return nullptr;  // claimed an address, then sent a corrupt one
-      }
+    if (!detail::ReadEndpoints(buffer, packet->local_endpoints_)) {
+      return nullptr;  // claimed an address, then sent a corrupt one
     }
     packet->punch_port_ = buffer->ReadInt<uint16_t>();
     return packet;
@@ -171,11 +202,7 @@ class StartPunchRequestSerializer : public PacketSerializer<StartPunchRequestPac
   std::shared_ptr<Buffer> SerializeTyped(std::shared_ptr<StartPunchRequestPacket> packet, std::shared_ptr<Buffer> buffer) override {
     buffer->WriteString(packet->target_peer_);
     buffer->WriteInetAddress(*packet->target_endpoint_);
-    const bool has_private = packet->target_private_endpoint_ != nullptr;
-    buffer->WriteInt<uint8_t>(has_private ? 1 : 0);
-    if (has_private) {
-      buffer->WriteInetAddress(*packet->target_private_endpoint_);
-    }
+    detail::WriteEndpoints(buffer, packet->target_private_endpoints_);
     buffer->WriteInt<uint64_t>(packet->punch_id_);
     buffer->WriteInt<uint8_t>(static_cast<uint8_t>(packet->connection_type_));
     return buffer;
@@ -188,11 +215,8 @@ class StartPunchRequestSerializer : public PacketSerializer<StartPunchRequestPac
     if (!packet->target_endpoint_) {
       return nullptr;  // corrupt address; refuse the frame, not the process
     }
-    if (buffer->ReadInt<uint8_t>() != 0) {
-      packet->target_private_endpoint_ = buffer->ReadInetAddress();
-      if (!packet->target_private_endpoint_) {
-        return nullptr;
-      }
+    if (!detail::ReadEndpoints(buffer, packet->target_private_endpoints_)) {
+      return nullptr;
     }
     packet->punch_id_ = buffer->ReadInt<uint64_t>();
     const uint8_t raw_type = buffer->ReadInt<uint8_t>();

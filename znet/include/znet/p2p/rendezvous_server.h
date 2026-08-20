@@ -90,9 +90,9 @@ class RendezvousServer {
     // slot: a mesh client asks for several peers, and one slot made each ask
     // clobber the previous one. An entry is consumed when its pair forms.
     std::set<std::string> pending_targets;
-    // the client's claimed private address, relayed to its match as a second
-    // punch candidate; null when it did not report one
-    std::shared_ptr<InetAddress> private_endpoint;
+    // the client's claimed private addresses, relayed to its match as further
+    // punch candidates; empty when it reported none
+    std::vector<std::shared_ptr<InetAddress>> private_endpoints;
     // the port the client punches from; zero falls back to the observed one
     PortNumber punch_port = 0;
     std::chrono::steady_clock::time_point request_window_start;
