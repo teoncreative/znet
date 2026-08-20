@@ -98,8 +98,8 @@ struct CommonOptions {
   /**
    * @brief Packets a session will hold for its worker to encode.
    *
-   * SendPacket() only queues, and returning false once the queue is full is
-   * how an application learns it is outrunning the link. A transport queues
+   * SendPacket() only queues, and Result::QueueFull once it is full is how
+   * an application learns it is outrunning the link. A transport queues
    * further messages behind its own congestion window, so this is not the
    * total a session can hold.
    *

@@ -51,7 +51,10 @@ struct CommonMetrics {
   uint64_t messages_received = 0;
   uint64_t message_bytes_sent = 0;  /**< After encode, before transport framing. */
   uint64_t message_bytes_received = 0;
-  uint64_t send_failures = 0;  /**< Send() refused, e.g. queue full. */
+  /** @brief The transport refused an encoded message, e.g. its own queue was
+   *         full. A SendPacket() that never reached the transport, such as one
+   *         answered with Result::QueueFull, is not counted here. */
+  uint64_t send_failures = 0;
   uint64_t invalid_frames = 0;  /**< Inbound frames that failed to decode. */
   uint64_t wire_bytes_sent = 0;  /**< Including transport framing. */
   uint64_t wire_bytes_received = 0;
