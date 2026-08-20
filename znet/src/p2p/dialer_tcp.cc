@@ -57,6 +57,26 @@ namespace {
 
 // one socket/bind/connect cycle, waited on until `deadline`. A refused or
 // failed connect closes the socket and reports; the caller decides whether
+// How long a freshly opened connection gets to prove it is paired. A real one
+// is ready in a millisecond or two on loopback, so this only has to cover a
+// slow link, not a slow handshake.
+ZNET_INLINE_CONSTEXPR std::chrono::milliseconds kPairingConfirmation{500};
+
+// The session drives itself, so waiting is all this takes.
+bool WaitForPairing(const std::shared_ptr<PeerSession>& session,
+                    std::chrono::steady_clock::time_point deadline) {
+  while (std::chrono::steady_clock::now() < deadline) {
+    if (session->IsReady()) {
+      return true;
+    }
+    if (!session->IsAlive()) {
+      return false;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  }
+  return session->IsReady();
+}
+
 // the budget allows another cycle. `log_bind_failure` is off while the caller
 // is retrying an already-reported bind failure, so a stuck port reports once
 // instead of thousands of times over the budget.
@@ -211,8 +231,22 @@ std::shared_ptr<PeerSession> PunchSyncTCP(const std::shared_ptr<InetAddress>& lo
                                    last_logged[candidate] != Result::CannotBind,
                                    &attempt_result);
     if (session) {
-      *out_result = Result::Success;
-      return session;
+      // A simultaneous open can also complete against a socket the peer has
+      // already given up on, and connect() cannot tell the two apart. The
+      // handshake can: a paired session goes ready almost at once, while an
+      // orphaned one never does. Confirming here keeps the retry inside the
+      // punch budget, rather than handing the caller a connection that will
+      // never carry anything.
+      if (WaitForPairing(session, std::min(deadline, std::chrono::steady_clock::now() +
+                                                         kPairingConfirmation))) {
+        *out_result = Result::Success;
+        return session;
+      }
+      ZNET_LOG_DEBUG("Punch to {} opened but never paired, retrying.",
+                     peer->readable());
+      session->Close();
+      last_result = Result::Timeout;
+      continue;
     }
     last_result = attempt_result;
     if (attempt_result == Result::CannotCreateSocket) {

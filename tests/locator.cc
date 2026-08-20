@@ -125,6 +125,9 @@ struct LocatorProbe {
   Result failed_reason{};
   std::string failed_target;
   std::atomic<bool> ready{false};
+  // readiness sampled inside PeerConnectedEvent, which is where a caller would
+  // install its codec and handler
+  std::atomic<bool> ready_at_event{false};
   std::atomic<bool> connected{false};
   std::atomic<bool> failed{false};
   std::atomic<bool> closed{false};
@@ -148,6 +151,7 @@ struct LocatorProbe {
               std::lock_guard<std::mutex> lock(mutex);
               session = ev.session();
             }
+            ready_at_event = ev.session() && ev.session()->IsReady();
             connected = true;
             return false;
           });
@@ -291,6 +295,57 @@ TEST(PeerLocatorEndToEnd, IdlePunchedSessionsDoNotSpin) {
 
 TEST(PeerLocatorEndToEnd, PunchesOverZDT) {
   RunPunchEndToEnd(ConnectionType::ZDT);
+}
+
+namespace {
+
+// A connected event is where a caller installs its codec and handler, and the
+// encryption layer owns both until the handshake finishes. So the session the
+// event carries has to be ready, or anything installed is discarded and the
+// connection stalls. Retries mirror RunPunchEndToEnd: a punch that never lands
+// is a flaky port, not a broken contract.
+void ExpectConnectedEventCarriesAReadySession(ConnectionType punch_type) {
+  ASSERT_EQ(Init(), Result::Success);
+  p2p::RendezvousServer::Config config;
+  config.bind_address = "127.0.0.1";
+  config.bind_port = 0;
+  config.punch_connection_type = punch_type;
+  p2p::RendezvousServer relay{config};
+  ASSERT_EQ(relay.Start(), Result::Success);
+  const PortNumber port = relay.bind_address()->port();
+
+  for (int attempt = 0; attempt < 3; attempt++) {
+    LocatorProbe a{port};
+    LocatorProbe b{port};
+    ASSERT_EQ(a.locator.Connect(), Result::Success);
+    ASSERT_EQ(b.locator.Connect(), Result::Success);
+    ASSERT_TRUE(WaitFor(a.ready, 5000));
+    ASSERT_TRUE(WaitFor(b.ready, 5000));
+    ASSERT_EQ(a.locator.AskPeer(b.Name()), Result::Success);
+    ASSERT_EQ(b.locator.AskPeer(a.Name()), Result::Success);
+
+    if (!WaitForPunchOutcome(a, 15000) || !WaitForPunchOutcome(b, 15000)) {
+      continue;
+    }
+    EXPECT_TRUE(a.ready_at_event.load())
+        << "a's connected event handed over a session still handshaking";
+    EXPECT_TRUE(b.ready_at_event.load())
+        << "b's connected event handed over a session still handshaking";
+    relay.Stop();
+    return;
+  }
+  relay.Stop();
+  FAIL() << "the punch failed on every attempt";
+}
+
+}  // namespace
+
+TEST(PeerLocatorEndToEnd, ConnectedEventIsReadyOverZDT) {
+  ExpectConnectedEventCarriesAReadySession(ConnectionType::ZDT);
+}
+
+TEST(PeerLocatorEndToEnd, ConnectedEventIsReadyOverTCP) {
+  ExpectConnectedEventCarriesAReadySession(ConnectionType::TCP);
 }
 
 // --- Relay protections --------------------------------------------------------
