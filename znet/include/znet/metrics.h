@@ -106,7 +106,7 @@ struct ZDTSessionMetrics {
 };
 
 /**
- * @brief Everything a session reports. Read `transport` to know which of the
+ * @brief Everything a session reports. Read `connection_type` to know which of the
  * per-transport groups carries meaningful values.
  */
 struct SessionMetrics {
