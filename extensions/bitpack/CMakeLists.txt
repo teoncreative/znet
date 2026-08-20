@@ -10,6 +10,11 @@ if(NOT ZNET_EXT_BITPACK)
     return()
 endif()
 
+if(NOT TARGET znet-quantize)
+    message(STATUS "znet-bitpack: needs znet-quantize, which is off; skipping extension")
+    return()
+endif()
+
 add_library(znet-bitpack INTERFACE)
 add_library(znet::bitpack ALIAS znet-bitpack)
 

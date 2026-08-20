@@ -7,6 +7,11 @@ if(NOT ZNET_EXT_GLM)
     return()
 endif()
 
+if(NOT TARGET znet-quantize)
+    message(STATUS "znet-glm: needs znet-quantize, which is off; skipping extension")
+    return()
+endif()
+
 # Prefer an installed glm: a consumer almost certainly already has the exact
 # version their renderer was built against, and quietly fetching a second one
 # would put two glm headers on the include path.
