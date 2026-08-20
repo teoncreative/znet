@@ -40,25 +40,20 @@ int GetDomainByInetProtocolVersion(InetProtocolVersion version);
 std::string GetAnyBindAddress(InetProtocolVersion version);
 
 /**
- * @brief Every address this host is reachable at on its own networks, in the
- *        order the OS reports them, except loopback which is always last.
+ * @brief Every address this host is reachable at, loopback last. Never empty.
  *
- * Meant for gathering punch candidates: a machine is routinely on several
- * networks at once (wired and wireless, a VPN, a container bridge), and which
- * one a given peer can reach is not knowable from here. Hand the far side all
- * of them and let it race, rather than guessing.
- *
- * Link-local addresses are left out, being unreachable off-link. Loopback is
- * kept, last, since it is what works when both peers are the same machine.
- * Never empty: it falls back to loopback alone when nothing can be enumerated.
+ * For punch candidates: offer a peer all of them rather than guessing which
+ * one it can reach. Link-local and container bridges are left out.
  */
 std::vector<std::string> GetLocalAddresses(InetProtocolVersion version);
 
-/** @brief The first of GetLocalAddresses(), so loopback only when that is
- *         genuinely all there is. Which one that is comes down to interface
- *         order, so prefer GetLocalAddresses() where every path matters, such
- *         as gathering punch candidates. */
-std::string GetLocalAddress(InetProtocolVersion version);
+/**
+ * @brief This host's loopback address, and nothing more.
+ *
+ * There is deliberately no "the local address" call: on a multi-homed host any
+ * single answer is a guess. Use GetLocalAddresses() when a peer has to reach you.
+ */
+std::string GetLoopbackAddress(InetProtocolVersion version);
 
 bool IsIPv4(const std::string& ip);
 bool IsIPv6(const std::string& ip);

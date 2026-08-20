@@ -138,7 +138,7 @@ const char* LoopbackAddress(InetProtocolVersion version) {
   return version == InetProtocolVersion::IPv6 ? "::1" : "127.0.0.1";
 }
 
-// Unreachable off their own link, so they are only noise as punch candidates.
+// Unreachable off-link, so only noise as candidates.
 bool IsLinkLocal(InetProtocolVersion version, const std::string& ip) {
   if (version == InetProtocolVersion::IPv6) {
     return ip.rfind("fe80:", 0) == 0 || ip.rfind("FE80:", 0) == 0;
@@ -151,9 +151,8 @@ bool IsLoopback(InetProtocolVersion version, const std::string& ip) {
   return ip.rfind("127.", 0) == 0;
 }
 
-// Container and hypervisor bridges. Nothing outside this host routes to them,
-// so they are only ever wasted punch attempts. VPN interfaces (tun, wg, zt and
-// friends) are deliberately kept: reaching a peer over one is a real case.
+// Container and hypervisor bridges: nothing off-host routes to them. VPN
+// interfaces are kept, since reaching a peer over one is a real case.
 bool IsVirtualBridge(const char* name) {
   if (!name) return false;
   static const char* kPrefixes[] = {"docker", "br-",    "veth",
@@ -164,9 +163,8 @@ bool IsVirtualBridge(const char* name) {
   return false;
 }
 
-// Candidates travel in every registration and punch packet, and a developer
-// box can easily carry a dozen addresses. Enough to cover the real paths
-// without bloating the wire.
+// Candidates ride in every registration and punch packet; a dev box can carry
+// a dozen addresses.
 constexpr size_t kMaxLocalAddresses = 8;
 
 }  // namespace
@@ -174,6 +172,7 @@ constexpr size_t kMaxLocalAddresses = 8;
 std::vector<std::string> GetLocalAddresses(InetProtocolVersion version) {
   const int family =
       version == InetProtocolVersion::IPv6 ? AF_INET6 : AF_INET;
+  (void)family;  // unused where neither branch below compiles, e.g. web
   std::vector<std::string> addresses;
   bool has_loopback = false;
 
@@ -184,11 +183,13 @@ std::vector<std::string> GetLocalAddresses(InetProtocolVersion version) {
   const ULONG flags = GAA_FLAG_SKIP_ANYCAST | GAA_FLAG_SKIP_MULTICAST |
                       GAA_FLAG_SKIP_DNS_SERVER;
 
-  ULONG result = GetAdaptersAddresses(family, flags, nullptr, adapters, &size);
+  ULONG result = GetAdaptersAddresses(static_cast<ULONG>(family), flags, nullptr,
+                                      adapters, &size);
   if (result == ERROR_BUFFER_OVERFLOW) {
     buffer.resize(size);
     adapters = reinterpret_cast<IP_ADAPTER_ADDRESSES*>(buffer.data());
-    result = GetAdaptersAddresses(family, flags, nullptr, adapters, &size);
+    result = GetAdaptersAddresses(static_cast<ULONG>(family), flags, nullptr,
+                                  adapters, &size);
   }
 
   if (result == NO_ERROR) {
@@ -251,8 +252,7 @@ std::vector<std::string> GetLocalAddresses(InetProtocolVersion version) {
   }
 #endif
 
-  // Last resort rather than a candidate: it only ever connects a host to
-  // itself, but that case is real and costs one entry.
+  // Last: only connects a host to itself, but that case is real.
   if (addresses.size() > kMaxLocalAddresses) {
     addresses.resize(kMaxLocalAddresses);
   }
@@ -262,13 +262,13 @@ std::vector<std::string> GetLocalAddresses(InetProtocolVersion version) {
   return addresses;
 }
 
-std::string GetLocalAddress(InetProtocolVersion version) {
+std::string GetLoopbackAddress(InetProtocolVersion version) {
   if (version == InetProtocolVersion::Unix) {
     ZNET_LOG_ERROR("Invalid InetProtocolVersion: {}",
                    static_cast<int>(version));
     return LoopbackAddress(InetProtocolVersion::IPv4);
   }
-  return GetLocalAddresses(version).front();
+  return LoopbackAddress(version);
 }
 
 bool IsIPv4(const std::string& ip) {
