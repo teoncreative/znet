@@ -13,6 +13,14 @@
 #include "znet/logger.h"
 #include "znet/init.h"
 
+// Enumerating the host's own interfaces, which sys_net.h does not cover.
+#ifdef ZNET_TARGET_WIN
+#include <iphlpapi.h>
+#elif defined(ZNET_TARGET_POSIX)
+#include <ifaddrs.h>
+#include <net/if.h>
+#endif
+
 #include <cstddef>
 #include <cstdlib>
 #include <cstring>
@@ -124,16 +132,143 @@ std::string GetAnyBindAddress(InetProtocolVersion version) {
 }
 
 
-std::string GetLocalAddress(InetProtocolVersion version) {
-  switch (version) {
-    case InetProtocolVersion::IPv4:
-      return "127.0.0.1";
-    case InetProtocolVersion::IPv6:
-      return "::1";
-    default:
-      ZNET_LOG_ERROR("Invalid InetProtocolVersion: {}", static_cast<int>(version));
-      return "127.0.0.1";  // Fallback to IPv4
+namespace {
+
+const char* LoopbackAddress(InetProtocolVersion version) {
+  return version == InetProtocolVersion::IPv6 ? "::1" : "127.0.0.1";
+}
+
+// Unreachable off their own link, so they are only noise as punch candidates.
+bool IsLinkLocal(InetProtocolVersion version, const std::string& ip) {
+  if (version == InetProtocolVersion::IPv6) {
+    return ip.rfind("fe80:", 0) == 0 || ip.rfind("FE80:", 0) == 0;
   }
+  return ip.rfind("169.254.", 0) == 0;
+}
+
+bool IsLoopback(InetProtocolVersion version, const std::string& ip) {
+  if (version == InetProtocolVersion::IPv6) return ip == "::1";
+  return ip.rfind("127.", 0) == 0;
+}
+
+// Container and hypervisor bridges. Nothing outside this host routes to them,
+// so they are only ever wasted punch attempts. VPN interfaces (tun, wg, zt and
+// friends) are deliberately kept: reaching a peer over one is a real case.
+bool IsVirtualBridge(const char* name) {
+  if (!name) return false;
+  static const char* kPrefixes[] = {"docker", "br-",    "veth",
+                                    "virbr",  "vmnet",  "vboxnet"};
+  for (const char* prefix : kPrefixes) {
+    if (std::strncmp(name, prefix, std::strlen(prefix)) == 0) return true;
+  }
+  return false;
+}
+
+// Candidates travel in every registration and punch packet, and a developer
+// box can easily carry a dozen addresses. Enough to cover the real paths
+// without bloating the wire.
+constexpr size_t kMaxLocalAddresses = 8;
+
+}  // namespace
+
+std::vector<std::string> GetLocalAddresses(InetProtocolVersion version) {
+  const int family =
+      version == InetProtocolVersion::IPv6 ? AF_INET6 : AF_INET;
+  std::vector<std::string> addresses;
+  bool has_loopback = false;
+
+#ifdef ZNET_TARGET_WIN
+  ULONG size = 15 * 1024;  // what the API docs suggest starting from
+  std::vector<char> buffer(size);
+  auto* adapters = reinterpret_cast<IP_ADAPTER_ADDRESSES*>(buffer.data());
+  const ULONG flags = GAA_FLAG_SKIP_ANYCAST | GAA_FLAG_SKIP_MULTICAST |
+                      GAA_FLAG_SKIP_DNS_SERVER;
+
+  ULONG result = GetAdaptersAddresses(family, flags, nullptr, adapters, &size);
+  if (result == ERROR_BUFFER_OVERFLOW) {
+    buffer.resize(size);
+    adapters = reinterpret_cast<IP_ADAPTER_ADDRESSES*>(buffer.data());
+    result = GetAdaptersAddresses(family, flags, nullptr, adapters, &size);
+  }
+
+  if (result == NO_ERROR) {
+    for (auto* adapter = adapters; adapter; adapter = adapter->Next) {
+      if (adapter->OperStatus != IfOperStatusUp) continue;
+      for (auto* unicast = adapter->FirstUnicastAddress; unicast;
+           unicast = unicast->Next) {
+        char text[INET6_ADDRSTRLEN] = {};
+        if (getnameinfo(unicast->Address.lpSockaddr,
+                        unicast->Address.iSockaddrLength, text, sizeof(text),
+                        nullptr, 0, NI_NUMERICHOST) != 0) {
+          continue;
+        }
+        std::string ip(text);
+        // Windows appends a scope id to IPv6, which is meaningless elsewhere.
+        const size_t scope = ip.find('%');
+        if (scope != std::string::npos) ip.erase(scope);
+
+        if (IsLinkLocal(version, ip)) continue;
+        if (IsLoopback(version, ip)) {
+          has_loopback = true;
+          continue;
+        }
+        addresses.push_back(ip);
+      }
+    }
+  } else {
+    ZNET_LOG_DEBUG("GetAdaptersAddresses failed: {}", result);
+  }
+#elif defined(ZNET_TARGET_POSIX)
+  ifaddrs* interfaces = nullptr;
+  if (getifaddrs(&interfaces) == 0) {
+    for (auto* it = interfaces; it; it = it->ifa_next) {
+      if (!it->ifa_addr) continue;
+      if (it->ifa_addr->sa_family != family) continue;
+      if (!(it->ifa_flags & IFF_UP)) continue;
+      if (IsVirtualBridge(it->ifa_name)) continue;
+
+      const socklen_t length = family == AF_INET6 ? sizeof(sockaddr_in6)
+                                                  : sizeof(sockaddr_in);
+      char text[INET6_ADDRSTRLEN] = {};
+      if (getnameinfo(it->ifa_addr, length, text, sizeof(text), nullptr, 0,
+                      NI_NUMERICHOST) != 0) {
+        continue;
+      }
+      std::string ip(text);
+      const size_t scope = ip.find('%');
+      if (scope != std::string::npos) ip.erase(scope);
+
+      if (IsLinkLocal(version, ip)) continue;
+      if (IsLoopback(version, ip)) {
+        has_loopback = true;
+        continue;
+      }
+      addresses.push_back(ip);
+    }
+    freeifaddrs(interfaces);
+  } else {
+    ZNET_LOG_DEBUG("getifaddrs failed, falling back to loopback");
+  }
+#endif
+
+  // Last resort rather than a candidate: it only ever connects a host to
+  // itself, but that case is real and costs one entry.
+  if (addresses.size() > kMaxLocalAddresses) {
+    addresses.resize(kMaxLocalAddresses);
+  }
+  if (has_loopback || addresses.empty()) {
+    addresses.emplace_back(LoopbackAddress(version));
+  }
+  return addresses;
+}
+
+std::string GetLocalAddress(InetProtocolVersion version) {
+  if (version == InetProtocolVersion::Unix) {
+    ZNET_LOG_ERROR("Invalid InetProtocolVersion: {}",
+                   static_cast<int>(version));
+    return LoopbackAddress(InetProtocolVersion::IPv4);
+  }
+  return GetLocalAddresses(version).front();
 }
 
 bool IsIPv4(const std::string& ip) {

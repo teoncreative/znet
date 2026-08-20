@@ -279,7 +279,8 @@ endforeach()
 
 ## Dependencies
 if(WIN32)
-    target_link_libraries(znet PUBLIC winmm ws2_32)
+    # iphlpapi provides GetAdaptersAddresses, used to enumerate local addresses.
+    target_link_libraries(znet PUBLIC winmm ws2_32 iphlpapi)
 endif()
 
 # OpenSSL
