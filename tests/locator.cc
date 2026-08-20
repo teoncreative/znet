@@ -622,16 +622,25 @@ PortNumber FreePortLocal(int socket_type) {
   return port;
 }
 
-// both peers punch with a dead first candidate; only the second one is the
-// other peer. The punch must find it inside the budget.
-void RunCandidateRace(ConnectionType type, PortNumber port_a,
-                      PortNumber port_b) {
+// both peers punch with `dead_count` dead candidates ahead of the live one.
+// The punch must still find the peer inside the budget, and it must not get
+// slower just because a multi-homed peer offered more addresses: a candidate
+// nobody answers has to cost a socket, not a share of the budget.
+void RunCandidateRace(ConnectionType type, PortNumber port_a, PortNumber port_b,
+                      int dead_count = 1) {
   std::shared_ptr<InetAddress> local_a = InetAddress::from("127.0.0.1", port_a);
   std::shared_ptr<InetAddress> local_b = InetAddress::from("127.0.0.1", port_b);
-  // TEST-NET-1 space: routable nowhere, so the candidate just goes dark
-  std::shared_ptr<InetAddress> dead = InetAddress::from("203.0.113.1", 9);
-  std::vector<std::shared_ptr<InetAddress>> to_b = {dead, local_b};
-  std::vector<std::shared_ptr<InetAddress>> to_a = {dead, local_a};
+  std::vector<std::shared_ptr<InetAddress>> to_b;
+  std::vector<std::shared_ptr<InetAddress>> to_a;
+  for (int i = 0; i < dead_count; i++) {
+    // TEST-NET-1 space: routable nowhere, so the candidate just goes dark
+    std::shared_ptr<InetAddress> dead =
+        InetAddress::from("203.0.113." + std::to_string(1 + i), 9);
+    to_b.push_back(dead);
+    to_a.push_back(dead);
+  }
+  to_b.push_back(local_b);
+  to_a.push_back(local_a);
 
   Result result_a = Result::Failure;
   Result result_b = Result::Failure;
@@ -663,10 +672,27 @@ TEST(PunchCandidates, ZDTRacesPastADeadCandidate) {
                    FreePortLocal(SOCK_DGRAM));
 }
 
-TEST(PunchCandidates, TCPCyclesPastADeadCandidate) {
+TEST(PunchCandidates, TCPRacesPastADeadCandidate) {
   ASSERT_EQ(Init(), Result::Success);
   RunCandidateRace(ConnectionType::TCP, FreePortLocal(SOCK_STREAM),
                    FreePortLocal(SOCK_STREAM));
+}
+
+// A multi-homed peer offers every address it has, and most of them are dead to
+// anyone not on that network. Walking them one at a time spent the budget on
+// the dead ones and left the live one a fraction of the round trips, which made
+// the punch fail the more candidates it was given. Both transports race, so
+// neither should care.
+TEST(PunchCandidates, ZDTIsUnhurtByManyDeadCandidates) {
+  ASSERT_EQ(Init(), Result::Success);
+  RunCandidateRace(ConnectionType::ZDT, FreePortLocal(SOCK_DGRAM),
+                   FreePortLocal(SOCK_DGRAM), /*dead_count=*/7);
+}
+
+TEST(PunchCandidates, TCPIsUnhurtByManyDeadCandidates) {
+  ASSERT_EQ(Init(), Result::Success);
+  RunCandidateRace(ConnectionType::TCP, FreePortLocal(SOCK_STREAM),
+                   FreePortLocal(SOCK_STREAM), /*dead_count=*/7);
 }
 
 TEST(PeerLocatorEndToEnd, AskingForAnUnknownPeerFailsTheRendezvous) {

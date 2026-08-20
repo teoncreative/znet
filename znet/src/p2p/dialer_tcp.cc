@@ -55,8 +55,13 @@ constexpr int ToSelectNFDS(SocketHandle handle) { return handle + 1; }
 
 namespace {
 
-// one socket/bind/connect cycle, waited on until `deadline`. A refused or
-// failed connect closes the socket and reports; the caller decides whether
+// How long one round of concurrent connects waits before starting a fresh
+// one. A simultaneous open only completes when both SYNs are in flight
+// together, so a round that finds nobody home is worth abandoning quickly:
+// what matters is how often every candidate gets a SYN, not how long any one
+// attempt is allowed to hang.
+ZNET_INLINE_CONSTEXPR std::chrono::milliseconds kRoundCap{250};
+
 // How long a freshly opened connection gets to prove it is paired. A real one
 // is ready in a millisecond or two on loopback, so this only has to cover a
 // slow link, not a slow handshake.
@@ -77,75 +82,114 @@ bool WaitForPairing(const std::shared_ptr<PeerSession>& session,
   return session->IsReady();
 }
 
-// the budget allows another cycle. `log_bind_failure` is off while the caller
-// is retrying an already-reported bind failure, so a stuck port reports once
-// instead of thousands of times over the budget.
-std::shared_ptr<PeerSession> TryPunchTCPOnce(
-    const std::shared_ptr<InetAddress>& local,
-    const std::shared_ptr<InetAddress>& peer,
-    std::chrono::steady_clock::time_point deadline, bool is_initiator,
-    bool log_bind_failure, Result* out_result) {
+// One in-flight connect toward one candidate.
+struct Attempt {
+  SocketHandle handle;
+  std::shared_ptr<InetAddress> peer;
+};
+
+// Every attempt in a round binds the same local port, because the punch has to
+// reuse that port's NAT mapping. That is only allowed with the reuse flags
+// below, and it is why a round can race candidates at all.
+SocketHandle OpenPunchSocket(const std::shared_ptr<InetAddress>& local,
+                             bool log_bind_failure, Result* out_result) {
   const int domain = GetDomainByInetProtocolVersion(local->ipv());
-  SocketHandle socket_handle = socket(domain, SOCK_STREAM, 0);
-  if (!IsValidSocketHandle(socket_handle)) {
+  SocketHandle handle = socket(domain, SOCK_STREAM, 0);
+  if (!IsValidSocketHandle(handle)) {
     *out_result = Result::CannotCreateSocket;
-    return nullptr;
+    return kSocketInvalid;
   }
 
   int option = 1;
-  setsockopt(socket_handle, SOL_SOCKET, SO_REUSEADDR, reinterpret_cast<const char*>(&option), sizeof(option));
+  setsockopt(handle, SOL_SOCKET, SO_REUSEADDR, reinterpret_cast<const char*>(&option), sizeof(option));
 #ifndef ZNET_TARGET_WIN
   // the punch rebinds the port the relay connection just released, and that
   // socket had SO_REUSEPORT: the kernel refuses the bind to a matching bucket
   // unless this one carries it too, which intermittently ate the whole punch
   // budget in EADDRINUSE retries
-  setsockopt(socket_handle, SOL_SOCKET, SO_REUSEPORT, reinterpret_cast<const char*>(&option), sizeof(option));
+  setsockopt(handle, SOL_SOCKET, SO_REUSEPORT, reinterpret_cast<const char*>(&option), sizeof(option));
 #endif
 
   if (local->ipv() == InetProtocolVersion::IPv6) {
-    setsockopt(socket_handle, IPPROTO_IPV6, IPV6_V6ONLY, reinterpret_cast<const char*>(&option), sizeof(option));
+    setsockopt(handle, IPPROTO_IPV6, IPV6_V6ONLY, reinterpret_cast<const char*>(&option), sizeof(option));
   }
 
-  if (bind(socket_handle, local->handle_ptr(), local->addr_size()) != 0) {
+  if (bind(handle, local->handle_ptr(), local->addr_size()) != 0) {
     if (log_bind_failure) {
       ZNET_LOG_ERROR("Failed to bind socket to {}: {} ({})", local->readable(),
                      LastErr(), GetLastErrorInfo());
     }
-    CloseSocket(socket_handle);
+    CloseSocket(handle);
     *out_result = Result::CannotBind;
-    return nullptr;
+    return kSocketInvalid;
   }
 
-  SetSocketBlocking(socket_handle, false);
-  SetTCPNoDelay(socket_handle);
+  SetSocketBlocking(handle, false);
+  SetTCPNoDelay(handle);
+  return handle;
+}
 
-  if (connect(socket_handle, peer->handle_ptr(), peer->addr_size()) != 0 &&
-      !WouldBlock(LastErr())) {
-    CloseSocket(socket_handle);
-    *out_result = Result::CannotConnect;
-    return nullptr;
-  }
+// Races every candidate at once and returns the first connection that opens.
+//
+// Walking candidates one at a time gives each of them only its turn's share of
+// the round trips, and a punch needs the SYNs dense on the candidate that can
+// actually answer, which is not knowable in advance. So they all go together,
+// a refusal drops that candidate from the round rather than the round from the
+// budget, and the round ends as soon as one opens or all of them refuse.
+std::shared_ptr<PeerSession> RaceCandidatesOnce(
+    const std::shared_ptr<InetAddress>& local,
+    const std::vector<std::shared_ptr<InetAddress>>& peers,
+    std::chrono::steady_clock::time_point deadline, bool is_initiator,
+    bool log_bind_failure, Result* out_result) {
+  std::vector<Attempt> attempts;
+  attempts.reserve(peers.size());
+  *out_result = Result::CannotConnect;
 
-  while (true) {
-    if (std::chrono::steady_clock::now() >= deadline) {
-      CloseSocket(socket_handle);
-      *out_result = Result::Timeout;
-      return nullptr;
+  for (const auto& peer : peers) {
+    Result open_result = Result::Success;
+    SocketHandle handle = OpenPunchSocket(local, log_bind_failure, &open_result);
+    if (!IsValidSocketHandle(handle)) {
+      *out_result = open_result;
+      if (open_result == Result::CannotCreateSocket) {
+        break;  // out of descriptors; the rest of the round buys nothing
+      }
+      continue;
     }
+    if (connect(handle, peer->handle_ptr(), peer->addr_size()) != 0 &&
+        !WouldBlock(LastErr())) {
+      CloseSocket(handle);
+      continue;  // refused outright, which for a punch just means "not yet"
+    }
+    attempts.push_back(Attempt{handle, peer});
+  }
 
+  auto close_all = [&attempts]() {
+    for (const auto& attempt : attempts) {
+      CloseSocket(attempt.handle);
+    }
+    attempts.clear();
+  };
+
+  while (!attempts.empty() && std::chrono::steady_clock::now() < deadline) {
     fd_set write_set;
     fd_set error_set;
     FD_ZERO(&write_set);
     FD_ZERO(&error_set);
-    FD_SET(socket_handle, &write_set);
-    FD_SET(socket_handle, &error_set);
+    SocketHandle highest = attempts.front().handle;
+    for (const auto& attempt : attempts) {
+      FD_SET(attempt.handle, &write_set);
+      FD_SET(attempt.handle, &error_set);
+      if (attempt.handle > highest) {
+        highest = attempt.handle;
+      }
+    }
 
     timeval tv;
     tv.tv_sec = 0;
-    tv.tv_usec = 200000; // 200ms polling interval
-
-    int result = select(ToSelectNFDS(socket_handle), nullptr, &write_set, &error_set, &tv);
-    if (result < 0) {
+    tv.tv_usec = 20000;  // 20ms, so a round reacts without busy waiting
+    const int ready = select(ToSelectNFDS(highest), nullptr, &write_set,
+                             &error_set, &tv);
+    if (ready < 0) {
 #ifdef ZNET_TARGET_WIN
       if (LastErr() == WSAEINTR) {
         continue;
@@ -155,33 +199,49 @@ std::shared_ptr<PeerSession> TryPunchTCPOnce(
         continue;
       }
 #endif
-      CloseSocket(socket_handle);
+      close_all();
       *out_result = Result::Failure;
       return nullptr;
     }
-
-    if (result == 0) {
+    if (ready == 0) {
       continue;
     }
 
-    if (FD_ISSET(socket_handle, &write_set) || FD_ISSET(socket_handle, &error_set)) {
+    for (size_t i = 0; i < attempts.size();) {
+      const Attempt& attempt = attempts[i];
+      if (!FD_ISSET(attempt.handle, &write_set) &&
+          !FD_ISSET(attempt.handle, &error_set)) {
+        i++;
+        continue;
+      }
       int socket_error = 0;
       socklen_t length = sizeof(socket_error);
-      getsockopt(socket_handle, SOL_SOCKET, SO_ERROR, reinterpret_cast<char*>(&socket_error), &length);
-      if (socket_error == 0) {
-        SetSocketBlocking(socket_handle, true);
-        *out_result = Result::Success;
-        return std::make_shared<PeerSession>(local, peer,
-                                             std::make_unique<backends::TCPTransportLayer>(socket_handle),
-                                             ConnectionType::TCP,
-                                             is_initiator,
-                                             true);
+      getsockopt(attempt.handle, SOL_SOCKET, SO_ERROR,
+                 reinterpret_cast<char*>(&socket_error), &length);
+      if (socket_error != 0) {
+        CloseSocket(attempt.handle);
+        attempts.erase(attempts.begin() + static_cast<long>(i));
+        continue;  // this candidate is not home yet; the others race on
       }
-      CloseSocket(socket_handle);
-      *out_result = Result::CannotConnect;
-      return nullptr;
+
+      const SocketHandle winner = attempt.handle;
+      std::shared_ptr<InetAddress> peer = attempt.peer;
+      attempts.erase(attempts.begin() + static_cast<long>(i));
+      close_all();  // one pairing per punch; the rest were never answered
+      SetSocketBlocking(winner, true);
+      *out_result = Result::Success;
+      return std::make_shared<PeerSession>(
+          local, peer, std::make_unique<backends::TCPTransportLayer>(winner),
+          ConnectionType::TCP, is_initiator, true);
     }
   }
+
+  const bool refused_every_candidate = attempts.empty();
+  close_all();
+  if (!refused_every_candidate && *out_result == Result::CannotConnect) {
+    *out_result = Result::Timeout;
+  }
+  return nullptr;
 }
 
 }  // namespace
@@ -205,31 +265,20 @@ std::shared_ptr<PeerSession> PunchSyncTCP(const std::shared_ptr<InetAddress>& lo
   }
 
   // a TCP punch is a simultaneous open, and a SYN that lands before the peer
-  // has bound its port is answered with RST. One attempt is a coin flip on
-  // startup skew; retrying inside the budget is what makes it a punch.
-  // Candidates rotate across attempts, and each attempt is capped so one that
-  // blackholes its SYN (a private address on some other network) cannot eat
-  // the whole budget.
+  // has bound its port is answered with RST. One round is a coin flip on
+  // startup skew; repeating rounds inside the budget is what makes it a punch.
   const auto deadline =
       std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms);
-  const auto attempt_cap = std::chrono::milliseconds(
-      peers.size() > 1 ? 1000 : timeout_ms);
   Result last_result = Result::Timeout;
-  // retries run every few milliseconds for the whole budget, so per-attempt
-  // logging is thousands of identical lines; each candidate reports a reason
-  // only when it changes
-  std::vector<Result> last_logged(peers.size(), Result::Success);
-  size_t attempt = 0;
+  Result last_logged = Result::Success;
+  bool log_bind_failure = true;
   while (std::chrono::steady_clock::now() < deadline) {
-    const size_t candidate = attempt % peers.size();
-    const auto& peer = peers[candidate];
-    attempt++;
-    Result attempt_result = Result::Failure;
-    const auto attempt_deadline =
-        std::min(deadline, std::chrono::steady_clock::now() + attempt_cap);
-    auto session = TryPunchTCPOnce(local, peer, attempt_deadline, is_initiator,
-                                   last_logged[candidate] != Result::CannotBind,
-                                   &attempt_result);
+    Result round_result = Result::Failure;
+    const auto round_deadline =
+        std::min(deadline, std::chrono::steady_clock::now() + kRoundCap);
+    auto session = RaceCandidatesOnce(local, peers, round_deadline,
+                                      is_initiator, log_bind_failure,
+                                      &round_result);
     if (session) {
       // A simultaneous open can also complete against a socket the peer has
       // already given up on, and connect() cannot tell the two apart. The
@@ -237,31 +286,33 @@ std::shared_ptr<PeerSession> PunchSyncTCP(const std::shared_ptr<InetAddress>& lo
       // orphaned one never does. Confirming here keeps the retry inside the
       // punch budget, rather than handing the caller a connection that will
       // never carry anything.
-      if (WaitForPairing(session, std::min(deadline, std::chrono::steady_clock::now() +
-                                                         kPairingConfirmation))) {
+      if (WaitForPairing(session, std::min(deadline,
+                                           std::chrono::steady_clock::now() +
+                                               kPairingConfirmation))) {
         *out_result = Result::Success;
         return session;
       }
-      ZNET_LOG_DEBUG("Punch to {} opened but never paired, retrying.",
-                     peer->readable());
+      ZNET_LOG_DEBUG("A punched connection never paired, racing again.");
       session->Close();
       last_result = Result::Timeout;
       continue;
     }
-    last_result = attempt_result;
-    if (attempt_result == Result::CannotCreateSocket) {
-      break;  // out of sockets; another cycle buys nothing
+
+    last_result = round_result;
+    if (round_result == Result::CannotCreateSocket) {
+      break;  // out of sockets; another round buys nothing
     }
-    if (attempt_result == Result::Timeout &&
-        std::chrono::steady_clock::now() >= deadline) {
-      break;
+    if (round_result == Result::CannotBind) {
+      log_bind_failure = false;  // reported once, not once per round
     }
-    if (attempt_result != last_logged[candidate]) {
-      last_logged[candidate] = attempt_result;
-      ZNET_LOG_DEBUG("Punch attempt to {} failed ({}), retrying.",
-                     peer->readable(), GetResultString(attempt_result));
+    // retries run for the whole budget, so per-round logging is thousands of
+    // identical lines; report a reason only when it changes
+    if (round_result != last_logged) {
+      last_logged = round_result;
+      ZNET_LOG_DEBUG("Punch round failed ({}), retrying.",
+                     GetResultString(round_result));
     }
-    // a failed attempt dies the moment the RST lands, so the window in which
+    // a refused attempt dies the moment the RST lands, so the window in which
     // the two SYNs can cross is tiny. Retrying fast keeps the windows dense,
     // and the asymmetric cadence keeps two equally-paced loops from settling
     // into antiphase and missing each other for the whole budget.
