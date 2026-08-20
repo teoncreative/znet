@@ -151,8 +151,10 @@ bool IsLoopback(InetProtocolVersion version, const std::string& ip) {
   return ip.rfind("127.", 0) == 0;
 }
 
+#ifdef ZNET_TARGET_POSIX
 // Container and hypervisor bridges: nothing off-host routes to them. VPN
 // interfaces are kept, since reaching a peer over one is a real case.
+// Only POSIX names them predictably enough to match on.
 bool IsVirtualBridge(const char* name) {
   if (!name) return false;
   static const char* kPrefixes[] = {"docker", "br-",    "veth",
@@ -162,6 +164,7 @@ bool IsVirtualBridge(const char* name) {
   }
   return false;
 }
+#endif
 
 // Candidates ride in every registration and punch packet; a dev box can carry
 // a dozen addresses.
@@ -177,23 +180,26 @@ std::vector<std::string> GetLocalAddresses(InetProtocolVersion version) {
   bool has_loopback = false;
 
 #ifdef ZNET_TARGET_WIN
-  ULONG size = 15 * 1024;  // what the API docs suggest starting from
-  std::vector<char> buffer(size);
-  auto* adapters = reinterpret_cast<IP_ADAPTER_ADDRESSES*>(buffer.data());
+  // Typed buffer rather than bytes, so it is aligned for the struct without a
+  // cast. 15 KB is the starting size the API docs suggest.
   const ULONG flags = GAA_FLAG_SKIP_ANYCAST | GAA_FLAG_SKIP_MULTICAST |
                       GAA_FLAG_SKIP_DNS_SERVER;
+  std::vector<IP_ADAPTER_ADDRESSES> buffer(
+      (15 * 1024) / sizeof(IP_ADAPTER_ADDRESSES) + 1);
+  ULONG size =
+      static_cast<ULONG>(buffer.size() * sizeof(IP_ADAPTER_ADDRESSES));
 
-  ULONG result = GetAdaptersAddresses(static_cast<ULONG>(family), flags, nullptr,
-                                      adapters, &size);
+  ULONG result = GetAdaptersAddresses(static_cast<ULONG>(family), flags,
+                                      nullptr, buffer.data(), &size);
   if (result == ERROR_BUFFER_OVERFLOW) {
-    buffer.resize(size);
-    adapters = reinterpret_cast<IP_ADAPTER_ADDRESSES*>(buffer.data());
+    buffer.resize(size / sizeof(IP_ADAPTER_ADDRESSES) + 1);
+    size = static_cast<ULONG>(buffer.size() * sizeof(IP_ADAPTER_ADDRESSES));
     result = GetAdaptersAddresses(static_cast<ULONG>(family), flags, nullptr,
-                                  adapters, &size);
+                                  buffer.data(), &size);
   }
 
   if (result == NO_ERROR) {
-    for (auto* adapter = adapters; adapter; adapter = adapter->Next) {
+    for (auto* adapter = buffer.data(); adapter; adapter = adapter->Next) {
       if (adapter->OperStatus != IfOperStatusUp) continue;
       for (auto* unicast = adapter->FirstUnicastAddress; unicast;
            unicast = unicast->Next) {
